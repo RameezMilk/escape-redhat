@@ -94,3 +94,14 @@ npm run bench -- --split dev --provider env --concurrency 1   # and --concurrenc
 - Speculative draft models. They aren't needed and would count toward the 33B parameter cap.
 
 If nothing is serving by about 17:45 Saturday, report the exact error and ask a mentor.
+
+## Collect the evidence (once vLLM is serving)
+
+```bash
+ssh -N -L 8000:localhost:8000 <brev-instance>        # terminal 1
+BASE_URL=http://localhost:8000/v1 API_KEY=<vllm --api-key> deploy/vllm/measure.sh full   # terminal 2
+```
+
+Writes `results/vllm-<timestamp>/`: server metadata (`/version`, `/models`), endpoint check, app smoke + recovery test,
+dev and held-out test benchmarks (harness v2), baseline harness v1 on the test split + comparison, concurrency 1 vs 8
+throughput, thinking-on A/B, and a `/metrics` snapshot (prefix-cache and token counters). `quick` skips the last four.
