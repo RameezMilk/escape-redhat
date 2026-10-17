@@ -6,7 +6,10 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
-    "start": "tsx --env-file-if-exists=../../.env src/index.ts"
+    "start": "tsx --env-file-if-exists=../../.env src/index.ts",
+    "smoke": "tsx --env-file-if-exists=../../.env src/smoke.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --root ../.. apps/server"
   },
   "dependencies": {
     "@escape/contracts": "0.1.0",
