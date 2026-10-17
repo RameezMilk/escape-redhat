@@ -1,0 +1,87 @@
+{
+  "version": "2026-10-17-v1",
+  "note": "Paraphrased, source-linked principles for a FICTIONAL office evacuation exercise. Not a complete legal or compliance program, not certified training, not advice for a real building. Federal OSHA text is a U.S. government work; NC DOL pages are cited for state context. Each card was checked against the linked page on 2026-10-17.",
+  "cards": [
+    {
+      "id": "EAP-REPORT",
+      "kind": "federal-standard",
+      "title": "Report emergencies; alarm employees",
+      "section": "29 CFR 1910.38(c)(1), (d)",
+      "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.38",
+      "principle": "Where an OSHA standard requires an emergency action plan, the plan must include procedures for reporting a fire or other emergency, and the employer must have and maintain an employee alarm system that uses a distinctive signal for each purpose.",
+      "exercise_policy": "Reporting and alarms are simulated with the notify tool (recipient 'all' acts as the building alarm). Reports cite the evidence ID of what was seen. No external message or real emergency call is ever sent."
+    },
+    {
+      "id": "EAP-ROUTES",
+      "kind": "federal-standard",
+      "title": "Evacuation procedures and exit route assignments",
+      "section": "29 CFR 1910.38(c)(2), (f)",
+      "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.38",
+      "principle": "The plan must include procedures for emergency evacuation, including type of evacuation and exit route assignments, and the employer must review the plan with each covered employee when it is developed or the employee is first assigned, when their responsibilities change, and when the plan changes.",
+      "exercise_policy": "Every character is briefed on the fictional primary and alternate routes and the assembly point. Current observations override the briefing when a route becomes unavailable."
+    },
+    {
+      "id": "EAP-ASSIST",
+      "kind": "federal-standard",
+      "title": "Designated, trained evacuation assistants",
+      "section": "29 CFR 1910.38(e)",
+      "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.38",
+      "principle": "An employer must designate and train employees to assist in a safe and orderly evacuation of other employees.",
+      "exercise_policy": "Alex is the modeled trained warden and buddy. Assistance requires the person's request (consent) and co-location. No carrying, lifting or improvised rescue action exists."
+    },
+    {
+      "id": "EAP-ACCOUNT",
+      "kind": "federal-standard",
+      "title": "Account for all employees after evacuation",
+      "section": "29 CFR 1910.38(c)(4)",
+      "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.38",
+      "principle": "The plan must include procedures to account for all employees after evacuation.",
+      "exercise_policy": "Check-in only counts when a character is physically inside the fictional assembly area; the warden's roster verification is the only way the exercise can be confirmed complete."
+    },
+    {
+      "id": "EXIT-OPENABLE",
+      "kind": "federal-standard",
+      "title": "Exit doors open from inside without keys",
+      "section": "29 CFR 1910.36(d)(1)",
+      "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.36",
+      "principle": "Employees must be able to open an exit route door from the inside at all times without keys, tools, or special knowledge.",
+      "exercise_policy": "Both exits in the fictional office always open. A locked exit is never used as a puzzle; if one were ever modeled it would be labeled a defect."
+    },
+    {
+      "id": "EXIT-CLEAR",
+      "kind": "federal-standard",
+      "title": "Exit routes free and unobstructed",
+      "section": "29 CFR 1910.37(a)(3)",
+      "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.37",
+      "principle": "Exit routes must be free and unobstructed; no materials or equipment may be placed, either permanently or temporarily, within the exit route.",
+      "exercise_policy": "The presenter's blocker is an abnormal exercise condition, never a recommended layout. Movement stops before an obstruction and returns ROUTE_UNAVAILABLE so the planner must report it and re-route."
+    },
+    {
+      "id": "GUIDE-LAYOUT-BUDDY",
+      "kind": "osha-guidance",
+      "title": "Wardens know the layout, alternate routes and buddy arrangements",
+      "section": "Emergency Preparedness: Getting Started — Evacuation Wardens; Assisting Visitors and Workers to Evacuate",
+      "source_url": "https://www.osha.gov/emergency-preparedness/getting-started",
+      "principle": "OSHA guidance (not a standard) suggests wardens be trained in the complete workplace layout and alternative escape routes if the primary route becomes blocked, that workers be made aware of workers with special needs who may require extra assistance, and how to use the buddy system.",
+      "exercise_policy": "Alex (warden) is the designated buddy for Daniel if Daniel asks for it. Daniel stays an active participant: he moves himself, communicates, and chooses whether to accept help."
+    },
+    {
+      "id": "GUIDE-ACCOUNT",
+      "kind": "osha-guidance",
+      "title": "Assembly areas and head count",
+      "section": "Emergency Preparedness: Getting Started — Accounting for Workers after an Evacuation",
+      "source_url": "https://www.osha.gov/emergency-preparedness/getting-started",
+      "principle": "OSHA guidance (not a standard) suggests designating assembly areas and taking a head count after the evacuation.",
+      "exercise_policy": "The fictional office has one outdoor assembly point reached from both exits; the warden's roster verification is the head count."
+    },
+    {
+      "id": "NC-CONTEXT",
+      "kind": "nc-context",
+      "title": "North Carolina context",
+      "section": "NC DOL OSH: Emergency Action Plans — Which standards apply?",
+      "source_url": "https://www.labor.nc.gov/emergency-action-plans",
+      "principle": "NC DOL's OSH Division lists 29 CFR 1910.38 (emergency action plans) among the standards it has adopted that apply to emergency action plans in North Carolina general industry. Separately, NC DOL states North Carolina is an OSHA-approved State Plan and, with certain exceptions, adopts federal OSHA standards verbatim (labor.nc.gov/which-osha-standards-apply).",
+      "exercise_policy": "Context only. Whether a plan is required depends on the specific workplace and standard; this exercise makes no claim that the fictional office or its plan is compliant."
+    }
+  ]
+}

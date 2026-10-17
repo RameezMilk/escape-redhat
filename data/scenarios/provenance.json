@@ -1,0 +1,45 @@
+{
+  "dataset": "escape-office-scenarios-v1",
+  "license": "CC-BY-4.0",
+  "synthetic": true,
+  "created": "2026-10-17",
+  "created_during": "NVIDIA x Red Hat Small Models Hack, Raleigh NC, 2026-10-17/18",
+  "generator": {
+    "path": "data/scenarios/generator.ts",
+    "version": "1.0.0",
+    "master_seed": 20261017
+  },
+  "map": {
+    "id": "office-v1",
+    "hash": "7075cdebb2f83349",
+    "source": "data/maps/office-v1.ascii + data/maps/build-map.ts"
+  },
+  "method": "Seeded sampling of spawns (map.spawnSpots), fire placements from fire-location families (dev/test disjoint), and chokepoint blockers chosen against oracle shortest routes; solvability labels from a full-knowledge grid search (Daniel on wheelchair-clearance tiles). No real-world measurements are included.",
+  "hazard_specs": {
+    "fire": {
+      "w": 2,
+      "h": 2,
+      "buffer": 1,
+      "sightRadius": 8
+    },
+    "blocker": {
+      "w": 2,
+      "h": 2,
+      "buffer": 0,
+      "sightRadius": 4
+    }
+  },
+  "inputs": {
+    "demo-hero.json": "f0767ceea1dfe9961a89b9354d79963e87b3b680d9fee9d7c9447da325c18735",
+    "office-v1.json": "7e7771ac551b30b43b424c6f875fc93652bf0dc0f212cdebc10b054709a08dd1"
+  },
+  "outputs": {
+    "cases.dev.jsonl": "f4448d947351eff52daabeff0782dab09bc8e74b2effe9636d948544310c9f3f",
+    "cases.test.jsonl": "02761425b3c2120f7e4cbef09705a00a8297f4df826fca1d0eb75bf9f624973c",
+    "splits.json": "02843d6736e8c1cd6052060baf8fc52058cf0cd3a16015270710fed2b6274756"
+  },
+  "counts": {
+    "dev": 16,
+    "test": 16
+  }
+}
