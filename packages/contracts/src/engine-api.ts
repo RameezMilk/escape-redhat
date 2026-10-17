@@ -18,21 +18,28 @@ export interface EngineOptions {
   episodeId: string;
   /** Simulated milliseconds per tick (default 100). */
   tickMs?: number;
-  /** Decision cap per episode (default 24). */
+  /** Decision cap per episode — a safety stop, not a game rule (default 60). */
   maxDecisions?: number;
-  /** Simulated-seconds cap (default 240). */
-  maxSimTime?: number;
+  /** Headless/Gym safety stop: end as 'incomplete' (stalled) after this many simulated seconds since the incident.
+   *  Unset (live game) = no limit; there is no gameplay timer. */
+  stallCeilingSimSec?: number;
   /** Seed for idle/ambient behaviour; defaults to scenario.seed. */
   seed?: number;
 }
 
-export type PlacementResult =
-  | { ok: true; event: WorldEvent }
-  | {
-      ok: false;
-      code: 'OUT_OF_BOUNDS' | 'NOT_FLOOR' | 'FURNITURE' | 'EXIT_OR_ASSEMBLY' | 'OCCUPIED' | 'OVERLAP' | 'NOT_PLACEABLE_ZONE' | 'ALREADY_PLACED' | 'EPISODE_OVER';
-      reason: string;
-    };
+export type PlacementCode =
+  | 'OUT_OF_BOUNDS'
+  | 'NOT_FLOOR'
+  | 'FURNITURE'
+  | 'EXIT_OR_ASSEMBLY'
+  | 'OCCUPIED'
+  | 'OVERLAP'
+  | 'NOT_PLACEABLE_ZONE'
+  | 'NOT_A_DOOR'
+  | 'ALREADY_DISABLED'
+  | 'EPISODE_OVER';
+
+export type PlacementResult = { ok: true; hazardId: string; event: WorldEvent } | { ok: false; code: PlacementCode; reason: string };
 
 /** Non-tool decision outcomes the orchestrator reports so they count toward the cap and appear in planner feedback. */
 export interface DecisionNote {
@@ -56,9 +63,8 @@ export interface Engine {
   /** Advance one tick: movement, perception, scheduled events, idle behaviour, outcome checks. Returns new events. */
   step(): WorldEvent[];
 
+  /** Any number of hazards. Fire: 2×2 seed at (col,row) top-left. Electrical: snaps to the sliding door under/near (col,row). */
   placeHazard(kind: HazardKind, col: number, row: number): PlacementResult;
-  /** Only allowed while the server reports paused, or before an incident. Server enforces pause rule. */
-  removeHazard(kind: HazardKind): { ok: boolean; reason?: string; event?: WorldEvent };
 
   /** Starts a new decision; increments the count. Returns e.g. "D-007". */
   beginDecision(): string;
@@ -93,7 +99,7 @@ export const ACTOR_PROFILES: Record<ActorId, { name: string; role: string; profi
   alex: {
     name: 'Alex',
     role: 'Exercise warden (employee)',
-    profile: 'Calm, trained in the fictional evacuation plan, knows the layout and roster. Designated buddy for visitors who ask for help.',
+    profile: 'Calm, trained in the fictional evacuation plan, knows the layout, the pull stations and the roster. Designated buddy for visitors who ask for help.',
     usesWheelchair: false,
   },
   maya: {

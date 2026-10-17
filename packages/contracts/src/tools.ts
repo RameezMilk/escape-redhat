@@ -5,7 +5,8 @@ import { ACTOR_IDS, ZONE_IDS, type ToolName } from './types.js';
 
 const actorEnum = [...ACTOR_IDS];
 const zoneEnum = [...ZONE_IDS];
-const destinationEnum = [...ZONE_IDS, ...ACTOR_IDS];
+/** Destinations: a zone, a person (go next to them), or 'alarm' (the nearest reachable fire-alarm pull station). */
+const destinationEnum = [...ZONE_IDS, ...ACTOR_IDS, 'alarm'];
 
 export const PLAN_SECTIONS = ['reporting', 'routes', 'assistance', 'accountability'] as const;
 export const NOTIFY_TOPICS = ['fire', 'route_blocked', 'evacuate', 'assistance', 'status'] as const;
@@ -86,14 +87,14 @@ export const TOOL_DEFS: OpenAIToolDef[] = [
       destination: {
         type: 'string',
         enum: destinationEnum,
-        description: 'A zone id, or a character id to go next to that person.',
+        description: 'A zone id, a character id (go next to that person), or "alarm" (nearest fire-alarm pull station).',
       },
     },
     ['actor_id', 'destination'],
   ),
   tool(
     'move',
-    'Start moving a character (and their escort partner, if linked) toward a destination. Pass a route_id from plan_route, or omit it to auto-plan on the character\'s known hazards. Movement stops safely if a hazard is discovered on the way; the result then arrives as a later event.',
+    'Start moving a character (and their escort partner, if linked) toward a destination. Pass a route_id from plan_route, or omit it to auto-plan on the character\'s known hazards. Movement stops safely if a hazard is discovered on the way; the result then arrives as a later event. Fire spreads: anyone it reaches is lost, so move early and keep away from known fire.',
     {
       actor_id: actorIdJson('Who moves.'),
       destination: { type: 'string', enum: destinationEnum },
@@ -131,8 +132,14 @@ export const TOOL_DEFS: OpenAIToolDef[] = [
   ),
   tool(
     'verify_roster',
-    'Warden-only accountability check at the assembly point. Returns who is checked in and who is outstanding. This is the only way the exercise can be confirmed complete.',
+    'Warden-only accountability check at the assembly point. Returns who is checked in, who is outstanding and who was lost. This is the only way the exercise can be confirmed complete.',
     { actor_id: actorIdJson('Must be the warden (alex), checked in at assembly.') },
+    ['actor_id'],
+  ),
+  tool(
+    'pull_alarm',
+    'Pull a fire-alarm pull station: the building siren sounds and every person is alerted to evacuate (it does not tell them where the hazard is). The character must be standing next to a pull station (move to destination "alarm" first) and not moving.',
+    { actor_id: actorIdJson('Who pulls the alarm.') },
     ['actor_id'],
   ),
 ];
@@ -160,14 +167,14 @@ export const TOOL_ARG_SCHEMAS = {
   plan_route: z
     .object({
       actor_id: actorId,
-      destination: z.enum([...zoneEnum, ...actorEnum] as [string, ...string[]]),
+      destination: z.enum(['alarm', ...zoneEnum, ...actorEnum] as [string, ...string[]]),
       reason_summary: reason,
     })
     .strict(),
   move: z
     .object({
       actor_id: actorId,
-      destination: z.enum([...zoneEnum, ...actorEnum] as [string, ...string[]]),
+      destination: z.enum(['alarm', ...zoneEnum, ...actorEnum] as [string, ...string[]]),
       route_id: z.string().max(32).optional(),
       expected_revision: z.number().int().optional(),
       reason_summary: reason,
@@ -177,6 +184,7 @@ export const TOOL_ARG_SCHEMAS = {
   assist: z.object({ actor_id: actorId, person_id: actorId, reason_summary: reason }).strict(),
   check_in: z.object({ actor_id: actorId, reason_summary: reason }).strict(),
   verify_roster: z.object({ actor_id: actorId, reason_summary: reason }).strict(),
+  pull_alarm: z.object({ actor_id: actorId, reason_summary: reason }).strict(),
 } satisfies Record<ToolName, z.ZodTypeAny>;
 
 export type ToolArgs = { [K in ToolName]: z.infer<(typeof TOOL_ARG_SCHEMAS)[K]> };

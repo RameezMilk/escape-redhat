@@ -12,8 +12,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   ActorId,
+  AlarmStation,
   ColorValue,
   DecorDef,
+  DoorComponent,
   MapData,
   PlacedFurnitureDef,
   SpawnSpot,
@@ -139,6 +141,22 @@ const DECOR: DecorDef[] = [
   { kind: 'exit_sign', col: 28, row: 14, label: 'EXIT' },
   { kind: 'evac_plan', col: 18, row: 7, label: 'Evacuation plan' },
   { kind: 'checkin_flag', col: 15, row: 20, label: 'Assembly' },
+];
+
+// Electric sliding doors (interior only). Exit doors (W/E) are deliberately NOT electrical: exit doors must open from
+// the inside without power, keys or special knowledge (29 CFR 1910.36(d)(1)), so they fail safe.
+const COMPONENTS: DoorComponent[] = [
+  { id: 'door_a', kind: 'sliding_door', label: 'Sliding door A (Red Hat room north)', zone: 'door_a', orientation: 'horizontal', tiles: [{ col: 8, row: 4 }, { col: 9, row: 4 }] },
+  { id: 'door_b', kind: 'sliding_door', label: 'Sliding door B (Red Hat room east)', zone: 'door_b', orientation: 'vertical', tiles: [{ col: 18, row: 9 }, { col: 18, row: 10 }] },
+  { id: 'connector', kind: 'sliding_door', label: 'Lobby connector door', zone: 'connector', orientation: 'horizontal', tiles: [{ col: 27, row: 4 }, { col: 28, row: 4 }] },
+  { id: 'south_door', kind: 'sliding_door', label: 'South branch door (to east exit)', zone: 'south_branch', orientation: 'horizontal', tiles: [{ col: 26, row: 14 }, { col: 27, row: 14 }] },
+];
+
+// Manual fire-alarm pull stations: mounted on a wall tile, operated from the adjacent stand tile.
+const ALARMS: AlarmStation[] = [
+  { id: 'alarm_rh', label: 'Pull station — Red Hat room (by door B)', zone: 'rh_room', wall: { col: 18, row: 12 }, stand: { col: 17, row: 12 } },
+  { id: 'alarm_corridor', label: 'Pull station — north corridor', zone: 'north_corridor', wall: { col: 14, row: 0 }, stand: { col: 14, row: 1 } },
+  { id: 'alarm_lobby', label: 'Pull station — NVIDIA lobby', zone: 'lobby', wall: { col: 24, row: 4 }, stand: { col: 24, row: 5 } },
 ];
 
 const SPAWNS: Record<ActorId, SpawnSpot[]> = {
@@ -328,6 +346,18 @@ for (const [actor, spots] of Object.entries(SPAWNS) as [ActorId, SpawnSpot[]][])
     if (!ok) throw new Error(`${actor} spot (${s.col},${s.row}) is not ${actor === 'daniel' ? 'accessible' : 'walkable'}`);
   }
 }
+for (const d of COMPONENTS) {
+  for (const t of d.tiles) {
+    if (terrain[idx(t.col, t.row)] !== 'floor' || !walkable[idx(t.col, t.row)]) throw new Error(`door ${d.id} tile (${t.col},${t.row}) is not walkable floor`);
+    if (zone[idx(t.col, t.row)] !== d.zone) throw new Error(`door ${d.id} tile (${t.col},${t.row}) is not in zone ${d.zone}`);
+  }
+}
+for (const a of ALARMS) {
+  if (terrain[idx(a.wall.col, a.wall.row)] !== 'wall') throw new Error(`alarm ${a.id} wall tile is not a wall`);
+  if (!accessible[idx(a.stand.col, a.stand.row)]) throw new Error(`alarm ${a.id} stand tile is not wheelchair-accessible`);
+  if (zone[idx(a.stand.col, a.stand.row)] !== a.zone) throw new Error(`alarm ${a.id} stand tile is not in zone ${a.zone}`);
+  if (Math.abs(a.wall.col - a.stand.col) + Math.abs(a.wall.row - a.stand.row) !== 1) throw new Error(`alarm ${a.id} stand is not adjacent to its wall`);
+}
 for (const z of ZONES) {
   if (zone[idx(z.anchor.col, z.anchor.row)] !== z.id) throw new Error(`anchor of ${z.id} is not inside the zone`);
   if (!walkable[idx(z.anchor.col, z.anchor.row)]) throw new Error(`anchor of ${z.id} is not walkable`);
@@ -395,6 +425,8 @@ const map: Omit<MapData, 'hash'> = {
   activitySpots: ACTIVITY,
   furniture,
   decor: DECOR,
+  components: COMPONENTS,
+  alarms: ALARMS,
   layout: {
     version: 1,
     cols,

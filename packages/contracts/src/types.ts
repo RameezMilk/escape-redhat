@@ -20,7 +20,8 @@ export const ZONE_IDS = [
 ] as const;
 export type ZoneId = (typeof ZONE_IDS)[number];
 
-export type HazardKind = 'fire' | 'blocker';
+/** fire = spreading fire (multi-instance); electrical = a disabled electric sliding door (power outage / fried device). */
+export type HazardKind = 'fire' | 'electrical';
 export type Dir = 'down' | 'left' | 'right' | 'up';
 
 export interface Tile {
@@ -84,6 +85,26 @@ export interface PixelLayout {
   tileColors: (ColorValue | null)[];
 }
 
+/** Electric sliding door (interior only — exit doors are fail-safe/manual and never electrical). */
+export interface DoorComponent {
+  id: string; // door_a | door_b | connector | south_door
+  kind: 'sliding_door';
+  label: string;
+  zone: ZoneId;
+  tiles: Tile[];
+  /** 'horizontal' = door spans columns (in a horizontal wall); 'vertical' = spans rows. */
+  orientation: 'horizontal' | 'vertical';
+}
+
+/** Manual fire-alarm pull station: mounted on `wall`, operated from the adjacent `stand` tile. */
+export interface AlarmStation {
+  id: string; // alarm_rh | alarm_corridor | alarm_lobby
+  label: string;
+  zone: ZoneId;
+  wall: Tile;
+  stand: Tile;
+}
+
 export interface MapData {
   id: string;
   version: number;
@@ -106,6 +127,10 @@ export interface MapData {
   activitySpots: Record<ActorId, Tile[]>;
   furniture: PlacedFurnitureDef[];
   decor: DecorDef[];
+  /** Electric sliding doors that the Electrical-failure threat can disable. */
+  components: DoorComponent[];
+  /** Fire-alarm pull stations. */
+  alarms: AlarmStation[];
   layout: PixelLayout;
   hash: string;
 }
@@ -125,7 +150,7 @@ export interface ScheduledEvent {
   action: { type: 'place_hazard'; kind: HazardKind; col: number; row: number };
 }
 
-export type CaseFamily = 'hero' | 'fire_only' | 'fire_then_blocker' | 'independent' | 'unsolvable';
+export type CaseFamily = 'hero' | 'fire_only' | 'multi_fire' | 'fire_then_door' | 'independent' | 'trapped';
 
 export interface ScenarioCase {
   caseId: string;
@@ -137,7 +162,8 @@ export interface ScenarioCase {
   danielPreference: 'buddy' | 'independent';
   /** Scheduled presenter actions. Live UI ignores 'manual' events (the presenter places by hand). */
   events: ScheduledEvent[];
-  labels: { solvable: boolean; primaryRouteBlocked: boolean; notes?: string };
+  /** solvable = at placement time every person had a real route to assembly; expectLosses = trapped by design. */
+  labels: { solvable: boolean; primaryRouteBlocked: boolean; expectLosses?: boolean; notes?: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +179,8 @@ export type ActorStatus =
   | 'waiting'
   | 'escorting'
   | 'escorted'
-  | 'checked_in';
+  | 'checked_in'
+  | 'lost';
 
 export interface ActorSnapshot {
   id: ActorId;
@@ -175,25 +202,33 @@ export interface ActorSnapshot {
   task: { kind: 'move' | 'ambient'; destination: string; actionId?: string; tilesRemaining: number } | null;
   knows: string[];
   usesWheelchair: boolean;
+  /** Caught by the fire: no longer acts; the renderer plays the disintegration effect. */
+  lost: boolean;
+  lostAtSimTime?: number;
 }
 
 export interface HazardSnapshot {
+  id: string;
   kind: HazardKind;
-  /** Top-left of footprint. */
+  /** Placement anchor: fire seed top-left, or the disabled door's first tile. */
   col: number;
   row: number;
-  w: number;
-  h: number;
-  /** Footprint tiles. */
-  tiles: Tile[];
-  /** Footprint + buffer: tiles nobody may enter. */
+  /** Fire: currently burning cells. Electrical: the disabled door's tiles. */
+  cells: Tile[];
+  /** Fire only: burnt-out cells (impassable debris, no longer spreading). */
+  charred: Tile[];
+  /** Everything impassable because of this hazard (cells ∪ charred). */
   noGo: Tile[];
+  /** Electrical: the disabled DoorComponent id. */
+  componentId?: string;
   placedAtSimTime: number;
 }
 
 export type Phase = 'idle' | 'incident' | 'evacuating' | 'accounting' | 'ended';
 
-export type OutcomeStatus = 'success' | 'incomplete' | 'timed_out' | 'unresolved' | 'aborted';
+/** success = all 3 alive, checked in, roster verified; partial = someone lost, all survivors accounted for;
+ *  failed = everyone lost; incomplete/unresolved = safety stop (decision cap / stall), never a time limit. */
+export type OutcomeStatus = 'success' | 'partial' | 'failed' | 'incomplete' | 'unresolved' | 'aborted';
 export interface EpisodeOutcome {
   status: OutcomeStatus;
   reason: string;
@@ -211,8 +246,9 @@ export interface Snapshot {
   mode: 'live' | 'replay';
   actors: ActorSnapshot[];
   hazards: HazardSnapshot[];
-  roster: { checkedIn: ActorId[]; verified: boolean };
+  roster: { checkedIn: ActorId[]; verified: boolean; lost: ActorId[] };
   assistance: { required: boolean; requested: boolean; accepted: boolean; fulfilled: boolean };
+  alarm: { active: boolean; atSimTime?: number; by?: ActorId; stationId?: string };
   decisions: { used: number; max: number; inFlight: boolean };
   outcome: EpisodeOutcome | null;
 }
@@ -231,6 +267,7 @@ export const TOOL_NAMES = [
   'assist',
   'check_in',
   'verify_roster',
+  'pull_alarm',
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
@@ -283,7 +320,11 @@ export type ToolResult =
 export type WorldEventType =
   | 'episode_started'
   | 'hazard_placed'
-  | 'hazard_removed'
+  | 'fire_spread'
+  | 'cell_charred'
+  | 'door_disabled'
+  | 'alarm_activated'
+  | 'actor_lost'
   | 'observation'
   | 'message_delivered'
   | 'tool_executed'
@@ -336,16 +377,34 @@ export interface PlannerView {
     knows_evidence: string[];
     escort: string | null;
     uses_wheelchair: boolean;
+    lost: boolean;
   }[];
+  /** Compact: never per-tile lists, and only what the people involved have actually seen or been told. */
   evidence: {
     id: string;
     kind: HazardKind;
+    /** Zone where it was first observed. */
     zone: ZoneId | null;
-    tiles: [number, number][];
+    /** Zones containing known affected cells. */
+    zones: ZoneId[];
+    /** Fire: burning/charred cells known to anyone. Electrical: the door's tiles. */
+    cells_known: number;
+    /** [minCol, minRow, maxCol, maxRow] of known cells. */
+    bbox: [number, number, number, number] | null;
+    /** Electrical: the disabled door component. */
+    component?: string;
+    /** Fire only: fires keep spreading. */
+    spreading?: boolean;
     observed_by: ActorId;
     at: number;
     known_by: ActorId[];
   }[];
+  alarm: {
+    active: boolean;
+    at?: number;
+    by?: ActorId;
+    stations: { id: string; zone: ZoneId; stand: [number, number] }[];
+  };
   messages: { from: ActorId; to: string; topic: string; evidence_ids: string[]; message: string; at: number }[];
   assistance: {
     person: 'daniel';
@@ -355,7 +414,7 @@ export interface PlannerView {
     accepted: boolean;
     fulfilled: boolean;
   };
-  roster: { checked_in: ActorId[]; verified: boolean };
+  roster: { checked_in: ActorId[]; verified: boolean; lost: ActorId[] };
   routes: { route_id: string; actor: ActorId; destination: string; zones: ZoneId[]; knowledge_revision: number }[];
   recent_actions: {
     decision: string;
@@ -433,7 +492,7 @@ export interface TraceRow {
 // ---------------------------------------------------------------------------
 
 export interface DebriefLesson {
-  id: 'reporting' | 'routes' | 'assistance' | 'accountability' | 'unresolved';
+  id: 'reporting' | 'alarm' | 'routes' | 'assistance' | 'accountability' | 'losses' | 'unresolved';
   title: string;
   text: string;
   ruleIds: string[];
@@ -469,6 +528,11 @@ export interface EpisodeMetrics {
     knownHazardMoveAttempts: number;
     routeInterruptions: number;
     replannedAfterInterruption: boolean;
+    alarmRaised: boolean;
+    alarmLatencySimSec: number | null;
+    /** Survivors who reached the assembly point and checked in. */
+    escaped: number;
+    lost: number;
   };
 }
 

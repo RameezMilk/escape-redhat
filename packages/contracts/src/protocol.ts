@@ -7,11 +7,10 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hello') }),
   z.object({
     type: z.literal('place'),
-    kind: z.enum(['fire', 'blocker']),
+    kind: z.enum(['fire', 'electrical']),
     col: z.number().int(),
     row: z.number().int(),
   }),
-  z.object({ type: z.literal('remove'), kind: z.enum(['fire', 'blocker']) }),
   z.object({ type: z.literal('pause') }),
   z.object({ type: z.literal('resume') }),
   z.object({

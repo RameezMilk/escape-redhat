@@ -10,6 +10,8 @@ export interface PathOptions {
   blocked?: ReadonlySet<number>;
   /** Cost of stepping onto a ¾-view occluded tile (default 3). */
   occludedCost?: number;
+  /** Extra cost per tile index (e.g. tiles next to known fire), added to the step cost. */
+  extraCost?: ReadonlyMap<number, number>;
 }
 
 const NEIGHBOURS: readonly [number, number][] = [
@@ -101,7 +103,7 @@ export function findPath(map: MapData, start: Tile, targets: readonly Tile[] | (
       if (!inBounds(map, c, r)) continue;
       const v = tileIndex(map, c, r);
       if (!passable(map, v, opts)) continue;
-      const nd = d + (map.occluded[v] ? occCost : 1);
+      const nd = d + (map.occluded[v] ? occCost : 1) + (opts.extraCost?.get(v) ?? 0);
       if (nd < dist[v]) {
         dist[v] = nd;
         prev[v] = u;
@@ -117,8 +119,9 @@ export function pathCost(map: MapData, path: readonly Tile[], occludedCost = 3):
   return path.reduce((s, t) => s + (map.occluded[tileIndex(map, t.col, t.row)] ? occludedCost : 1), 0);
 }
 
-/** Bresenham line of sight between tile centres. Walls/void on intermediate tiles block; furniture doesn't. */
-export function lineOfSight(map: MapData, a: Tile, b: Tile): boolean {
+/** Bresenham line of sight between tile centres. Walls/void on intermediate tiles block; furniture doesn't.
+ *  `opaque` adds extra blocking tiles (e.g. a closed, disabled sliding door). */
+export function lineOfSight(map: MapData, a: Tile, b: Tile, opaque?: ReadonlySet<number>): boolean {
   let x0 = a.col;
   let y0 = a.row;
   const x1 = b.col;
@@ -130,8 +133,9 @@ export function lineOfSight(map: MapData, a: Tile, b: Tile): boolean {
   let err = dx + dy;
   for (;;) {
     if (!(x0 === a.col && y0 === a.row) && !(x0 === x1 && y0 === y1)) {
-      const t = map.terrain[tileIndex(map, x0, y0)];
-      if (t === 'wall' || t === 'void') return false;
+      const ti = tileIndex(map, x0, y0);
+      const t = map.terrain[ti];
+      if (t === 'wall' || t === 'void' || (opaque?.has(ti) ?? false)) return false;
     }
     if (x0 === x1 && y0 === y1) return true;
     const e2 = 2 * err;
