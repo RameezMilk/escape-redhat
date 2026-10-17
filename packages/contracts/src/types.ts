@@ -325,6 +325,8 @@ export type WorldEventType =
   | 'door_disabled'
   | 'alarm_activated'
   | 'actor_lost'
+  /** Engine "human instinct" (NOT a model decision): data.kind = 'shout' | 'flee' | 'alarm'. */
+  | 'instinct'
   | 'observation'
   | 'message_delivered'
   | 'tool_executed'
@@ -530,6 +532,10 @@ export interface EpisodeMetrics {
     replannedAfterInterruption: boolean;
     alarmRaised: boolean;
     alarmLatencySimSec: number | null;
+    /** Who raised the alarm: the planner (pull_alarm tool) or a person's instinct on their way past the station. */
+    alarmBy: 'planner' | 'instinct' | null;
+    /** Times people backed away from nearby fire by instinct. */
+    instinctFlees: number;
     /** Survivors who reached the assembly point and checked in. */
     escaped: number;
     lost: number;
