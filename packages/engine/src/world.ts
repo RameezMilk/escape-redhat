@@ -53,6 +53,8 @@ import { computeResult, type ActionLogEntry, type Interruption } from './scoring
 export const SPEED_TILES_PER_SEC = 3;
 /** "Moderate" fire: per-tick probability that a burning cell tries to ignite one random neighbour. */
 export const FIRE_SPREAD_PER_TICK = 0.018;
+/** Probability that a spread attempt onto a doorway tile succeeds (doorways slow fire). */
+export const DOOR_IGNITION_FACTOR = 0.3;
 /** Each cell burns for a seeded duration in this tick range, then becomes charred debris. */
 export const FIRE_BURN_TICKS: readonly [number, number] = [400, 600];
 /** People see burning/charred cells within this many tiles (with line of sight). */
@@ -197,6 +199,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   const tileOf = (i: number): Tile => ({ col: i % map.cols, row: Math.floor(i / map.cols) });
   const components: DoorComponent[] = map.components ?? [];
   const stations: AlarmStation[] = map.alarms ?? [];
+  const doorTiles = new Set<number>((map.components ?? []).flatMap((d) => d.tiles.map((t) => tileIndex(map, t.col, t.row))));
 
   // ------------------------------------------------------------------ state
   let tick = 0;
@@ -602,6 +605,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
         if (!cand.length) continue;
         const j = cand[Math.floor(spreadRng.next() * cand.length)];
         if (realBlocked.has(j) || !cornerOpen(i, j)) continue;
+        // Doorways slow the spread (frames/thresholds): ignition onto a door tile succeeds 30% of the time.
+        if (doorTiles.has(j) && spreadRng.next() >= DOOR_IGNITION_FACTOR) continue;
         ignite(h, j);
       }
     }
@@ -898,7 +903,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     error: { code, message, ...(hint ? { hint } : {}), ...(details ? { details } : {}) },
   });
 
-  const isAlarmDest = (d: string) => d === 'alarm';
+  /** 'alarm' = nearest pull station; a station id (alarm_rh, …) = that station. */
+  const isAlarmDest = (d: string) => d === 'alarm' || stations.some((s) => s.id === d);
 
   /** Candidate target tiles for a destination (zone, person or 'alarm'), excluding occupied/claimed/known-blocked tiles. */
   function targetsFor(destination: string, movers: ActorId[], mask: NavMask, blocked: Set<number>): Tile[] {
@@ -907,7 +913,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       const i = idx(t);
       return (mask === 'accessible' ? map.accessible[i] : map.walkable[i]) && !occupied.has(i) && !blocked.has(i);
     };
-    if (isAlarmDest(destination)) return stations.map((s) => s.stand).filter(ok);
+    if (isAlarmDest(destination)) return stations.filter((s) => destination === 'alarm' || s.id === destination).map((s) => s.stand).filter(ok);
     if (isActorId(destination)) {
       const p = actors[destination];
       const out: Tile[] = [];

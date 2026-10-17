@@ -5,8 +5,9 @@ import { ACTOR_IDS, ZONE_IDS, type ToolName } from './types.js';
 
 const actorEnum = [...ACTOR_IDS];
 const zoneEnum = [...ZONE_IDS];
-/** Destinations: a zone, a person (go next to them), or 'alarm' (the nearest reachable fire-alarm pull station). */
-const destinationEnum = [...ZONE_IDS, ...ACTOR_IDS, 'alarm'];
+/** Destinations: a zone, a person (go next to them), 'alarm' (nearest reachable pull station) or a station id. */
+export const ALARM_STATION_IDS = ['alarm_rh', 'alarm_corridor', 'alarm_lobby'] as const;
+const destinationEnum = [...ZONE_IDS, ...ACTOR_IDS, 'alarm', ...ALARM_STATION_IDS];
 
 export const PLAN_SECTIONS = ['reporting', 'routes', 'assistance', 'accountability'] as const;
 export const NOTIFY_TOPICS = ['fire', 'route_blocked', 'evacuate', 'assistance', 'status'] as const;
@@ -87,7 +88,7 @@ export const TOOL_DEFS: OpenAIToolDef[] = [
       destination: {
         type: 'string',
         enum: destinationEnum,
-        description: 'A zone id, a character id (go next to that person), or "alarm" (nearest fire-alarm pull station).',
+        description: 'A zone id, a character id (go next to that person), "alarm" (nearest fire-alarm pull station) or a station id (alarm_rh, alarm_corridor, alarm_lobby).',
       },
     },
     ['actor_id', 'destination'],
@@ -167,14 +168,14 @@ export const TOOL_ARG_SCHEMAS = {
   plan_route: z
     .object({
       actor_id: actorId,
-      destination: z.enum(['alarm', ...zoneEnum, ...actorEnum] as [string, ...string[]]),
+      destination: z.enum(['alarm', ...zoneEnum, ...actorEnum, ...ALARM_STATION_IDS] as [string, ...string[]]),
       reason_summary: reason,
     })
     .strict(),
   move: z
     .object({
       actor_id: actorId,
-      destination: z.enum(['alarm', ...zoneEnum, ...actorEnum] as [string, ...string[]]),
+      destination: z.enum(['alarm', ...zoneEnum, ...actorEnum, ...ALARM_STATION_IDS] as [string, ...string[]]),
       route_id: z.string().max(32).optional(),
       expected_revision: z.number().int().optional(),
       reason_summary: reason,

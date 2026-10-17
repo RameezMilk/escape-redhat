@@ -164,9 +164,18 @@ Rehearsal helper: `node scripts/auto-electrical.mjs` drops the electrical failur
 
 ## Results
 
-> **Re-measuring for ruleset 2** (spreading fire, electrical doors, fire alarms, losses, no time limit). The tables below are **ruleset 1** (a static fire plus a "blocker", 240 s limit, check-ins + roster + buddy arrangement required) and stay here as history; ruleset-1 run logs replay only with the ruleset-1 engine (git history).
+**Ruleset 2 (current game: spreading fire, electrical sliding-door failures, fire alarms, losses, no time limit).** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) on our vLLM 0.27.1, one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 60 (safety stop), lockstep clock, concurrency 4, **one run per case** — temperature > 0 *and* a seeded stochastic fire, so differences of 1–2 cases can be noise. Raw summaries and replayable run logs: [`results/2026-10-17-ruleset2-vllm-h100/`](results/2026-10-17-ruleset2-vllm-h100/).
 
-**Ruleset 1.** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) served by our vLLM 0.27.1 on one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 40, lockstep clock, concurrency 4, **one run per case** (temperature > 0, so differences of 1–2 cases can be noise). Raw summaries and replayable run logs: [`results/2026-10-17-vllm-h100/`](results/2026-10-17-vllm-h100/).
+**Held-out test split** (16 cases: 14 normal + 2 trapped-by-design; fire locations never used while tuning; same model, server and config for both harnesses):
+
+| Harness | Verified success, normal cases | False success, trapped cases | People escaped | People lost (normal cases) | Mean reward | Invalid-call rate | Decisions / episode | Decision p50 / p95 |
+|---|---|---|---|---|---|---|---|---|
+| v1 baseline — static tools, raw state JSON | 6/14 | 0/2 | 26/48 | 8 | −0.38 | 33.5% (273/816) | 51.0 | 709 / 1147 ms |
+| **v2 — state digest (urgent/at-risk first), per-turn action masking, recovery hints** | **9/14** | **0/2** | **33/48** | **4** | **0.00** | 41.4% (193/466) | **29.1** | 649 / 1219 ms |
+
+v2 was tuned on the **dev** split only (dev, v2: 14/15 normal successes, 0/1 false success, 43/48 escaped); the test split was run once per harness after tuning stopped. Test fires (north corridor, near door B) cut escape routes far more often than dev fires, hence the gap. v2's higher invalid-call rate comes mostly from repeated `ROUTE_UNAVAILABLE` attempts by people whose routes the fire had already cut; fewer decisions overall. Per-case comparison: [`compare-test-v1-vs-v2.md`](results/2026-10-17-ruleset2-vllm-h100/compare-test-v1-vs-v2.md).
+
+**Ruleset 1 (history: static fire + "blocker", 240 s limit, buddy arrangement required).** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) served by our vLLM 0.27.1 on one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 40, lockstep clock, concurrency 4, **one run per case** (temperature > 0, so differences of 1–2 cases can be noise). Raw summaries and replayable run logs: [`results/2026-10-17-vllm-h100/`](results/2026-10-17-vllm-h100/).
 
 **Harness improvement on the held-out test split** (16 cases; fire locations never used while tuning; same model, server and config):
 
@@ -195,7 +204,7 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 **Nemotron 3.5 Lightning 30B-A3B** is the only generative model (30B total parameters ≤ the 33B cap; no draft, critic or router model).
 - It is the central planner: each decision is one native tool call for one named character, executed by a deterministic engine that validates it against world truth.
 - Why it: a small open model with native tool calling whose 3B-active MoE keeps a decision at ~0.6–0.7 s on one H100 — fast enough for a live scene.
-- How we optimised it (measured above, ruleset 1): a compact planner view; strict schemas; structured errors with actionable hints; thinking off; and the **v2 harness** — a short state digest (who is waiting / busy / open items), per-turn **action masking** (each tool's `actor_id` options list only people who can act now), and wake-ups only on genuinely new information. v1 → v2 on held-out ruleset-1 cases: 5/14 → 12/14 verified successes, invalid calls 26.8% → 9.6%. Ruleset-2 numbers are being re-measured.
+- How we optimised it (measured above): a compact planner view; strict schemas; structured errors with actionable hints; thinking off; and the **v2 harness** — a short state digest (who is in danger near known fire, waiting, busy; open items), per-turn **action masking** (each tool's `actor_id` options list only people who can act now), and wake-ups only on genuinely new information. Held-out v1 → v2: ruleset 2 (current) 6/14 → 9/14 verified successes, 26 → 33 of 48 people escaped, losses halved, 51 → 29 decisions per episode; ruleset 1: 5/14 → 12/14.
 
 **vLLM 0.27.1** serves the model on one Brev H100 (80GB HBM3) through the OpenAI-compatible API — it is the only path the submitted demo and results use.
 - Native tool calls via the `qwen3_coder` parser (100% of measured responses parsed natively; 0 malformed), reasoning separation via `nemotron_v3`.

@@ -74,9 +74,26 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
     for (let i = recent.length - 1; i >= 0; i--) if (recent[i].actor === id) return recent.length - 1 - i;
     return recent.length;
   };
+  // Distance from a person to the nearest KNOWN fire (bbox of known cells) — a risk signal from planner-visible state.
+  const fireBoxes = (view.evidence ?? []).filter((e) => e.kind === 'fire' && e.bbox).map((e) => ({ id: e.id, box: e.bbox! }));
+  const fireDist = (a: { tile: [number, number] }) => {
+    let best = Infinity;
+    let id = '';
+    for (const f of fireBoxes) {
+      const [c0, r0, c1, r1] = f.box;
+      const dc = Math.max(c0 - a.tile[0], 0, a.tile[0] - c1);
+      const dr = Math.max(r0 - a.tile[1], 0, a.tile[1] - r1);
+      const d = Math.hypot(dc, dr);
+      if (d < best) [best, id] = [d, f.id];
+    }
+    return { d: best, id };
+  };
   const ready = actors
     .filter((a) => a.alerted && !a.checked_in && !a.busy)
-    .sort((a, b) => sinceOrder(b.id) - sinceOrder(a.id));
+    .sort((a, b) => fireDist(a).d - fireDist(b).d || sinceOrder(b.id) - sinceOrder(a.id));
+  const atRisk = actors
+    .filter((a) => !a.checked_in && !a.busy && a.zone !== 'assembly' && fireDist(a).d <= 8)
+    .sort((a, b) => fireDist(a).d - fireDist(b).d);
   const busy = actors.filter((a) => a.busy && !a.checked_in);
   const unalerted = actors.filter((a) => !a.alerted && !a.checked_in);
   const stations = stationsOf(view, map);
@@ -133,8 +150,16 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
   }
 
   const last = recent[recent.length - 1];
-  const lines = [
-    `WAITING FOR YOUR ORDERS (most neglected first): ${
+  const lines: string[] = [];
+  if (atRisk.length) {
+    lines.push(
+      `URGENT — near known fire and not moving (closest first): ${atRisk
+        .map((a) => `${a.id} (≈${Math.round(fireDist(a).d)} tiles from ${fireDist(a).id}, in ${a.zone}${a.alerted ? '' : ', NOT alerted'})`)
+        .join(', ')}. Fire spreads every second: get them moving to "assembly" before anything else${atRisk.some((a) => !a.alerted) ? ' (alert the un-alerted first: notify all or pull_alarm)' : ''}.`,
+    );
+  }
+  lines.push(
+    `WAITING FOR YOUR ORDERS (most at risk first): ${
       ready
         .map((a) => {
           const n = sinceOrder(a.id);
@@ -145,7 +170,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
     `BUSY MOVING (do not move/assist them again yet): ${busy.map((a) => `${a.id} — ${a.busy}`).join('; ') || 'nobody'}`,
     `HAZARDS: ${hazardLines.length ? hazardLines.map((h) => `\n- ${h}`).join('') : 'none known yet'}`,
     alarmLine,
-  ];
+  );
   if (lost.length) lines.push(`LOST (cannot act): ${lost.map((a) => a.id).join(', ')}`);
   lines.push(`OPEN ITEMS: ${open.length ? open.map((o) => `\n- ${o}`).join('') : 'none'}`);
   lines.push('NOTE: move plans its own route; plan_route/observe/consult_plan are optional look-ups — they do not move anyone.');
@@ -157,7 +182,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
 
 export function userContent(view: PlannerView, harness: Harness = 'v2', map?: MapData): string {
   if (harness === 'v1') return `Current state (JSON):\n${JSON.stringify(view)}\n\nChoose the single best next tool call.`;
-  return `${stateDigest(view, map)}\n\nCurrent state (JSON):\n${JSON.stringify(view)}\n\nChoose ONE tool call — normally for someone who is waiting for your orders.`;
+  return `${stateDigest(view, map)}\n\nCurrent state (JSON):\n${JSON.stringify(view)}\n\nChoose ONE tool call — normally for the most urgent person who is waiting for your orders.`;
 }
 
 export function buildMessages(harness: Harness, map: MapData, scenario: ScenarioCase, view: PlannerView) {
