@@ -660,26 +660,32 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     return visible.length ? visible : tiles;
   }
 
-  /** For an escorted pair heading to a zone, extend the path one tile so the follower also ends inside the zone. */
+  /** For an escorted pair heading to a zone, extend the path (up to 3 tiles) so the follower also ends inside the
+   *  zone and not on a tile someone else is standing on / heading to. */
   function extendForFollower(start: Tile, path: Tile[], destination: string, movers: ActorId[], blocked: Set<number>) {
     if (!path.length || (ACTOR_IDS as readonly string[]).includes(destination)) return;
-    const followerEnd = path.length >= 2 ? path[path.length - 2] : start;
-    if (zoneAt(map, followerEnd.col, followerEnd.row) === destination) return;
-    const last = path[path.length - 1];
     const occupied = occupiedBy(movers);
-    for (const [dc, dr] of [
-      [0, 1],
-      [1, 0],
-      [-1, 0],
-      [0, -1],
-    ]) {
-      const n = { col: last.col + dc, row: last.row + dr };
-      if (!inBounds(map, n.col, n.row)) continue;
-      const i = idx(n);
-      if (zoneAt(map, n.col, n.row) !== destination || !map.accessible[i] || occupied.has(i) || blocked.has(i)) continue;
-      if (path.some((p) => sameTile(p, n)) || sameTile(n, start)) continue;
-      path.push(n);
-      return;
+    for (let step = 0; step < 3; step++) {
+      const followerEnd = path.length >= 2 ? path[path.length - 2] : start;
+      if (zoneAt(map, followerEnd.col, followerEnd.row) === destination && !occupied.has(idx(followerEnd))) return;
+      const last = path[path.length - 1];
+      let extended = false;
+      for (const [dc, dr] of [
+        [0, 1],
+        [1, 0],
+        [-1, 0],
+        [0, -1],
+      ]) {
+        const n = { col: last.col + dc, row: last.row + dr };
+        if (!inBounds(map, n.col, n.row)) continue;
+        const i = idx(n);
+        if (zoneAt(map, n.col, n.row) !== destination || !map.accessible[i] || occupied.has(i) || blocked.has(i)) continue;
+        if (path.some((p) => sameTile(p, n)) || sameTile(n, start)) continue;
+        path.push(n);
+        extended = true;
+        break;
+      }
+      if (!extended) return;
     }
   }
 
