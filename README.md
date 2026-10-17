@@ -136,7 +136,7 @@ Development fallback with the same weights: the hosted NVIDIA API Catalog (see e
 
 ### 3. Run the hero scenario
 
-1. `npm run dev`, then open http://localhost:5173. Check that the top bar shows **Nemotron · self-hosted vLLM** and that the model is healthy.
+1. `npm run dev`, then open http://localhost:5173. On the start screen, click the glowing floor of the (pixel-art) tower or press Enter; add `?intro=0` to the URL to skip it. Check that the top bar shows **Nemotron · self-hosted vLLM** and that the model is healthy.
 2. Watch the idle office. No model calls happen before an incident.
 3. Drag **Fire** onto the floor just inside **door A** (top wall of the Red Hat room), next to Maya.
 4. Maya sees it. Follow the trace: **Nemotron planner → Maya → notify**, then the assistance arrangement (Daniel requests Alex, Alex joins him and assists), then moves.

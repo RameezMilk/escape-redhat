@@ -19,6 +19,7 @@
   --radius: 6px;
   --ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --pixel: 'Pixelify Sans', 'Inter', system-ui, sans-serif;
+  --arcade: 'Press Start 2P', 'Pixelify Sans', monospace;
   color-scheme: dark;
 }
 
@@ -1015,4 +1016,148 @@ kbd {
   box-shadow:
     inset 0 1px 0 #4fae74,
     0 3px 0 #07050a;
+}
+
+/* ------------------------------------------------------------------ start screen (intro) */
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  background: #7f8a97;
+  transition: background-color 0.5s ease-in 0.6s;
+}
+.intro-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  transition:
+    transform 1.15s cubic-bezier(0.55, 0, 0.85, 0.35),
+    filter 1.15s ease-in,
+    opacity 0.45s ease-in 0.7s;
+}
+.intro.leaving {
+  pointer-events: none;
+  background-color: transparent;
+}
+.intro.leaving .intro-canvas {
+  transform: scale(9);
+  filter: blur(6px) brightness(1.35);
+  opacity: 0;
+}
+.intro-title,
+.intro-prompt,
+.intro-foot {
+  transition: opacity 0.3s ease-in;
+}
+.intro.leaving .intro-title,
+.intro.leaving .intro-prompt,
+.intro.leaving .intro-foot,
+.intro.leaving .intro-tip {
+  opacity: 0;
+}
+.intro-title {
+  position: absolute;
+  top: clamp(14px, 4vh, 40px);
+  left: 0;
+  right: 0;
+  text-align: center;
+  pointer-events: none;
+}
+.arcade {
+  margin: 0;
+  font-family: var(--arcade);
+  font-weight: 400;
+  font-size: clamp(30px, 4.6vw, 68px);
+  line-height: 1.15;
+  letter-spacing: 0.04em;
+  color: transparent;
+  background: linear-gradient(180deg, #fff1b8 0 30%, #ff5a4f 30% 62%, #c4161d 62% 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 3px 0 #7e1015) drop-shadow(3px 0 0 #1a0709) drop-shadow(-3px 0 0 #1a0709)
+    drop-shadow(0 -3px 0 #1a0709) drop-shadow(0 6px 0 #1a0709) drop-shadow(0 10px 0 rgba(0, 0, 0, 0.35));
+}
+.intro-sub {
+  margin: 14px 0 0;
+  font: 600 clamp(12px, 1.3vw, 16px) var(--ui);
+  color: #f3f1ec;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 0 rgba(20, 16, 24, 0.75);
+}
+.intro-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  font: 400 clamp(10px, 1vw, 13px) var(--arcade);
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  color: #fff3c4;
+  background: rgba(26, 20, 32, 0.78);
+  border: 3px solid #ffd27a;
+  box-shadow: 0 4px 0 #1a0709;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.intro-prompt:hover {
+  background: rgba(60, 30, 20, 0.9);
+}
+.blink {
+  animation: intro-blink 1s steps(2, start) infinite;
+}
+@keyframes intro-blink {
+  to {
+    visibility: hidden;
+  }
+}
+.intro-tip {
+  position: fixed;
+  pointer-events: none;
+  font: 400 10px var(--arcade);
+  letter-spacing: 0.08em;
+  color: #1a0709;
+  background: #ffd27a;
+  border: 2px solid #1a0709;
+  padding: 3px 8px;
+  border-radius: 3px;
+}
+.intro-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 6px;
+  text-align: center;
+  font: 500 11px var(--ui);
+  color: rgba(243, 241, 236, 0.85);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+/* The office fades in from a blur as the camera "flies" into the glowing floor. */
+.app.app-behind {
+  filter: blur(14px);
+  opacity: 0;
+  transform: scale(1.04);
+}
+.app.app-revealing {
+  transition:
+    filter 0.75s ease-out 0.45s,
+    opacity 0.75s ease-out 0.45s,
+    transform 0.9s ease-out 0.4s;
+  filter: blur(0);
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro-canvas,
+  .app.app-revealing {
+    transition-duration: 0.01s;
+    transition-delay: 0s;
+  }
+  .blink {
+    animation: none;
+  }
 }
