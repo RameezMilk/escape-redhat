@@ -1,0 +1,11 @@
+{
+  "name": "@escape/eval",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@escape/contracts": "0.1.0",
+    "@escape/engine": "0.1.0",
+    "@escape/server": "0.1.0"
+  }
+}

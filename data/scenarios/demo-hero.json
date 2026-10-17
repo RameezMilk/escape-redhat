@@ -1,0 +1,22 @@
+{
+  "caseId": "demo-hero",
+  "split": "demo",
+  "family": "hero",
+  "seed": 20261017,
+  "mapId": "office-v1",
+  "spawns": {
+    "alex": { "col": 22, "row": 8, "dir": "up", "pose": "sit" },
+    "maya": { "col": 13, "row": 7, "dir": "up", "pose": "sit" },
+    "daniel": { "col": 15, "row": 12, "dir": "left", "pose": "sit" }
+  },
+  "danielPreference": "buddy",
+  "events": [
+    { "id": "ev-fire", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "fire", "col": 8, "row": 5 } },
+    { "id": "ev-blocker", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "blocker", "col": 26, "row": 15 } }
+  ],
+  "labels": {
+    "solvable": true,
+    "primaryRouteBlocked": true,
+    "notes": "Presenter drops the fire just inside door A (Maya sees it), then blocks the south branch while Alex escorts Daniel toward the east exit. Alternate route: lobby connector -> north corridor -> west exit -> sidewalk -> assembly."
+  }
+}
