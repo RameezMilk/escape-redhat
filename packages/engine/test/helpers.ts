@@ -6,14 +6,22 @@ import { createEngine, loadMap, type RunInputs } from '../src/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 export const map = loadMap();
-export const hero = (): ScenarioCase => JSON.parse(readFileSync(join(root, 'data/scenarios/demo-hero.json'), 'utf8')) as ScenarioCase;
+/** demo-hero spawns/seed/preference; its presenter events are 'manual' (ignored by the engine), so they are dropped. */
+export const hero = (): ScenarioCase => ({ ...(JSON.parse(readFileSync(join(root, 'data/scenarios/demo-hero.json'), 'utf8')) as ScenarioCase), events: [] });
+
+/** Everyone standing safely outside on the plaza (non-flammable). */
+export const outsideSpawns = (): ScenarioCase['spawns'] => ({
+  alex: { col: 22, row: 20, dir: 'down', pose: 'stand' },
+  maya: { col: 23, row: 20, dir: 'down', pose: 'stand' },
+  daniel: { col: 24, row: 20, dir: 'down', pose: 'stand' },
+});
 
 /** Test driver that also records RunInputs for replay checks. */
 export class Driver {
   engine: Engine;
   inputs: RunInputs = [];
   private n = 0;
-  constructor(public scenario: ScenarioCase = hero(), opts: { maxDecisions?: number; maxSimTime?: number } = {}) {
+  constructor(public scenario: ScenarioCase = hero(), opts: { maxDecisions?: number; stallCeilingSimSec?: number; fireSpreadPerTick?: number; ambient?: boolean } = {}) {
     this.engine = createEngine(map, scenario, { episodeId: 'test-ep', ...opts });
   }
   get tick() {
@@ -22,7 +30,7 @@ export class Driver {
   actor(id: string) {
     return this.engine.snapshot().actors.find((a) => a.id === id)!;
   }
-  place(kind: 'fire' | 'blocker', col: number, row: number) {
+  place(kind: 'fire' | 'electrical', col: number, row: number) {
     this.inputs.push({ tick: this.tick, kind: 'place', hazard: kind, col, row });
     return this.engine.placeHazard(kind, col, row);
   }
@@ -47,6 +55,9 @@ export class Driver {
   until(pred: () => boolean, max = 2000) {
     for (let i = 0; i < max && !pred() && !this.engine.outcome(); i++) this.engine.step();
     return pred();
+  }
+  lost(id: string) {
+    return this.actor(id).lost;
   }
   idle(id: string) {
     const a = this.actor(id);

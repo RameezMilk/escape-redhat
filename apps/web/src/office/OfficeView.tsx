@@ -4,14 +4,28 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { ActorId, HazardKind, MapData } from '@escape/contracts';
 
+import { CHARACTER_SITTING_OFFSET_PX, CHARACTER_Z_SORT_OFFSET } from '../vendor/pixel-agents/webview-ui/src/constants';
+import { getCharacterSprite } from '../vendor/pixel-agents/webview-ui/src/office/engine/characters';
 import { startGameLoop } from '../vendor/pixel-agents/webview-ui/src/office/engine/gameLoop';
-import { renderFrame } from '../vendor/pixel-agents/webview-ui/src/office/engine/renderer';
+import { renderFrame, type ExtraDrawable } from '../vendor/pixel-agents/webview-ui/src/office/engine/renderer';
+import { getCharacterSprites } from '../vendor/pixel-agents/webview-ui/src/office/sprites/spriteData';
 import { mapOffset, overlayProjection } from '../vendor/pixel-agents/webview-ui/src/office/projection';
-import { CharacterState } from '../vendor/pixel-agents/webview-ui/src/office/types';
+import { CharacterState, type Character } from '../vendor/pixel-agents/webview-ui/src/office/types';
 import { placement, usePlacement } from '../state/placement';
 import { store, useStore } from '../state/store';
 import { ACTOR_ORDER, ACTOR_VIEW } from './actors';
-import { createScene, drawGhost, hazardDrawables, interpolateActors, staticDrawables, updateScene, type Scene } from './scene';
+import { drawDisintegration, TOTAL_SEC } from './effects/disintegrate';
+import {
+  createScene,
+  drawAlarmStrobe,
+  drawGhost,
+  fixtureDrawables,
+  hazardDrawables,
+  interpolateActors,
+  staticDrawables,
+  updateScene,
+  type Scene,
+} from './scene';
 
 const T = 16;
 
@@ -19,7 +33,8 @@ interface Props {
   map: MapData;
 }
 
-function statusLine(a: { status: string; checkedIn: boolean; escort: { role: string; partner: ActorId } | null; task: { destination: string } | null }): string {
+function statusLine(a: { status: string; lost?: boolean; checkedIn: boolean; escort: { role: string; partner: ActorId } | null; task: { destination: string } | null }): string {
+  if (a.lost) return 'lost';
   if (a.checkedIn) return 'checked in ✓';
   if (a.escort) return a.escort.role === 'leader' ? `escorting ${ACTOR_VIEW[a.escort.partner].name}` : `with ${ACTOR_VIEW[a.escort.partner].name}`;
   if (a.status === 'moving' && a.task) return `→ ${a.task.destination.replace(/_/g, ' ')}`;
@@ -36,6 +51,8 @@ export function OfficeView({ map }: Props) {
   const bubbleRefs = useRef<Partial<Record<ActorId, HTMLDivElement | null>>>({});
   const tipRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
+  /** Client time (ms) when each actor was first seen lost — drives the disintegration effect. */
+  const lostRef = useRef<{ episode: string; at: Map<ActorId, number> }>({ episode: '', at: new Map() });
 
   const snapshot = useStore((s) => s.snapshot);
   const bubbles = useStore((s) => s.bubbles);
@@ -90,8 +107,44 @@ export function OfficeView({ map }: Props) {
         const off = offscreen.getContext('2d')!;
         off.imageSmoothingEnabled = false;
         const snap = store.curr?.snap;
-        const extras = [...statics, ...hazardDrawables(snap?.hazards ?? [], now)];
-        const chars = [...scene.characters.values()];
+        const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+        const hazards = snap?.hazards ?? [];
+        const extras: ExtraDrawable[] = [
+          ...statics,
+          ...fixtureDrawables(map, hazards, snap?.alarm, now, reduced),
+          ...hazardDrawables(hazards, now, snap?.episodeId ?? ''),
+        ];
+        // Losses: lost actors leave the normal character pass and play the disintegration effect instead.
+        const lost = lostRef.current;
+        if (snap && lost.episode !== snap.episodeId) {
+          lost.at.clear();
+          lost.episode = snap.episodeId;
+        }
+        const chars: Character[] = [];
+        for (const [id, ch] of scene.characters) {
+          const sa = snap?.actors.find((a) => a.id === id);
+          if (!sa?.lost) {
+            chars.push(ch);
+            continue;
+          }
+          if (!lost.at.has(id as ActorId)) {
+            // Reconnect / late join: don't replay an old loss.
+            const stale = snap && sa.lostAtSimTime !== undefined && snap.simTime - sa.lostAtSimTime > 3;
+            lost.at.set(id as ActorId, stale ? now - TOTAL_SEC * 1000 - 1 : now);
+          }
+          const elapsed = (now - lost.at.get(id as ActorId)!) / 1000;
+          if (elapsed >= TOTAL_SEC) continue;
+          const sprite = ch.spriteOverride ?? getCharacterSprite(ch, getCharacterSprites(ch.palette, ch.hueShift));
+          const sitting = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+          extras.push({
+            zY: ch.y + T / 2 + CHARACTER_Z_SORT_OFFSET,
+            draw: (c, ox, oy, z) => {
+              const w = (sprite[0]?.length ?? 16) * z;
+              const h = sprite.length * z;
+              drawDisintegration(c, sprite, Math.round(ox + ch.x * z - w / 2), Math.round(oy + (ch.y + sitting) * z - h), z, elapsed);
+            },
+          });
+        }
         const { offsetX, offsetY } = renderFrame(
           off,
           offscreen.width,
@@ -118,7 +171,8 @@ export function OfficeView({ map }: Props) {
         // Placement ghost (drawn at render zoom, scaled with the scene)
         const g = placement.state;
         const ev = g.kind && g.visible ? placement.evaluate(g.kind, g.col, g.row, store.getState().snapshot) : null;
-        if (g.kind && ev) drawGhost(off, { kind: g.kind, col: g.col, row: g.row, valid: ev.valid, tiles: ev.tiles, noGo: ev.noGo }, offsetX, offsetY, zr, now);
+        if (snap?.alarm?.active && !snap.outcome) drawAlarmStrobe(off, offscreen.width, offscreen.height, now, reduced);
+        if (g.kind && ev) drawGhost(off, { kind: g.kind, col: g.col, row: g.row, valid: ev.valid, tiles: ev.tiles }, offsetX, offsetY, zr, now);
 
         // Blit to the visible canvas (1:1 when crisp; nearest-neighbour upscale otherwise)
         const { offsetX: mx, offsetY: my } = mapOffset(canvas.width, canvas.height, map.cols, map.rows, e, 0, 0);
@@ -130,7 +184,9 @@ export function OfficeView({ map }: Props) {
         if (tip) {
           if (g.kind && ev) {
             tip.style.display = 'block';
-            tip.style.transform = `translate(${Math.round((mx + (g.col + 1) * T * e) / dpr)}px, ${Math.round((my + g.row * T * e) / dpr) - 8}px) translate(-50%, -100%)`;
+            const tc = ev.tiles.length ? (Math.min(...ev.tiles.map((t) => t.col)) + Math.max(...ev.tiles.map((t) => t.col)) + 1) / 2 : g.col + 1;
+            const tr = ev.tiles.length ? Math.min(...ev.tiles.map((t) => t.row)) - (g.kind === 'electrical' ? 1.4 : 0) : g.row;
+            tip.style.transform = `translate(${Math.round((mx + tc * T * e) / dpr)}px, ${Math.round((my + tr * T * e) / dpr) - 8}px) translate(-50%, -100%)`;
             tip.textContent = ev.reason;
             tip.dataset.valid = String(ev.valid);
           } else tip.style.display = 'none';
@@ -154,6 +210,15 @@ export function OfficeView({ map }: Props) {
           const bub = bubbleRefs.current[id];
           if (!ch || !chip) continue;
           const sa = snapActors.find((a) => a.id === id);
+          if (sa?.lost) {
+            const at = lostRef.current.at.get(id);
+            const done = at === undefined || (performance.now() - at) / 1000 >= TOTAL_SEC;
+            if (done) {
+              chip.style.display = 'none';
+              if (bub) bub.style.display = 'none';
+              continue;
+            }
+          } else if (bub) bub.style.display = '';
           const partner = sa?.escort?.partner;
           const pc = partner ? scene.characters.get(partner) : undefined;
           const together = !!(partner && pc && Math.hypot(pc.x - ch.x, pc.y - ch.y) < 1.7 * T);
@@ -190,8 +255,8 @@ export function OfficeView({ map }: Props) {
     };
   }, [ready, map]);
 
-  // Mouse/drag → tile under cursor (2×2 footprint centred on the pointer)
-  const tileAt = (clientX: number, clientY: number): { col: number; row: number } | null => {
+  // Mouse/drag → tile under cursor (fire: 2×2 seed centred on the pointer; electrical: the tile under the pointer)
+  const tileAt = (clientX: number, clientY: number, kind: HazardKind | null = placement.state.kind): { col: number; row: number } | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
@@ -200,8 +265,8 @@ export function OfficeView({ map }: Props) {
     const { offsetX, offsetY } = mapOffset(canvas.width, canvas.height, map.cols, map.rows, zoom, 0, 0);
     const wx = ((clientX - rect.left) * dpr - offsetX) / zoom;
     const wy = ((clientY - rect.top) * dpr - offsetY) / zoom;
-    const col = Math.round(wx / T - 1);
-    const row = Math.round(wy / T - 1);
+    const col = kind === 'electrical' ? Math.floor(wx / T) : Math.round(wx / T - 1);
+    const row = kind === 'electrical' ? Math.floor(wy / T) : Math.round(wy / T - 1);
     if (col < -1 || row < -1 || col > map.cols || row > map.rows) return null;
     return { col, row };
   };
@@ -230,9 +295,9 @@ export function OfficeView({ map }: Props) {
 
   const onDrop = (e: React.DragEvent) => {
     const kind = e.dataTransfer.getData('application/x-escape-hazard') as HazardKind;
-    if (kind !== 'fire' && kind !== 'blocker') return;
+    if (kind !== 'fire' && kind !== 'electrical') return;
     e.preventDefault();
-    const t = tileAt(e.clientX, e.clientY);
+    const t = tileAt(e.clientX, e.clientY, kind);
     if (t) placement.commit(kind, t.col, t.row);
     placement.endDrag();
   };
@@ -262,7 +327,7 @@ export function OfficeView({ map }: Props) {
               ref={(el) => {
                 chipRefs.current[id] = el;
               }}
-              className={`name-chip ${a?.checkedIn ? 'done' : ''} ${a?.alerted ? 'alerted' : ''}`}
+              className={`name-chip ${a?.checkedIn ? 'done' : ''} ${a?.alerted ? 'alerted' : ''} ${a?.lost ? 'lost' : ''}`}
               style={{ ['--actor' as string]: v.color }}
             >
               <span className="name">
@@ -306,6 +371,7 @@ export function OfficeView({ map }: Props) {
       </div>
       {snapshot?.mode === 'replay' ? <div className="replay-badge">REPLAY · recorded run</div> : null}
       {snapshot?.paused ? <div className="paused-badge">PAUSED</div> : null}
+      {snapshot?.alarm?.active && !snapshot.outcome ? <div className="alarm-badge-map">🚨 FIRE ALARM — EVACUATE</div> : null}
     </div>
   );
 }

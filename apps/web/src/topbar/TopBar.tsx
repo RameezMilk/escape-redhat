@@ -1,9 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
-import type { ProviderInfo } from '@escape/contracts';
+import type { ProviderInfo, Snapshot } from '@escape/contracts';
 
+import { isMuted, onMuteChange, setMuted, startSiren, stopSiren } from '../audio/siren';
 import { send } from '../net/socket';
 import { useStore } from '../state/store';
+
+function outcomeLabel(s: Snapshot): string {
+  const o = s.outcome!;
+  const escaped = s.actors.filter((a) => !a.lost && a.checkedIn).length;
+  switch (o.status) {
+    case 'success':
+      return 'Success';
+    case 'partial':
+      return `Partial — ${escaped}/3 escaped`;
+    case 'failed':
+      return 'All lost';
+    default:
+      return o.status.replace(/_/g, ' ');
+  }
+}
 
 const PHASE_LABEL: Record<string, string> = {
   idle: 'Calm office',
@@ -35,7 +51,17 @@ export function TopBar() {
 
   const chip = providerChip(provider, source, snapshot?.mode === 'replay');
   const paused = snapshot?.paused ?? false;
-  const phase = snapshot?.outcome ? snapshot.outcome.status.replace('_', ' ') : PHASE_LABEL[snapshot?.phase ?? 'idle'];
+  const phase = snapshot?.outcome ? outcomeLabel(snapshot) : PHASE_LABEL[snapshot?.phase ?? 'idle'];
+  const alarmOn = !!snapshot?.alarm?.active && !snapshot?.outcome;
+  const muted = useSyncExternalStore(onMuteChange, isMuted);
+
+  // Siren follows the alarm: plays while active and running; stops on pause, mute, episode end or reset.
+  const sirenOn = alarmOn && !paused && !muted && snapshot?.mode !== 'replay';
+  useEffect(() => {
+    if (sirenOn) startSiren();
+    else stopSiren();
+  }, [sirenOn]);
+  useEffect(() => () => stopSiren(), []);
   const selectedCase = caseId || snapshot?.caseId || '';
 
   return (
@@ -49,8 +75,13 @@ export function TopBar() {
       </div>
       <div className="tb-status">
         <span className={`phase phase-${snapshot?.outcome?.status ?? snapshot?.phase ?? 'idle'}`}>{phase}</span>
-        <span className="clock" title="Simulated time (separate from model latency)">
-          sim {snapshot ? snapshot.simTime.toFixed(1) : '0.0'}s
+        {alarmOn ? (
+          <span className="alarm-badge" title="Fire alarm active — everyone has been alerted to evacuate">
+            🚨 ALARM
+          </span>
+        ) : null}
+        <span className="clock" title="Elapsed simulated time (no time limit; separate from model latency)">
+          elapsed {snapshot ? snapshot.simTime.toFixed(1) : '0.0'}s
         </span>
         <span className="decisions" title="Planner decisions used / cap">
           decisions {snapshot?.decisions.used ?? 0}/{snapshot?.decisions.max ?? '—'}
@@ -58,6 +89,14 @@ export function TopBar() {
         </span>
       </div>
       <div className="tb-controls">
+        <button
+          className={`btn btn-icon ${muted ? 'muted' : ''}`}
+          onClick={() => setMuted(!muted)}
+          title={muted ? 'Siren muted — click to unmute' : 'Mute the alarm siren'}
+          aria-label={muted ? 'Unmute siren' : 'Mute siren'}
+        >
+          {muted ? '🔇' : '🔊'}
+        </button>
         <button className="btn" onClick={() => send({ type: paused ? 'resume' : 'pause' })} disabled={!snapshot || !!snapshot.outcome}>
           {paused ? '▶ Resume' : '❚❚ Pause'}
         </button>

@@ -9,7 +9,7 @@ describe('scheduled presenter events and decision gating', () => {
       caseId: 'sched-test',
       events: [
         { id: 'f', trigger: { type: 'at_time', simTime: 2 }, action: { type: 'place_hazard', kind: 'fire', col: 8, row: 5 } },
-        { id: 'b', trigger: { type: 'actor_enters_zone', actor: 'maya', zone: 'lobby' }, action: { type: 'place_hazard', kind: 'blocker', col: 26, row: 15 } },
+        { id: 'b', trigger: { type: 'actor_enters_zone', actor: 'maya', zone: 'lobby' }, action: { type: 'place_hazard', kind: 'electrical', col: 26, row: 15 } },
       ],
     };
     const d = new Driver(sc);

@@ -1,5 +1,6 @@
 {
-  "dataset": "escape-office-scenarios-v1",
+  "dataset": "escape-office-scenarios-v2",
+  "ruleset": 2,
   "structural_holdout": {
     "description": "Dev and test use disjoint fire-location families; test fire placements never appear in dev.",
     "dev_fire_families": [
@@ -17,20 +18,27 @@
         "caseId": "dev-00-hero",
         "family": "hero",
         "fireFamily": "hero",
-        "chokepoint": "south_branch",
+        "doors": [
+          "south_door"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya"
+          "maya",
+          "daniel"
         ]
       },
       {
         "caseId": "dev-01-fire_only",
         "family": "fire_only",
         "fireFamily": "rh_room_doorA",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
@@ -42,8 +50,10 @@
         "caseId": "dev-02-fire_only",
         "family": "fire_only",
         "fireFamily": "lobby",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
@@ -54,8 +64,10 @@
         "caseId": "dev-03-fire_only",
         "family": "fire_only",
         "fireFamily": "rh_room_doorA",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
@@ -66,8 +78,40 @@
         "caseId": "dev-04-fire_only",
         "family": "fire_only",
         "fireFamily": "lobby",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "alex",
+          "daniel"
+        ]
+      },
+      {
+        "caseId": "dev-05-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "rh_room_doorA",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "maya",
+          "daniel"
+        ]
+      },
+      {
+        "caseId": "dev-06-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "lobby",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
@@ -75,11 +119,13 @@
         ]
       },
       {
-        "caseId": "dev-05-fire_only",
-        "family": "fire_only",
+        "caseId": "dev-07-multi_fire",
+        "family": "multi_fire",
         "fireFamily": "rh_room_doorA",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 2,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
@@ -88,11 +134,15 @@
         ]
       },
       {
-        "caseId": "dev-06-fire_then_blocker",
-        "family": "fire_then_blocker",
+        "caseId": "dev-08-fire_then_door",
+        "family": "fire_then_door",
         "fireFamily": "rh_room_doorA",
-        "chokepoint": "south_branch",
+        "doors": [
+          "south_door"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
@@ -100,11 +150,15 @@
         ]
       },
       {
-        "caseId": "dev-07-fire_then_blocker",
-        "family": "fire_then_blocker",
+        "caseId": "dev-09-fire_then_door",
+        "family": "fire_then_door",
         "fireFamily": "lobby",
-        "chokepoint": "south_branch",
+        "doors": [
+          "south_door"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
@@ -112,11 +166,15 @@
         ]
       },
       {
-        "caseId": "dev-08-fire_then_blocker",
-        "family": "fire_then_blocker",
+        "caseId": "dev-10-fire_then_door",
+        "family": "fire_then_door",
         "fireFamily": "rh_room_doorA",
-        "chokepoint": "south_branch",
+        "doors": [
+          "south_door"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
@@ -125,60 +183,64 @@
         ]
       },
       {
-        "caseId": "dev-09-fire_then_blocker",
-        "family": "fire_then_blocker",
+        "caseId": "dev-11-fire_then_door",
+        "family": "fire_then_door",
         "fireFamily": "lobby",
-        "chokepoint": "south_branch",
+        "doors": [
+          "door_b"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex"
-        ]
-      },
-      {
-        "caseId": "dev-10-fire_then_blocker",
-        "family": "fire_then_blocker",
-        "fireFamily": "rh_room_doorA",
-        "chokepoint": "south_branch",
-        "solvable": true,
-        "primaryRouteBlocked": true,
-        "danielPreference": "buddy",
-        "fireInitiallySeenBy": [
-          "maya",
+          "alex",
           "daniel"
         ]
       },
       {
-        "caseId": "dev-11-fire_then_blocker",
-        "family": "fire_then_blocker",
-        "fireFamily": "lobby",
-        "chokepoint": "south_branch",
+        "caseId": "dev-12-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "rh_room_doorA",
+        "doors": [
+          "door_b"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex"
-        ]
-      },
-      {
-        "caseId": "dev-12-independent",
-        "family": "independent",
-        "fireFamily": "rh_room_doorA",
-        "chokepoint": "south_branch",
-        "solvable": true,
-        "primaryRouteBlocked": true,
-        "danielPreference": "independent",
-        "fireInitiallySeenBy": [
+          "maya",
           "daniel"
         ]
       },
       {
         "caseId": "dev-13-independent",
         "family": "independent",
-        "fireFamily": "lobby",
-        "chokepoint": null,
+        "fireFamily": "rh_room_doorA",
+        "doors": [
+          "door_b"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "independent",
+        "fireInitiallySeenBy": [
+          "maya",
+          "daniel"
+        ]
+      },
+      {
+        "caseId": "dev-14-independent",
+        "family": "independent",
+        "fireFamily": "lobby",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "independent",
         "fireInitiallySeenBy": [
@@ -186,28 +248,20 @@
         ]
       },
       {
-        "caseId": "dev-14-unsolvable",
-        "family": "unsolvable",
+        "caseId": "dev-15-trapped",
+        "family": "trapped",
         "fireFamily": "rh_room_doorA",
-        "chokepoint": "door_b",
+        "doors": [
+          "door_a",
+          "door_b"
+        ],
+        "fires": 1,
         "solvable": false,
-        "primaryRouteBlocked": true,
+        "expectLosses": true,
+        "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
           "maya",
-          "daniel"
-        ]
-      },
-      {
-        "caseId": "dev-15-unsolvable",
-        "family": "unsolvable",
-        "fireFamily": "lobby",
-        "chokepoint": "door_a",
-        "solvable": false,
-        "primaryRouteBlocked": true,
-        "danielPreference": "buddy",
-        "fireInitiallySeenBy": [
-          "alex",
           "daniel"
         ]
       }
@@ -217,8 +271,10 @@
         "caseId": "test-01-fire_only",
         "family": "fire_only",
         "fireFamily": "north_corridor",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": []
@@ -227,12 +283,15 @@
         "caseId": "test-02-fire_only",
         "family": "fire_only",
         "fireFamily": "rh_room_doorB",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
           "alex",
+          "maya",
           "daniel"
         ]
       },
@@ -240,8 +299,10 @@
         "caseId": "test-03-fire_only",
         "family": "fire_only",
         "fireFamily": "north_corridor",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": []
@@ -250,41 +311,82 @@
         "caseId": "test-04-fire_only",
         "family": "fire_only",
         "fireFamily": "rh_room_doorB",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
           "alex",
+          "maya",
           "daniel"
         ]
       },
       {
-        "caseId": "test-05-fire_only",
-        "family": "fire_only",
+        "caseId": "test-05-multi_fire",
+        "family": "multi_fire",
         "fireFamily": "north_corridor",
-        "chokepoint": null,
+        "doors": [],
+        "fires": 2,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": []
       },
       {
-        "caseId": "test-06-fire_then_blocker",
-        "family": "fire_then_blocker",
-        "fireFamily": "north_corridor",
-        "chokepoint": "south_branch",
+        "caseId": "test-06-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "rh_room_doorB",
+        "doors": [],
+        "fires": 2,
         "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "alex",
+          "maya",
+          "daniel"
+        ]
+      },
+      {
+        "caseId": "test-07-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "north_corridor",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": []
+      },
+      {
+        "caseId": "test-08-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "north_corridor",
+        "doors": [
+          "south_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": []
       },
       {
-        "caseId": "test-07-fire_then_blocker",
-        "family": "fire_then_blocker",
+        "caseId": "test-09-fire_then_door",
+        "family": "fire_then_door",
         "fireFamily": "rh_room_doorB",
-        "chokepoint": "corridor_west_end",
+        "doors": [
+          "south_door"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
@@ -294,105 +396,113 @@
         ]
       },
       {
-        "caseId": "test-08-fire_then_blocker",
-        "family": "fire_then_blocker",
+        "caseId": "test-10-fire_then_door",
+        "family": "fire_then_door",
         "fireFamily": "north_corridor",
-        "chokepoint": "south_branch",
+        "doors": [
+          "door_b"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": []
       },
       {
-        "caseId": "test-09-fire_then_blocker",
-        "family": "fire_then_blocker",
+        "caseId": "test-11-fire_then_door",
+        "family": "fire_then_door",
         "fireFamily": "rh_room_doorB",
-        "chokepoint": "corridor_west_end",
+        "doors": [
+          "door_b"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex",
+          "maya",
           "daniel"
         ]
       },
       {
-        "caseId": "test-10-fire_then_blocker",
-        "family": "fire_then_blocker",
+        "caseId": "test-12-fire_then_door",
+        "family": "fire_then_door",
         "fireFamily": "north_corridor",
-        "chokepoint": "south_branch",
+        "doors": [
+          "door_b"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
-        "fireInitiallySeenBy": []
-      },
-      {
-        "caseId": "test-11-fire_then_blocker",
-        "family": "fire_then_blocker",
-        "fireFamily": "rh_room_doorB",
-        "chokepoint": "south_branch",
-        "solvable": true,
-        "primaryRouteBlocked": true,
-        "danielPreference": "buddy",
-        "fireInitiallySeenBy": [
-          "alex",
-          "daniel"
-        ]
-      },
-      {
-        "caseId": "test-12-independent",
-        "family": "independent",
-        "fireFamily": "north_corridor",
-        "chokepoint": null,
-        "solvable": true,
-        "primaryRouteBlocked": false,
-        "danielPreference": "independent",
         "fireInitiallySeenBy": []
       },
       {
         "caseId": "test-13-independent",
         "family": "independent",
-        "fireFamily": "rh_room_doorB",
-        "chokepoint": null,
+        "fireFamily": "north_corridor",
+        "doors": [],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": false,
         "danielPreference": "independent",
-        "fireInitiallySeenBy": [
-          "daniel"
-        ]
+        "fireInitiallySeenBy": []
       },
       {
         "caseId": "test-14-independent",
         "family": "independent",
-        "fireFamily": "north_corridor",
-        "chokepoint": "south_branch",
+        "fireFamily": "rh_room_doorB",
+        "doors": [
+          "south_door"
+        ],
+        "fires": 1,
         "solvable": true,
+        "expectLosses": false,
         "primaryRouteBlocked": true,
         "danielPreference": "independent",
         "fireInitiallySeenBy": [
-          "alex"
+          "alex",
+          "maya",
+          "daniel"
         ]
       },
       {
-        "caseId": "test-15-unsolvable",
-        "family": "unsolvable",
-        "fireFamily": "north_corridor",
-        "chokepoint": "door_b",
-        "solvable": false,
-        "primaryRouteBlocked": true,
-        "danielPreference": "buddy",
-        "fireInitiallySeenBy": []
-      },
-      {
-        "caseId": "test-16-unsolvable",
-        "family": "unsolvable",
+        "caseId": "test-15-trapped",
+        "family": "trapped",
         "fireFamily": "rh_room_doorB",
-        "chokepoint": "door_a",
+        "doors": [
+          "door_a",
+          "door_b"
+        ],
+        "fires": 1,
         "solvable": false,
-        "primaryRouteBlocked": true,
+        "expectLosses": true,
+        "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
           "alex",
+          "maya",
+          "daniel"
+        ]
+      },
+      {
+        "caseId": "test-16-trapped",
+        "family": "trapped",
+        "fireFamily": "rh_room_doorB",
+        "doors": [
+          "door_a",
+          "door_b"
+        ],
+        "fires": 1,
+        "solvable": false,
+        "expectLosses": true,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
           "maya",
           "daniel"
         ]

@@ -1,5 +1,5 @@
 // Tiny raster helper for authoring original pixel sprites as Pixel Agents SpriteData (string[][] of hex colours).
-// All Escape-from-Red-Hat sprites (wheelchair, fire, blocker, signs) are drawn with this — no external art.
+// All Escape-from-Red-Hat sprites (wheelchair, fire, doors, alarms, signs) are drawn with this — no external art.
 import type { SpriteData } from '../../vendor/pixel-agents/webview-ui/src/office/types';
 
 export type { SpriteData };

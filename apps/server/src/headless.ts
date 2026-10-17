@@ -1,6 +1,7 @@
 // Headless (lockstep) episodes for evaluation: the sim is frozen while a decision is awaited,
 // so simulated time measures plan quality, not inference latency. Wall-clock and latency are
-// reported separately in the result metrics.
+// reported separately in the result metrics. There is no gameplay timer; a stall ceiling (sim seconds
+// since the incident) only stops runs where nothing can progress any more.
 import type { CreateEngine, EpisodeResult, MapData, ScenarioCase, TraceRow } from '@escape/contracts';
 import { readPlannerConfig, type Harness, type PlannerConfig } from './config.js';
 import { loadMapFile } from './data.js';
@@ -12,12 +13,21 @@ import { RunLog } from './runlog.js';
 
 export type { DecisionProvider } from './providers/types.js';
 
+/** Default headless/Gym safety stop: sim seconds after the incident with no completion. Not a game timer. */
+export const DEFAULT_STALL_CEILING_SIM_SEC = 900;
+
+/** Absolute tick guard for loops that step the engine: the stall ceiling plus pre-incident slack (100 ms ticks). */
+export function stallGuardTicks(stallCeilingSimSec: number): number {
+  return Math.ceil((stallCeilingSimSec + 300) * 10);
+}
+
 export interface HeadlessOptions {
   scenario: ScenarioCase;
   provider: DecisionProvider;
   harness: Harness;
   maxDecisions?: number;
-  maxSimTime?: number;
+  /** Safety stop (sim seconds since the incident) for runs that can no longer progress. Default 900. */
+  stallCeilingSimSec?: number;
   episodeId?: string;
   onRow?: (row: TraceRow) => void;
   /** Optional: write the run log to this path as it goes. */
@@ -35,8 +45,8 @@ export async function runEpisodeHeadless(
   const create: CreateEngine = opts.createEngine ?? (await import('@escape/engine')).createEngine;
   const episodeId = opts.episodeId ?? `bench-${opts.scenario.caseId}-${Date.now().toString(36)}`;
   const maxDecisions = opts.maxDecisions ?? readPlannerConfig().maxDecisions;
-  const maxSimTime = opts.maxSimTime ?? 240;
-  const engine = create(map, opts.scenario, { episodeId, maxDecisions, maxSimTime });
+  const stallCeilingSimSec = opts.stallCeilingSimSec ?? DEFAULT_STALL_CEILING_SIM_SEC;
+  const engine = create(map, opts.scenario, { episodeId, maxDecisions, stallCeilingSimSec });
 
   let tick = 0;
   const rows = new Map<string, TraceRow>();
@@ -52,7 +62,7 @@ export async function runEpisodeHeadless(
     mapHash: map.hash,
     provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, baseUrl: info.baseUrl, thinking: info.thinking },
     harness: opts.harness,
-    engineOptions: { maxDecisions, maxSimTime },
+    engineOptions: { maxDecisions, stallCeilingSimSec },
     clock: 'lockstep',
   });
 
@@ -74,8 +84,8 @@ export async function runEpisodeHeadless(
   });
 
   const wallStart = Date.now();
-  // Hard guard well beyond the sim-time cap (engine ends the episode itself at maxSimTime).
-  const tickLimit = Math.ceil((maxSimTime + 60) * 10);
+  // Hard guard beyond the engine's own stall ceiling (an idle office never times out, so bound it here too).
+  const tickLimit = stallGuardTicks(stallCeilingSimSec);
   let decisionsGuard = 0;
   while (!engine.outcome()) {
     if (orch.ready()) {

@@ -45,12 +45,12 @@ These were authored here, as code-defined pixel sprites:
 
 ## Fonts (SIL Open Font License 1.1)
 
-Inter and Pixelify Sans, both via `@fontsource` npm packages.
+Inter, Pixelify Sans and Press Start 2P (start-screen title), all via `@fontsource` npm packages.
 
 ## Safety knowledge pack
 
 `data/knowledge/` paraphrases and links:
-- U.S. federal OSHA regulations (29 CFR 1910.36, 1910.37, 1910.38). U.S. government works; not copyrighted.
+- U.S. federal OSHA regulations (29 CFR 1910.36, 1910.37, 1910.38, 1910.165). U.S. government works; not copyrighted.
 - OSHA's *Emergency Preparedness: Getting Started* guidance.
 - North Carolina Department of Labor pages. Cited for context only, with source URLs.
 

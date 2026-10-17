@@ -6,7 +6,6 @@ import { createEngine } from './world.js';
 
 export type RunInput =
   | { tick: number; kind: 'place'; hazard: HazardKind; col: number; row: number }
-  | { tick: number; kind: 'remove'; hazard: HazardKind }
   /** One planner decision: beginDecision() then (optionally) executeTool(call) then any notes, in that order. */
   | {
       tick: number;
@@ -26,9 +25,6 @@ export function applyInput(engine: Engine, input: RunInput): void {
   switch (input.kind) {
     case 'place':
       engine.placeHazard(input.hazard, input.col, input.row);
-      break;
-    case 'remove':
-      engine.removeHazard(input.hazard);
       break;
     case 'decision': {
       const id = engine.beginDecision();

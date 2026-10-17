@@ -1,83 +1,82 @@
-# Dataset card: `escape-office-scenarios-v1`
+# Dataset card: `escape-office-scenarios-v2`
 
-Synthetic scenario and benchmark dataset for **Escape from Red Hat**, a pixel-art evacuation exercise. In it, one LLM planner (Nemotron 3.5 Lightning 30B-A3B) controls three simulated people through validated tools.
+Synthetic scenario and benchmark dataset for **Escape from Red Hat**, a pixel-art evacuation exercise. One LLM planner (Nemotron 3.5 Lightning 30B-A3B) controls three simulated people through validated tools.
+
+This is **ruleset 2**: fire spreads, electrical failures jam sliding doors, there are fire-alarm pull stations, there is no time limit, and people reached by the fire are lost. Ruleset 1 (a static fire plus a "blocker", with a 240 s limit) is preserved in git history and in `results/2026-10-17-vllm-h100/`.
 
 | | |
 |---|---|
 | Type | Synthetic. Generated during the NVIDIA × Red Hat Small Models Hack, Raleigh NC, 2026-10-17 |
 | License | CC BY 4.0 (data). Code in this repo is MIT |
-| Generator | `data/scenarios/generator.ts` v1.0.0, master seed `20261017`, run with `npm run data:scenarios` |
-| Map | `data/maps/office-v1.json`, built from `office-v1.ascii` by `build-map.ts`. A fictional 34×23-tile office |
+| Generator | `data/scenarios/generator.ts` v2.0.0, master seed `20261017`, run with `npm run data:scenarios` |
+| Map | `data/maps/office-v1.json`, built from `office-v1.ascii` by `build-map.ts`. A fictional 34×23-tile office with 4 interior electric sliding doors and 3 fire-alarm pull stations |
 | Files | `cases.dev.jsonl` (16), `cases.test.jsonl` (16), `demo-hero.json` (live demo), `splits.json`, `provenance.json` (sha256 of all inputs and outputs) |
-| Used by | The app boots `demo-hero` from this folder; `apps/eval/src/bench.ts` runs and scores every case |
+| Used by | The app boots `demo-hero` from this folder; `apps/eval/src/bench.ts` runs and scores every case; `gym/make_tasks.ts` turns cases into NeMo Gym task rows |
 
 ## What a case contains
 
 Each line is a `ScenarioCase` (see `packages/contracts/src/types.ts`) with these fields:
 
 - **`spawns`**: a start tile and pose for `alex` (warden), `maya` (employee) and `daniel` (visitor who uses a wheelchair).
-- **`danielPreference`**: either `buddy` (Daniel asks Alex to guide him) or `independent`.
-- **`events`**: scheduled presenter actions, each one placing a fire or a blocker. Triggers:
+- **`danielPreference`**: `buddy` (Daniel may ask Alex to guide him; optional in ruleset 2) or `independent`.
+- **`events`**: scheduled presenter actions, each placing a **fire seed** or an **electrical failure**. Triggers:
   - `at_time` (simulated seconds);
   - `actor_enters_zone` (any person crosses into a named zone);
   - `manual` (live demo only).
-- **`labels`**: `solvable`, `primaryRouteBlocked`, and free-text `notes`.
+- **`labels`**: `solvable`, `primaryRouteBlocked`, `expectLosses` (trapped cases only), and free-text `notes`.
 
-**Hazard geometry** (it must match the engine):
+## Hazards (engine rules this dataset assumes)
 
-| Hazard | Footprint | No-go buffer | Seen within |
+| Hazard | Placement | Effect | Seen within |
 |---|---|---|---|
-| Fire | 2×2 | 1 tile | 8 tiles, line of sight |
-| Blocker | 2×2 | 0 tiles | 4 tiles, line of sight |
+| Fire | 2×2 seed on placeable floor (not furniture, exits, outdoors or assembly) | Spreads stochastically from cell to cell across building floor (seeded in the engine); burnt-out cells stay impassable; closed doors stop it. Anyone it reaches is lost | 9 tiles, line of sight |
+| Electrical failure | One interior electric sliding door: `door_a`, `door_b`, `connector`, `south_door` | The door jams shut: impassable, blocks sight and fire | 5 tiles, line of sight |
 
-If nobody sees a fire, the nearest person notices smoke after 15 s of simulated time. This is an engine rule.
+- The two **exits are manual doors** and are never electrical, so a power failure cannot lock anyone in (29 CFR 1910.36(d)(1)).
+- If nobody sees a fire, the nearest person notices smoke after 15 s of simulated time.
+- If a scheduled placement would land on a person, the engine retries for 3 s and then skips it (logged).
 
 ## How it was generated
 
-1. **Spawns.** The generator makes one seeded pick per actor from `map.spawnSpots`. Picks don't overlap, and all of Daniel's spots are wheelchair-accessible.
-2. **Fire.** A valid 2×2 placement drawn from a *fire-location family*. A valid placement:
-   - is on floor in a hazard-placeable zone;
-   - avoids furniture;
-   - has nobody standing inside its buffer at t = 1 s.
-3. **Blocker** (`fire_then_blocker`, and some `independent` cases):
-   - It is placed on a chokepoint: `south_branch`, `connector`, `door_a`, `door_b`, or the west end of the north corridor.
-   - The chokepoint must lie on some person's shortest route, given the fire.
-   - An alternate route must still exist.
-   - It drops *mid-evacuation*, when anyone enters the zone just before that chokepoint. Timed drops on doorways were excluded because they can land on a person.
-4. **Unsolvable.** Fire and blocker both drop at t = 1 s and leave at least one person with no route. The expected honest outcome is `unresolved`, never `success`.
-5. **Labels.** The generator searches the grid with full knowledge, using Dijkstra with the engine's occluded-tile cost 3.
-   - `solvable` is true if and only if every person can reach the assembly area with all of the case's hazards present. Daniel is held to wheelchair-clearance tiles.
-   - Each label must agree under two clearance interpretations: (a) the static clearance mask minus hazard tiles, and (b) clearance recomputed around hazards. Cases where they disagree are discarded.
-   - This oracle is used only for labels and scoring. The planner never sees it.
+1. **Spawns.** One seeded pick per actor from `map.spawnSpots`. Picks don't overlap; Daniel's spots are wheelchair-accessible.
+2. **Fire seed** at t = 1 s, drawn from a *fire-location family* (below). It must be valid and keep every person's route open at placement time.
+3. **Family extras:**
+   - `fire_only`: nothing else.
+   - `multi_fire`: a second seed from the split's other fire family, at least 3 tiles from every spawn, at t = 4–8 s.
+   - `fire_then_door`: an electrical failure on a sliding door that lies on someone's shortest route given the fire, with an alternate route still open. It drops when anyone enters the zone just before that door (mid-evacuation); doors right next to someone's start room fail 3–5 s after the incident instead.
+   - `independent`: Daniel prefers to evacuate on his own; half of these also get a door failure.
+   - `trapped`: the fire seed is inside the Red Hat room and **both** of its doors fail at t = 1 s, sealing the room's occupants in with a spreading fire (`expectLosses: true`). Honest outcomes are `partial` or `failed`, never `success`.
+4. **Labels.** A full-knowledge grid search (Dijkstra with the engine's occluded-tile cost 3) at placement time, with fire seed cells and disabled doors blocked and Daniel held to wheelchair-clearance tiles.
+   - `solvable` is true if and only if every person can reach the assembly area at that moment.
+   - Labels must agree under two clearance interpretations (static mask minus hazard tiles; clearance recomputed around hazards), else the case is discarded.
+   - **Fire spread is stochastic and happens later in the engine**, so a `solvable` case can still end in losses if the planner is slow. The labels describe the start of the incident, not the outcome.
+   - The oracle is used only for labels and scoring. The planner never sees it.
+5. **Engine cross-check.** When the engine module is importable at generation time, every placement is also validated with the engine's own `validatePlacement` (recorded in `provenance.json`).
 
 ## Splits (structural hold-out)
 
 | Split | Fire-location families | Families (count) |
 |---|---|---|
-| dev (16) | `rh_room_doorA` (inside the Red Hat room near door A), `lobby` | hero 1, fire_only 5, fire_then_blocker 6, independent 2, unsolvable 2 |
-| test (16) | `north_corridor`, `rh_room_doorB` (inside the room near door B) | fire_only 5, fire_then_blocker 6, independent 3, unsolvable 2 |
+| dev (16) | `rh_room_doorA` (inside the Red Hat room near door A), `lobby` | hero 1, fire_only 4, multi_fire 3, fire_then_door 5, independent 2, trapped 1 |
+| test (16) | `north_corridor`, `rh_room_doorB` (inside the room near door B) | fire_only 4, multi_fire 3, fire_then_door 5, independent 2, trapped 2 |
 
-Test fire locations never appear in dev, so prompt or harness changes tuned on dev are scored on unseen layouts. `dev-00-hero` is the live demo case, with its manual drops replaced by triggers.
+Test fire locations never appear in dev, so prompt or harness changes tuned on dev are scored on unseen layouts. `dev-00-hero` is the live demo case with its manual drops replaced by triggers (fire at t = 1 s; `south_door` fails when anyone enters the lobby).
 
-Corridor fires (test) are usually not visible to anyone at t = 1 s; they rely on the 15 s smoke-notice rule. `splits.json` records per case:
-- `fireInitiallySeenBy`;
-- `chokepoint`;
-- `fireFamily`;
-- `danielPreference`.
+`splits.json` records per case: `fireFamily`, `doors`, number of fire seeds, `solvable`, `expectLosses`, `danielPreference`, `fireInitiallySeenBy`.
 
 ## Intended use
 
-- A small, reproducible **tool-use benchmark**. It asks whether a planner selects valid tools, reports hazards, recovers from `ROUTE_UNAVAILABLE`, honours consent-based assistance, and verifies the roster without false completion claims.
+- A small, reproducible **tool-use benchmark**: does a planner select valid tools, raise the alarm or report hazards, evacuate before a spreading fire arrives, recover from `ROUTE_UNAVAILABLE` at a jammed door, and verify the roster without false completion claims?
 - Baseline-versus-final comparisons on the held-out test split.
 
 ## Limitations
 
 - **Not real human behaviour.** Nothing here is a measurement of how people evacuate. Personalities and roles are fictional.
-- **No fire dynamics.** Fire is a static, impassable footprint. There is no smoke spread, no heat, and no injury model.
+- **Not fire science.** Fire is a simple stochastic cellular spread over floor tiles. There is no smoke, heat, toxicity, ventilation or injury model; "lost" is a game state.
 - **Fictional map.** It is not the venue or any real building, and it makes no building-code or compliance claim.
-- **Small sample** (32 cases). Report counts, not just rates.
-- **Placements can be skipped.** A mid-evacuation drop that would land on a person is rejected by the engine and logged, so that run proceeds without the blocker.
-- **Triggers may not fire.** A zone-entry trigger fires only if someone actually enters that zone. A planner that picks a different route never meets the blocker.
+- **Small sample** (32 cases), and outcomes depend on both the planner's sampling (temperature > 0) and the seeded fire. Report counts, not just rates.
+- **Placements can be skipped.** A drop that would land on a person is retried for 3 s and then skipped (logged), so that run proceeds without it.
+- **Triggers may not fire.** A zone-entry trigger fires only if someone actually enters that zone; a planner that picks a different route never meets the failed door.
 
 ## Real datasets considered but not integrated
 

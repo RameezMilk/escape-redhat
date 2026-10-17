@@ -7,9 +7,9 @@
   - Alex, the warden;
   - Maya, an employee;
   - Daniel, a visitor who uses a wheelchair.
-- **What you do.** Drag in a **fire**, then a **blocker**.
-- **What you see.** The model reports the hazard and honours Daniel's buddy arrangement. When a route is suddenly unavailable it recovers, and it verifies everyone at the assembly point. Every proposal and result appears in a live trace.
-- **What the engine guarantees.** A deterministic engine owns the world. The model can't walk anyone through a hazard or declare success; only a verified roster can.
+- **What you do.** Drag in one or more **fires** — they spread from tile to tile — and **⚡ electrical failures** that jam an interior sliding door shut.
+- **What you see.** The model gets someone to a **fire-alarm pull station** (siren and strobes alert everyone) or reports what was seen, moves people out before the fire reaches them, re-routes around jammed doors, can honour Daniel's buddy arrangement, and verifies everyone at the assembly point. Anyone the fire reaches is **lost** (they disintegrate). Every proposal and result appears in a live trace.
+- **What the engine guarantees.** A deterministic, seeded engine owns the world, including the fire. The model can't walk anyone into fire they know about or declare success; only a verified roster can. There is no time limit: the run ends when every survivor is accounted for, or when everyone is lost.
 
 Main track: **Tool-Calling**. Built at the NVIDIA × Red Hat Small Models Hack, Raleigh, Oct 17–18 2026.
 
@@ -18,7 +18,7 @@ Main track: **Tool-Calling**. Built at the NVIDIA × Red Hat Small Models Hack, 
 
 > **What we claim, and what we don't.**
 > - We claim tool-use reliability of a small model in a simulated exercise.
-> - We do **not** claim training effectiveness, realistic human behaviour, fire dynamics, building-code compliance, or an operational emergency system.
+> - We do **not** claim training effectiveness, realistic human behaviour, real fire dynamics (the fire is a simple seeded cellular spread), building-code compliance, or an operational emergency system.
 
 ---
 
@@ -52,11 +52,11 @@ npm run build && npm start    # production: server also serves the built web app
 flowchart LR
   subgraph Browser["Browser (React 19 + Vite 8)"]
     V[Office canvas<br/>vendored Pixel Agents renderer]
-    T[Trace panel · Fire/Blocker palette<br/>top bar · debrief]
+    T[Trace panel · Fire / ⚡ Electrical palette<br/>top bar · alarm · debrief]
   end
   subgraph Server["Node 24 server (Fastify + WebSocket)"]
     O[Orchestrator<br/>wake → planner view → decide → validate → execute]
-    E[Engine: pure TypeScript, deterministic<br/>world state · nav · perception · tools · scoring]
+    E[Engine: pure TypeScript, deterministic<br/>world state · seeded fire spread · doors · alarm<br/>nav · perception · tools · scoring]
     L[(Run logs runs/*.jsonl<br/>replay)]
     D[(data/: map · knowledge pack · scenarios)]
   end
@@ -74,19 +74,21 @@ flowchart LR
 
 | Component | What it does |
 |---|---|
-| `packages/contracts` | Shared types; 9 tool JSON Schemas (sent to the model) and zod validators (enforced); WebSocket protocol |
-| `packages/engine` | Authoritative simulation: 100 ms ticks, 4-connected pathfinding, wheelchair-clearance mask, line-of-sight perception, tool validation and effects, outcomes, metrics, debrief, state hash. No I/O, seeded RNG only |
+| `packages/contracts` | Shared types; 10 tool JSON Schemas (sent to the model) and zod validators (enforced); WebSocket protocol |
+| `packages/engine` | Authoritative simulation: 100 ms ticks, seeded stochastic fire spread, electric sliding doors, fire-alarm pull stations, 4-connected pathfinding, wheelchair-clearance mask, line-of-sight perception, tool validation and effects, losses, outcomes, metrics, debrief, state hash. No I/O, seeded RNG only |
 | `apps/server` | Fastify + `@fastify/websocket`. Episode lifecycle (pause/reset/replay), the planner loop, decision providers (`openai-compatible` for vLLM / NVIDIA API Catalog, plus a labeled `scripted` fixture), prompt and harness, run logs |
 | `apps/web` | React 19 + Vite 8. Pixel Agents' Canvas 2D renderer (vendored @3537e14, patched so the engine drives every character). Overlays for names, speech bubbles and the placement ghost; trace; palette (drag-drop, click-to-place, keyboard) |
 | `apps/eval` | Headless benchmark, replay checker, baseline-versus-final comparison |
 | `data/` | Map (ASCII to JSON), knowledge pack (OSHA / NC DOL, paraphrased with links), synthetic scenario dataset |
 | `deploy/vllm` | `serve.sh`, `check.sh`, Brev runbook, model manifest |
 
-**Tools the model can call:** `observe`, `consult_plan`, `notify`, `plan_route`, `move`, `request_assistance`, `assist`, `check_in`, `verify_roster`.
+**Tools the model can call:** `observe`, `consult_plan`, `notify`, `plan_route`, `move`, `request_assistance`, `assist`, `check_in`, `verify_roster`, `pull_alarm`.
 
+- `pull_alarm` only works for someone standing at one of the three pull stations (`move` to destination `"alarm"` goes to the nearest). It alerts everyone to evacuate but, like a real alarm, says nothing about *where* the fire is; `notify` shares what someone actually saw.
 - Invalid calls return structured errors and never change the world. Codes include `ROUTE_UNAVAILABLE`, `STALE_STATE`, `ACTOR_BUSY`, `OUT_OF_RANGE`, `ASSISTANCE_NOT_ACCEPTED` and `NOT_AUTHORIZED`.
-- The planner sees each character's observations and reports, but never hazards nobody has seen.
-- Each character can only act on what *they* know. Someone who hasn't been told about the fire can't evacuate until someone notifies them.
+- The planner sees each character's observations and reports, but never fire cells or jammed doors nobody has seen.
+- Each character can only act on what *they* know. Someone who hasn't been alerted (by the alarm or by a person) can't evacuate yet.
+- Lost characters can no longer act.
 
 **Rendering.** A fixed ¾-view pixel diorama, top-down with z-sorting. It is not isometric or 3D.
 
@@ -129,7 +131,7 @@ Development fallback with the same weights: the hosted NVIDIA API Catalog (see e
 | `PLANNER_MAX_TOKENS` | `1024` | per decision (raise if thinking is on) |
 | `PLANNER_DEADLINE_MS` | `30000` | per-decision timeout (hosted catalog needs ~120000) |
 | `PLANNER_FREEZE_WHILE_THINKING` | auto | live mode: hold the sim clock during inference (default on for hosted APIs) |
-| `PLANNER_MAX_DECISIONS` | `40` | episode decision cap (started at 24; raised after measuring on the dev split) |
+| `PLANNER_MAX_DECISIONS` | `60` | per-episode decision cap — a safety stop, not a game rule (there is no time limit) |
 | `PLANNER_HARNESS` | `v2` | prompt/harness version (`v1` = baseline) |
 | `PORT` | `8787` | server port |
 | `DEMO_CASE` | `demo-hero` | scenario loaded on start/reset |
@@ -138,11 +140,13 @@ Development fallback with the same weights: the hosted NVIDIA API Catalog (see e
 
 1. `npm run dev`, then open http://localhost:5173. On the start screen, click the glowing floor of the (pixel-art) tower or press Enter; add `?intro=0` to the URL to skip it. Check that the top bar shows **Nemotron · self-hosted vLLM** and that the model is healthy.
 2. Watch the idle office. No model calls happen before an incident.
-3. Drag **Fire** onto the floor just inside **door A** (top wall of the Red Hat room), next to Maya.
-4. Maya sees it. Follow the trace: **Nemotron planner → Maya → notify**, then the assistance arrangement (Daniel requests Alex, Alex joins him and assists), then moves.
-5. When Alex and Daniel enter the NVIDIA lobby heading for the east exit, drag **Blocker** into the **south branch** corridor.
-6. Their move stops safely with `ROUTE_UNAVAILABLE`. The model reports the blockage, re-plans through the lobby connector, the north corridor and the west exit, checks everyone in, and Alex runs `verify_roster`.
-7. Read the debrief. Use **Reset** to start again.
+3. Drag **Fire** onto the floor just inside **door A** (top wall of the Red Hat room), next to Maya. It starts spreading.
+4. Maya sees it. Follow the trace: someone pulls a **fire alarm** (siren and red strobes; everyone is alerted) and/or **Nemotron planner → Maya → notify** reports what she saw; people start moving (Daniel may ask Alex to be his buddy).
+5. When Alex and Daniel enter the NVIDIA lobby heading for the east exit, drag **⚡ Electrical failure** onto the **south sliding door** (between the lobby and the east exit).
+6. Their move stops safely with `ROUTE_UNAVAILABLE`. The model reports the jammed door, re-plans through the lobby connector, the north corridor and the west exit, checks everyone in, and Alex runs `verify_roster`.
+7. Read the debrief. Use **Reset** to start again. To see losses, drop a fire right next to someone who hasn't been alerted.
+
+Rehearsal helper: `node scripts/auto-electrical.mjs` drops the electrical failure on cue (step 5) so a solo presenter can run the hero scenario.
 
 **Replay a saved run** (labeled **REPLAY** in the UI): `npm run replay -- runs/demo-hero.jsonl`. This re-applies the recorded decisions without calling the model.
 
@@ -152,15 +156,17 @@ Development fallback with the same weights: the hosted NVIDIA API Catalog (see e
 
 | Data | Type | Provenance and licence | How it is used |
 |---|---|---|---|
-| `data/scenarios/` **escape-office-scenarios-v1** | **Synthetic**, generated during the event (2026-10-17) | `generator.ts`, master seed 20261017. Method, fields and limits are in [`DATASET_CARD.md`](data/scenarios/DATASET_CARD.md); hashes in `provenance.json`. CC BY 4.0 | The app boots `demo-hero`. The benchmark runs and scores 16 dev and 16 held-out test cases (test uses fire locations never seen in dev) |
-| `data/maps/office-v1` | Synthetic (authored) | `office-v1.ascii` plus `build-map.ts`. Furniture footprints come from the vendored Pixel Agents manifests | Shared by the engine (navigation truth) and the renderer |
-| `data/knowledge/` | Paraphrased public sources | 29 CFR 1910.36(d)(1), 1910.37(a)(3), 1910.38(c)–(f) (U.S. government works); OSHA *Getting Started* guidance; NC DOL EAP pages. Each card has a source URL, checked 2026-10-17. The site plan is **fictional** | `consult_plan` answers and the debrief's cited lessons |
+| `data/scenarios/` **escape-office-scenarios-v2** | **Synthetic**, generated during the event (2026-10-17) | `generator.ts` v2, master seed 20261017. Families: fire_only, multi_fire, fire_then_door, independent, trapped. Method, fields and limits are in [`DATASET_CARD.md`](data/scenarios/DATASET_CARD.md); hashes in `provenance.json`. CC BY 4.0 | The app boots `demo-hero`. The benchmark runs and scores 16 dev and 16 held-out test cases (test uses fire locations never seen in dev) |
+| `data/maps/office-v1` | Synthetic (authored) | `office-v1.ascii` plus `build-map.ts`, with 4 interior electric sliding doors and 3 fire-alarm pull stations. Furniture footprints come from the vendored Pixel Agents manifests | Shared by the engine (navigation truth) and the renderer |
+| `data/knowledge/` | Paraphrased public sources | 29 CFR 1910.36(d)(1), 1910.37(a)(3), 1910.38(c)–(f), 1910.165 (U.S. government works); OSHA *Getting Started* guidance; NC DOL EAP pages. Each card has a source URL, checked 2026-10-17. The site plan is **fictional** | `consult_plan` answers and the debrief's cited lessons |
 
 **Considered but not integrated:** LEMTA evacuation drills, Jülich bottleneck trajectories, NIST stair egress, and Raleigh building footprints. Reasons are in the dataset card. No real measurement is presented as describing this office.
 
 ## Results
 
-Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) served by our vLLM 0.27.1 on one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 40, lockstep clock, concurrency 4, **one run per case** (temperature > 0, so differences of 1–2 cases can be noise). Raw summaries and replayable run logs: [`results/2026-10-17-vllm-h100/`](results/2026-10-17-vllm-h100/).
+> **Re-measuring for ruleset 2** (spreading fire, electrical doors, fire alarms, losses, no time limit). The tables below are **ruleset 1** (a static fire plus a "blocker", 240 s limit, check-ins + roster + buddy arrangement required) and stay here as history; ruleset-1 run logs replay only with the ruleset-1 engine (git history).
+
+**Ruleset 1.** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) served by our vLLM 0.27.1 on one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 40, lockstep clock, concurrency 4, **one run per case** (temperature > 0, so differences of 1–2 cases can be noise). Raw summaries and replayable run logs: [`results/2026-10-17-vllm-h100/`](results/2026-10-17-vllm-h100/).
 
 **Harness improvement on the held-out test split** (16 cases; fire locations never used while tuning; same model, server and config):
 
@@ -171,14 +177,25 @@ Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) served by ou
 
 Per-case comparison: [`compare-test-v1-vs-v2.md`](results/2026-10-17-vllm-h100/compare-test-v1-vs-v2.md). v2 was tuned on the **dev** split only (dev, v2: 14/14 solvable successes, 0/2 false successes, 18.6% invalid calls); the test split was run once per harness after tuning stopped.
 
-What "verified success" means: all three characters physically checked in at the assembly point, Daniel's agreed buddy arrangement carried out, and the warden's `verify_roster` confirming it — the model cannot declare success itself. Unsolvable cases (no real route) must end `unresolved`; neither harness ever produced a false success.
+What "verified success" meant in ruleset 1: all three characters physically checked in at the assembly point, Daniel's agreed buddy arrangement carried out, and the warden's `verify_roster` confirming it. Unsolvable cases (no real route) had to end `unresolved`; neither harness ever produced a false success.
+
+**Outcomes in ruleset 2** (the model cannot declare any of these itself):
+
+| Outcome | When |
+|---|---|
+| `success` | All three alive, physically checked in at the assembly point, and the warden's `verify_roster` confirms it. Daniel's buddy arrangement is good practice but optional |
+| `partial` | Someone was lost to the fire, and every survivor is checked in and accounted for (verified by Alex, or Alex was lost) |
+| `failed` | Everyone was lost |
+| `incomplete` / `unresolved` | Safety stops only (decision cap; a stall guard in headless runs) — `unresolved` when survivors are trapped with no real route. There is no time limit |
+
+Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 
 ## How NVIDIA Nemotron, vLLM and NeMo Gym are used
 
 **Nemotron 3.5 Lightning 30B-A3B** is the only generative model (30B total parameters ≤ the 33B cap; no draft, critic or router model).
 - It is the central planner: each decision is one native tool call for one named character, executed by a deterministic engine that validates it against world truth.
 - Why it: a small open model with native tool calling whose 3B-active MoE keeps a decision at ~0.6–0.7 s on one H100 — fast enough for a live scene.
-- How we optimised it (measured above): a compact planner view; strict schemas; structured errors with actionable hints; thinking off (A/B below); and the **v2 harness** — a short state digest (who is waiting / busy / open items), per-turn **action masking** (each tool's `actor_id` options list only people who can act now), and wake-ups only on genuinely new information. v1 → v2 on held-out cases: 5/14 → 12/14 verified successes, invalid calls 26.8% → 9.6%.
+- How we optimised it (measured above, ruleset 1): a compact planner view; strict schemas; structured errors with actionable hints; thinking off; and the **v2 harness** — a short state digest (who is waiting / busy / open items), per-turn **action masking** (each tool's `actor_id` options list only people who can act now), and wake-ups only on genuinely new information. v1 → v2 on held-out ruleset-1 cases: 5/14 → 12/14 verified successes, invalid calls 26.8% → 9.6%. Ruleset-2 numbers are being re-measured.
 
 **vLLM 0.27.1** serves the model on one Brev H100 (80GB HBM3) through the OpenAI-compatible API — it is the only path the submitted demo and results use.
 - Native tool calls via the `qwen3_coder` parser (100% of measured responses parsed natively; 0 malformed), reasoning separation via `nemotron_v3`.
@@ -186,16 +203,16 @@ What "verified success" means: all three characters physically checked in at the
 - Measured: decision latency p50 ≈ 0.6–0.7 s, p95 ≈ 1.0–1.2 s; weights 58.9 GiB, KV cache 9.3 GiB. Throughput and cache numbers: [`deploy/vllm/MODEL_MANIFEST.md`](deploy/vllm/MODEL_MANIFEST.md).
 - We use upstream vLLM because Red Hat AI Inference 3.5.1 packages vLLM 0.24.0, older than this model requires (0.27.1).
 
-**NeMo Gym 0.6.0** (released 2026-09-09): [`gym/`](gym/) wraps this same engine as a Resources Server — tasks from the dataset's dev/test splits, the 9 tools as Gym tool routes, and `verify()` returning the engine's reward (+1 verified success with procedures, 0 incomplete, −1 critical violation). It runs through the real nemo-gym classes (tests pass); full Gym rollout collection against our vLLM is documented there. The baseline-vs-final numbers above come from our own bench runner over the same engine and scoring. **The improvement is a prompt/harness improvement, not RL — no model weights were trained.**
+**NeMo Gym 0.6.0** (released 2026-09-09): [`gym/`](gym/) wraps this same engine as a Resources Server — tasks from the dataset's dev/test splits, the tools as Gym tool routes (ruleset 2 adds `pull_alarm`; task rows are regenerated with `gym/make_tasks.ts`), and `verify()` returning the engine's reward (+1 verified success with procedures, 0 incomplete, −1 critical violation). It runs through the real nemo-gym classes (tests pass); full Gym rollout collection against our vLLM is documented there. The baseline-vs-final numbers above come from our own bench runner over the same engine and scoring. **The improvement is a prompt/harness improvement, not RL — no model weights were trained.**
 
 ## Known limitations and next steps
 
 **Limitations:**
-- One fictional single-level map, with three characters, one fire and one blocker.
-- No fire spread, smoke, injury or crowd dynamics.
-- Perception and smoke-notice rules are simple deterministic rules.
+- One fictional single-level map with three characters, four interior sliding doors and three pull stations.
+- The fire is a simple seeded cellular spread over floor tiles (each burning tile occasionally ignites a random neighbour; tiles burn out into impassable debris; closed doors stop it). It is not fire science: no smoke, heat, toxicity, ventilation or injury model — "lost" is a game state.
+- Perception, the smoke-notice rule and the alarm are simple deterministic rules; the alarm reaches everyone instantly.
 - A central planner controls all three characters. These are not independent agents, and we make no claim that a multi-agent setup is better.
-- Benchmark: 32 synthetic cases, a single run per case, temperature > 0. Treat differences of one or two cases as noise. The v2 harness was tuned on dev; it narrows the tool menu each turn (action masking), which is part of what is being measured.
+- Benchmark: 32 synthetic cases, a single run per case, temperature > 0, and a seeded stochastic fire. Treat differences of one or two cases as noise. The v2 harness was tuned on dev; it narrows the tool menu each turn (action masking), which is part of what is being measured.
 - Educational value is a hypothesis; no learning outcomes were measured. Not compliance training; no building-code claims.
 - Replays re-apply recorded decisions. A fresh run with the same seed can make different model choices.
 
@@ -218,7 +235,7 @@ What "verified success" means: all three characters physically checked in at the
 
 - Our code: MIT ([LICENSE](LICENSE)). Scenario dataset: CC BY 4.0.
 - Pixel Agents renderer and assets: MIT © 2026 Pablo De Lucca, vendored at commit `3537e14`. Character sprites are based on JIK-A-4 *Metro City* (CC0).
-- Fonts (Inter, Pixelify Sans): OFL 1.1.
+- Fonts (Inter, Pixelify Sans, Press Start 2P): OFL 1.1.
 - Full details: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 **Trademark notice.** "Red Hat" and "NVIDIA" are trademarks of their owners. This is a fictional, hackathon-themed office, **not** affiliated with or endorsed by Red Hat or NVIDIA, and not an official training product.
@@ -230,4 +247,4 @@ What "verified success" means: all three characters physically checked in at the
 | Code written during the event | All project code was written during the event, starting 2026-10-17 |
 | Reused open source must be ≥ 2 weeks old | Pixel Agents is pinned to commit `3537e14` (2026-08-15). The vLLM image is `v0.27.1` (released 2026-08-11). npm dependencies resolve with `before=2026-10-03` in `.npmrc`; check with `npm run deps:audit` |
 | ≤ 33B total generative parameters | One model, 30B total. No draft, critic or router models (`deploy/vllm/MODEL_MANIFEST.md`) |
-| Meaningful open data | The published synthetic scenario dataset (with method), which drives the app and the scorer, plus the source-linked public knowledge pack |
+| Meaningful open data | The published synthetic scenario dataset `escape-office-scenarios-v2` (with method), which drives the app and the scorer, plus the source-linked public knowledge pack |

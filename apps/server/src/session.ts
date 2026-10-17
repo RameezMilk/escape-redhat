@@ -21,7 +21,7 @@ import type { PlannerConfig } from './config.js';
 import { caseSummaries } from './data.js';
 import { bubblesForEvent, Orchestrator } from './orchestrator.js';
 import type { DecisionProvider } from './providers/types.js';
-import { applyInput, listRuns, readRunLog, RunLog, type RunHeader, type RunInput, type RunLine } from './runlog.js';
+import { applyInput, listRuns, readRunLog, replayEngineOptions, RunLog, type RunHeader, type RunInput, type RunLine } from './runlog.js';
 
 export interface SessionDeps {
   map: MapData;
@@ -34,7 +34,6 @@ export interface SessionDeps {
   defaultCase?: string;
   /** Wall-clock ms per sim tick for the live loop (default 100 = real time). 0 disables the timer (tests drive loop()). */
   tickIntervalMs?: number;
-  maxSimTime?: number;
   log?(msg: string): void;
 }
 
@@ -116,8 +115,8 @@ export class Session {
     this.counter++;
     const episodeId = `ep-${Date.now().toString(36)}-${this.counter}`;
     const maxDecisions = this.d.planner.maxDecisions;
-    const maxSimTime = this.d.maxSimTime ?? 240;
-    this.engine = this.d.createEngine(this.d.map, scenario, { episodeId, maxDecisions, maxSimTime });
+    // Live game: no time limit and no stall ceiling — only the decision cap acts as a safety stop.
+    this.engine = this.d.createEngine(this.d.map, scenario, { episodeId, maxDecisions });
     this.tick = 0;
     this.paused = false;
     this.ended = false;
@@ -138,7 +137,7 @@ export class Session {
       mapHash: this.d.map.hash,
       provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, baseUrl: info.baseUrl, thinking: info.thinking },
       harness: this.d.planner.harness,
-      engineOptions: { maxDecisions, maxSimTime },
+      engineOptions: { maxDecisions },
       clock: 'live',
     });
 
@@ -260,27 +259,14 @@ export class Session {
     this.start(caseId ?? this.scenario?.caseId, seed);
   }
 
+  /** Presenter places a threat. Any number of either kind, at any time until the episode ends (also while paused).
+   *  Fire: 2×2 seed at (col,row). Electrical: the engine snaps to the sliding door under/near (col,row). */
   place(kind: HazardKind, col: number, row: number): ServerMessage {
     const episodeId = this.episodeId;
     if (this.replay) return { type: 'placement_result', episodeId, kind, ok: false, code: 'REPLAY', reason: 'Replay in progress — reset to return to live mode' };
-    const e = this.engine;
-    let r = e.placeHazard(kind, col, row);
+    const r = this.engine.placeHazard(kind, col, row);
+    // Rejected placements never mutate the engine, but logging them keeps the presenter's actions auditable.
     this.record({ tick: this.tick, type: 'place', kind, col, row });
-    if (!r.ok && r.code === 'ALREADY_PLACED') {
-      const canReposition = this.paused || e.snapshot().phase === 'idle';
-      if (!canReposition) {
-        return { type: 'placement_result', episodeId, kind, ok: false, code: 'PAUSE_TO_MOVE', reason: `A ${kind} is already placed — pause to reposition it` };
-      }
-      const old = e.snapshot().hazards.find((h) => h.kind === kind);
-      e.removeHazard(kind);
-      this.record({ tick: this.tick, type: 'remove', kind });
-      r = e.placeHazard(kind, col, row);
-      this.record({ tick: this.tick, type: 'place', kind, col, row });
-      if (!r.ok && old) {
-        e.placeHazard(kind, old.col, old.row);
-        this.record({ tick: this.tick, type: 'place', kind, col: old.col, row: old.row });
-      }
-    }
     this.orch.ingestNew();
     if (!this.paused) this.orch.maybeDecide();
     const msg: ServerMessage = r.ok
@@ -290,21 +276,6 @@ export class Session {
     return msg;
   }
 
-  remove(kind: HazardKind): ServerMessage {
-    const episodeId = this.episodeId;
-    if (this.replay) return { type: 'placement_result', episodeId, kind, ok: false, code: 'REPLAY', reason: 'Replay in progress' };
-    if (!this.paused && this.engine.snapshot().phase !== 'idle') {
-      return { type: 'placement_result', episodeId, kind, ok: false, code: 'PAUSE_TO_REMOVE', reason: 'Pause the exercise to remove a hazard (or reset)' };
-    }
-    const r = this.engine.removeHazard(kind);
-    this.record({ tick: this.tick, type: 'remove', kind });
-    this.orch.ingestNew();
-    this.d.broadcast({ type: 'snapshot', episodeId, snapshot: this.snapshot() });
-    return r.ok
-      ? { type: 'placement_result', episodeId, kind, ok: true }
-      : { type: 'placement_result', episodeId, kind, ok: false, code: 'NOT_PLACED', reason: r.reason ?? 'nothing to remove' };
-  }
-
   /** Handle one validated client message. Returns a direct reply for the sender, if any. */
   handle(msg: ClientMessage): ServerMessage | null {
     switch (msg.type) {
@@ -312,8 +283,6 @@ export class Session {
         return this.welcome();
       case 'place':
         return this.place(msg.kind, msg.col, msg.row);
-      case 'remove':
-        return this.remove(msg.kind);
       case 'pause':
         this.pause();
         return null;
@@ -374,7 +343,7 @@ export class Session {
     }
     this.counter++;
     const replayId = `replay-${header.episodeId}-${this.counter}`;
-    const engine = this.d.createEngine(this.d.map, header.scenario, { episodeId: header.episodeId, ...header.engineOptions });
+    const engine = this.d.createEngine(this.d.map, header.scenario, { episodeId: header.episodeId, ...replayEngineOptions(header) });
     this.replay = {
       engine,
       replayId,
@@ -415,9 +384,16 @@ export class Session {
         st.done = true;
         this.finishReplay();
       }
-      for (const e of st.engine.eventsSince(seqBefore).filter((x) => x.seq > seqBefore)) {
-        seqBefore = e.seq;
-        for (const b of bubblesForEvent(e)) this.d.broadcast({ type: 'bubble', episodeId: st.replayId, ...b });
+      const fresh = st.engine.eventsSince(seqBefore).filter((x) => x.seq > seqBefore);
+      if (fresh.length) {
+        const living = st.engine
+          .snapshot()
+          .actors.filter((a) => !a.lost)
+          .map((a) => a.id);
+        for (const e of fresh) {
+          seqBefore = e.seq;
+          for (const b of bubblesForEvent(e, { living })) this.d.broadcast({ type: 'bubble', episodeId: st.replayId, ...b });
+        }
       }
     }
     this.d.broadcast({ type: 'snapshot', episodeId: st.replayId, snapshot: this.snapshot() });

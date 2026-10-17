@@ -1,78 +1,94 @@
-import type { HazardKind, HazardSnapshot, MapData, Tile } from '@escape/contracts';
+import type { DoorComponent, HazardKind, HazardSnapshot, MapData, PlacementCode, Tile, ZoneId } from '@escape/contracts';
 import { inBounds, tileIndex } from './map.js';
 
-export const HAZARD_SPECS: Record<HazardKind, { w: number; h: number; buffer: number; visibility: number; label: string }> = {
-  fire: { w: 2, h: 2, buffer: 1, visibility: 8, label: 'Fire' },
-  blocker: { w: 2, h: 2, buffer: 0, visibility: 4, label: 'Blocker (toppled cabinets)' },
-};
+export type { PlacementCode } from '@escape/contracts';
 
-export type PlacementCode =
-  | 'OUT_OF_BOUNDS'
-  | 'NOT_FLOOR'
-  | 'FURNITURE'
-  | 'EXIT_OR_ASSEMBLY'
-  | 'OCCUPIED'
-  | 'OVERLAP'
-  | 'NOT_PLACEABLE_ZONE'
-  | 'ALREADY_PLACED'
-  | 'EPISODE_OVER';
+/** Fire: 2×2 seed, seen within 9 tiles. Electrical: a disabled sliding door, seen within 5 tiles. */
+export const HAZARD_SPECS = {
+  fire: { w: 2, h: 2, visibility: 9, label: 'Fire' },
+  electrical: { visibility: 5, label: 'Electrical failure' },
+} as const satisfies Record<HazardKind, { visibility: number; label: string; w?: number; h?: number }>;
 
-export function hazardFootprint(kind: HazardKind, col: number, row: number): Tile[] {
-  const { w, h } = HAZARD_SPECS[kind];
-  const out: Tile[] = [];
-  for (let dr = 0; dr < h; dr++) for (let dc = 0; dc < w; dc++) out.push({ col: col + dc, row: row + dr });
-  return out;
+/** Zones where fire never ignites (outside, exits, assembly). */
+export const NON_FLAMMABLE_ZONES: readonly ZoneId[] = ['west_exit', 'east_exit', 'west_sidewalk', 'plaza', 'assembly'];
+
+/** Interior floor that can burn (furniture-blocked floor included). Disabled doors are excluded by the caller. */
+export function isFlammable(map: MapData, col: number, row: number): boolean {
+  if (!inBounds(map, col, row)) return false;
+  const i = tileIndex(map, col, row);
+  if (map.terrain[i] !== 'floor') return false;
+  const z = map.zone[i];
+  return !!z && !NON_FLAMMABLE_ZONES.includes(z);
 }
 
-/** Footprint + buffer, clipped to the map. */
-export function hazardNoGo(map: MapData, kind: HazardKind, col: number, row: number): Tile[] {
-  const { w, h, buffer } = HAZARD_SPECS[kind];
-  const out: Tile[] = [];
-  for (let r = row - buffer; r < row + h + buffer; r++) {
-    for (let c = col - buffer; c < col + w + buffer; c++) if (inBounds(map, c, r)) out.push({ col: c, row: r });
+/** 2×2 fire seed footprint with (col,row) as top-left. */
+export function fireFootprint(col: number, row: number): Tile[] {
+  return [
+    { col, row },
+    { col: col + 1, row },
+    { col, row: row + 1 },
+    { col: col + 1, row: row + 1 },
+  ];
+}
+
+/** The sliding door whose tiles include (col,row) or lie within 1 tile (Chebyshev) of it; nearest wins. */
+export function doorNear(map: MapData, col: number, row: number): DoorComponent | null {
+  let best: { d: DoorComponent; dist: number } | null = null;
+  for (const d of map.components ?? []) {
+    for (const t of d.tiles) {
+      const dist = Math.max(Math.abs(t.col - col), Math.abs(t.row - row));
+      if (dist <= 1 && (!best || dist < best.dist)) best = { d, dist };
+    }
   }
-  return out;
+  return best?.d ?? null;
 }
 
 const key = (t: Tile) => `${t.col},${t.row}`;
 
+export type PlacementCheck = { ok: true; tiles: Tile[]; componentId?: string } | { ok: false; code: PlacementCode; reason: string };
+
+/**
+ * Validate a presenter placement (shared by the engine and the web ghost preview).
+ * Fire: 2×2 seed at (col,row) on flammable interior floor, not on a person, not overlapping existing
+ * burning/charred cells or a disabled door. Electrical: snaps to the sliding door under/near (col,row).
+ * Any number of hazards may be placed.
+ */
 export function validatePlacement(
   map: MapData,
-  state: { hazards: HazardSnapshot[]; actors: { col: number; row: number }[] },
+  state: { hazards: HazardSnapshot[]; actors: { col: number; row: number; lost?: boolean }[] },
   kind: HazardKind,
   col: number,
   row: number,
-): { ok: true; tiles: Tile[]; noGo: Tile[] } | { ok: false; code: PlacementCode; reason: string } {
-  const tiles = hazardFootprint(kind, col, row);
-  if (!tiles.every((t) => inBounds(map, t.col, t.row))) return { ok: false, code: 'OUT_OF_BOUNDS', reason: 'Footprint extends outside the map.' };
-  if (state.hazards.some((h) => h.kind === kind)) {
-    return { ok: false, code: 'ALREADY_PLACED', reason: `A ${kind} is already placed (one of each; pause to reposition, or reset).` };
+): PlacementCheck {
+  const occupied = new Set(state.actors.filter((a) => !a.lost).map(key));
+  const taken = new Set(state.hazards.flatMap((h) => h.noGo.map(key)));
+  if (kind === 'electrical') {
+    const door = doorNear(map, col, row);
+    if (!door) return { ok: false, code: 'NOT_A_DOOR', reason: 'Drop the electrical failure on an electric sliding door.' };
+    if (state.hazards.some((h) => h.kind === 'electrical' && h.componentId === door.id)) {
+      return { ok: false, code: 'ALREADY_DISABLED', reason: `${door.label} is already disabled.` };
+    }
+    if (door.tiles.some((t) => occupied.has(key(t)))) return { ok: false, code: 'OCCUPIED', reason: 'Someone is standing in that doorway.' };
+    if (door.tiles.some((t) => taken.has(key(t)))) return { ok: false, code: 'OVERLAP', reason: 'That doorway is already on fire.' };
+    return { ok: true, tiles: door.tiles.map((t) => ({ ...t })), componentId: door.id };
   }
+  const tiles = fireFootprint(col, row);
+  if (!tiles.every((t) => inBounds(map, t.col, t.row))) return { ok: false, code: 'OUT_OF_BOUNDS', reason: 'Footprint extends outside the map.' };
   for (const t of tiles) {
     const i = tileIndex(map, t.col, t.row);
     const terrain = map.terrain[i];
-    if (terrain !== 'floor' && terrain !== 'outdoor') return { ok: false, code: 'NOT_FLOOR', reason: 'Hazards must be placed on open floor, not walls.' };
+    if (terrain !== 'floor' && terrain !== 'outdoor') return { ok: false, code: 'NOT_FLOOR', reason: 'Fire must start on open floor, not walls.' };
     if (!map.walkable[i]) return { ok: false, code: 'FURNITURE', reason: 'That spot collides with furniture.' };
   }
   for (const t of tiles) {
     const z = map.zone[tileIndex(map, t.col, t.row)];
-    if (z === 'west_exit' || z === 'east_exit' || z === 'assembly') {
-      return { ok: false, code: 'EXIT_OR_ASSEMBLY', reason: 'Exits and the assembly point cannot be covered.' };
-    }
+    if (z === 'west_exit' || z === 'east_exit' || z === 'assembly') return { ok: false, code: 'EXIT_OR_ASSEMBLY', reason: 'Exits and the assembly point cannot catch fire.' };
     const def = map.zones.find((d) => d.id === z);
-    if (!def || !def.hazardPlaceable) return { ok: false, code: 'NOT_PLACEABLE_ZONE', reason: 'Hazards can only be placed inside the office.' };
-  }
-  const noGo = hazardNoGo(map, kind, col, row);
-  const guard = new Set((kind === 'fire' ? noGo : tiles).map(key));
-  if (state.actors.some((a) => guard.has(key(a)))) {
-    return { ok: false, code: 'OCCUPIED', reason: kind === 'fire' ? 'Too close to a person (fire needs a clear 1-tile margin).' : 'Someone is standing there.' };
-  }
-  const mine = new Set(tiles.map(key));
-  const myNoGo = new Set(noGo.map(key));
-  for (const h of state.hazards) {
-    if (h.noGo.some((t) => mine.has(key(t))) || h.tiles.some((t) => myNoGo.has(key(t)))) {
-      return { ok: false, code: 'OVERLAP', reason: `Overlaps the ${h.kind}.` };
+    if (!def || !def.hazardPlaceable || !isFlammable(map, t.col, t.row)) {
+      return { ok: false, code: 'NOT_PLACEABLE_ZONE', reason: 'Fire can only be started inside the office.' };
     }
   }
-  return { ok: true, tiles, noGo };
+  if (tiles.some((t) => occupied.has(key(t)))) return { ok: false, code: 'OCCUPIED', reason: 'Someone is standing there.' };
+  if (tiles.some((t) => taken.has(key(t)))) return { ok: false, code: 'OVERLAP', reason: 'Overlaps an existing fire or a disabled door.' };
+  return { ok: true, tiles };
 }

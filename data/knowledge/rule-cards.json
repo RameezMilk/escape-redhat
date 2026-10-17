@@ -1,6 +1,6 @@
 {
-  "version": "2026-10-17-v1",
-  "note": "Paraphrased, source-linked principles for a FICTIONAL office evacuation exercise. Not a complete legal or compliance program, not certified training, not advice for a real building. Federal OSHA text is a U.S. government work; NC DOL pages are cited for state context. Each card was checked against the linked page on 2026-10-17.",
+  "version": "2026-10-17-v2",
+  "note": "Paraphrased, source-linked principles for a FICTIONAL office evacuation exercise. Not a complete legal or compliance program, not certified training, not advice for a real building. Federal OSHA text is a U.S. government work; NC DOL pages are cited for state context. Each card was checked against the linked page on 2026-10-17 (ALARM-SYSTEM added for ruleset 2: pull stations, spreading fire, electrical door failures).",
   "cards": [
     {
       "id": "EAP-REPORT",
@@ -9,7 +9,16 @@
       "section": "29 CFR 1910.38(c)(1), (d)",
       "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.38",
       "principle": "Where an OSHA standard requires an emergency action plan, the plan must include procedures for reporting a fire or other emergency, and the employer must have and maintain an employee alarm system that uses a distinctive signal for each purpose.",
-      "exercise_policy": "Reporting and alarms are simulated with the notify tool (recipient 'all' acts as the building alarm). Reports cite the evidence ID of what was seen. No external message or real emergency call is ever sent."
+      "exercise_policy": "Reporting is simulated two ways: the pull_alarm tool at a manual pull station (the building alarm — alerts everyone but tells nobody where the hazard is) and the notify tool (voice/radio — cites the evidence ID of what was seen, so others learn where the fire or failed door is). No external message or real emergency call is ever sent."
+    },
+    {
+      "id": "ALARM-SYSTEM",
+      "kind": "federal-standard",
+      "title": "Employee alarm systems and manual pull stations",
+      "section": "29 CFR 1910.165(b)(1)-(3), (d)(3), (e)",
+      "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.165",
+      "principle": "An employee alarm system must provide warning for the emergency action called for in the emergency action plan, be perceivable above ambient noise or light levels by all employees in the affected portions of the workplace (tactile devices may be used for employees who could not otherwise recognize it), and be distinctive and recognizable as a signal to evacuate. Manual actuation devices (pull stations) must be unobstructed, conspicuous and readily accessible, and back-up means of alarm such as employee runners or telephones are required when a system is out of service.",
+      "exercise_policy": "Three manual pull stations: in the Red Hat room by door B, in the north corridor, and in the NVIDIA lobby. A character standing next to one can pull_alarm: the siren and strobes alert every person to evacuate, but the alarm conveys no location — people still learn where the fire or failed door is from what they see or are told (notify). notify also acts as the back-up 'runner' when nobody is near a pull station."
     },
     {
       "id": "EAP-ROUTES",
@@ -36,7 +45,7 @@
       "section": "29 CFR 1910.38(c)(4)",
       "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.38",
       "principle": "The plan must include procedures to account for all employees after evacuation.",
-      "exercise_policy": "Check-in only counts when a character is physically inside the fictional assembly area; the warden's roster verification is the only way the exercise can be confirmed complete."
+      "exercise_policy": "Check-in only counts when a character is physically inside the fictional assembly area; the warden's roster verification is the only way the exercise can be confirmed complete. People caught by the spreading fire are reported as lost, never assumed safe."
     },
     {
       "id": "EXIT-OPENABLE",
@@ -45,7 +54,7 @@
       "section": "29 CFR 1910.36(d)(1)",
       "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.36",
       "principle": "Employees must be able to open an exit route door from the inside at all times without keys, tools, or special knowledge.",
-      "exercise_policy": "Both exits in the fictional office always open. A locked exit is never used as a puzzle; if one were ever modeled it would be labeled a defect."
+      "exercise_policy": "Both exits in the fictional office are manual doors that always open from inside; they are deliberately not electrical, so a power failure cannot lock anyone in. Only interior electric sliding doors (door A, door B, the lobby connector and the south-branch door) can fail in the exercise. A locked exit is never used as a puzzle."
     },
     {
       "id": "EXIT-CLEAR",
@@ -54,7 +63,7 @@
       "section": "29 CFR 1910.37(a)(3)",
       "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.37",
       "principle": "Exit routes must be free and unobstructed; no materials or equipment may be placed, either permanently or temporarily, within the exit route.",
-      "exercise_policy": "The presenter's blocker is an abnormal exercise condition, never a recommended layout. Movement stops before an obstruction and returns ROUTE_UNAVAILABLE so the planner must report it and re-route."
+      "exercise_policy": "An Electrical failure that jams an interior sliding door shut is an abnormal exercise condition, never a recommended layout. Movement stops before the stuck door and returns ROUTE_UNAVAILABLE, so the planner must report it and re-route."
     },
     {
       "id": "GUIDE-LAYOUT-BUDDY",

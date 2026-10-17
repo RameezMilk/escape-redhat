@@ -16,14 +16,13 @@ import {
   type PlannerView,
   type ScenarioCase,
   type ToolResult,
-  type WorldEvent,
 } from '@escape/contracts';
 import type { Harness } from './config.js';
-import { IDLE_BACKOFF_SIM_SEC } from './orchestrator.js';
+import { DEFAULT_STALL_CEILING_SIM_SEC, stallGuardTicks } from './headless.js';
+import { IDLE_BACKOFF_SIM_SEC, QUIET_EVENTS } from './orchestrator.js';
 import { buildSystemPrompt, userContent } from './prompt.js';
 import { readPlannerConfig } from './config.js';
 
-const QUIET_EVENTS = new Set<WorldEvent['type']>(['tool_executed', 'tool_rejected', 'decision_note', 'ambient_line']);
 const NON_PROGRESS_TOOLS = new Set(['observe', 'consult_plan']);
 
 export interface GymSessionOptions {
@@ -31,7 +30,8 @@ export interface GymSessionOptions {
   caseId: string;
   harness?: Harness;
   maxDecisions?: number;
-  maxSimTime?: number;
+  /** Safety stop (sim seconds since the incident). Default 900. There is no gameplay timer. */
+  stallCeilingSimSec?: number;
 }
 
 export interface GymStepResponse {
@@ -53,8 +53,9 @@ export interface CompactState {
   phase: PlannerView['phase'];
   decisions_remaining: number;
   changes: string[];
-  actors: { id: string; zone: string | null; status: string; alerted: boolean; checked_in: boolean; busy: string | null; escort: string | null }[];
-  evidence: { id: string; kind: string; zone: string | null; known_by: string[] }[];
+  actors: { id: string; zone: string | null; status: string; alerted: boolean; checked_in: boolean; busy: string | null; escort: string | null; lost: boolean }[];
+  evidence: { id: string; kind: string; zone: string | null; zones: string[]; cells_known: number; component?: string; known_by: string[] }[];
+  alarm: { active: boolean; by?: string };
   assistance: PlannerView['assistance'];
   roster: PlannerView['roster'];
   latest_route?: PlannerView['routes'][number];
@@ -74,8 +75,18 @@ export function compactState(v: PlannerView): CompactState {
       checked_in: a.checked_in,
       busy: a.busy,
       escort: a.escort,
+      lost: !!a.lost,
     })),
-    evidence: v.evidence.map((e) => ({ id: e.id, kind: e.kind, zone: e.zone, known_by: e.known_by })),
+    evidence: v.evidence.map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      zone: e.zone,
+      zones: e.zones ?? [],
+      cells_known: e.cells_known ?? 0,
+      ...(e.component ? { component: e.component } : {}),
+      known_by: e.known_by,
+    })),
+    alarm: { active: !!v.alarm?.active, ...(v.alarm?.by ? { by: v.alarm.by } : {}) },
     assistance: v.assistance,
     roster: v.roster,
     ...(v.routes.length ? { latest_route: v.routes[v.routes.length - 1] } : {}),
@@ -103,7 +114,7 @@ interface GymSession {
   decisions: number;
   callCounter: number;
   createdAt: number;
-  maxSimTime: number;
+  stallCeilingSimSec: number;
   last: { simTime: number; seq: number; productive: boolean } | null;
 }
 
@@ -134,11 +145,11 @@ export class GymSessions {
     }
     if (!opts.sessionId || opts.sessionId.length > 200) throw new GymError(400, 'session_id required (≤200 chars)');
     const harness: Harness = opts.harness === 'v1' ? 'v1' : 'v2';
-    const maxSimTime = opts.maxSimTime ?? 240;
+    const stallCeilingSimSec = opts.stallCeilingSimSec ?? DEFAULT_STALL_CEILING_SIM_SEC;
     const engine = this.deps.createEngine(this.deps.map, scenario, {
       episodeId: `gym-${opts.sessionId}`,
       maxDecisions: opts.maxDecisions ?? readPlannerConfig().maxDecisions,
-      maxSimTime,
+      stallCeilingSimSec,
     });
     // Replacing an existing session id resets it (Gym may re-seed the same session).
     this.sessions.delete(opts.sessionId);
@@ -156,7 +167,7 @@ export class GymSessions {
       decisions: 0,
       callCounter: 0,
       createdAt: Date.now(),
-      maxSimTime,
+      stallCeilingSimSec,
       last: null,
     };
     this.sessions.set(s.id, s);
@@ -273,12 +284,12 @@ export class GymSessions {
 
   /** Step the frozen-during-thinking sim until the planner has work or the episode ends. */
   private advance(s: GymSession) {
-    const tickLimit = Math.ceil((s.maxSimTime + 60) * 10);
+    const tickLimit = stallGuardTicks(s.stallCeilingSimSec);
     while (!s.engine.outcome() && !this.ready(s)) {
       s.engine.step();
       s.tick++;
       if (s.tick > tickLimit) {
-        s.engine.end('incomplete', 'gym guard: tick limit');
+        s.engine.end('incomplete', 'gym guard: stalled (no completion possible within the stall ceiling)');
         break;
       }
     }
@@ -291,7 +302,7 @@ export class GymSessions {
     return {
       session_id: s.id,
       state: view,
-      user_prompt: userContent(view, s.harness),
+      user_prompt: userContent(view, s.harness, this.deps.map),
       done: !!outcome,
       outcome,
       sim_time: this.simTime(s),
@@ -329,7 +340,7 @@ export function registerGymRoutes(app: FastifyInstance, gym: GymSessions) {
         caseId: String(body.case_id ?? ''),
         harness: (body.harness ?? q.harness) === 'v1' ? 'v1' : 'v2',
         maxDecisions: typeof body.max_decisions === 'number' ? body.max_decisions : undefined,
-        maxSimTime: typeof body.max_sim_time === 'number' ? body.max_sim_time : undefined,
+        stallCeilingSimSec: typeof body.stall_ceiling_sim_sec === 'number' ? body.stall_ceiling_sim_sec : undefined,
       }),
     );
   });

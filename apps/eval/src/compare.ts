@@ -31,6 +31,7 @@ export function compare(basePath: string, finalPath: string): string {
   for (const k of ['model', 'endpointKind', 'thinking'] as const) {
     if (A.meta.provider[k] !== B.meta.provider[k]) warnings.push(`provider.${k} differs (${A.meta.provider[k]} → ${B.meta.provider[k]}).`);
   }
+  if (A.meta.dataset !== B.meta.dataset) warnings.push(`dataset differs (${A.meta.dataset} → ${B.meta.dataset}) — different rules or cases.`);
   if (A.meta.maxDecisions !== B.meta.maxDecisions) warnings.push(`decision cap differs (${A.meta.maxDecisions} → ${B.meta.maxDecisions}).`);
   if (A.meta.provider.endpointKind === 'scripted' || B.meta.provider.endpointKind === 'scripted') warnings.push('A scripted fixture run is involved — not model results.');
 
@@ -45,11 +46,19 @@ export function compare(basePath: string, finalPath: string): string {
   const b = B.aggregates as Record<string, unknown>;
   out.push('| Metric | Baseline | Final | Δ |');
   out.push('|---|---|---|---|');
-  const fracRow = (label: string, key: string) => out.push(`| ${label} | ${a[key]} | ${b[key]} | ${delta(frac(a[key]), frac(b[key]))} |`);
+  // Ruleset-2 keys first; ruleset-1 summaries (static fire + blocker) used the older names.
+  const pickKey = (...keys: string[]) => keys.find((k) => a[k] !== undefined || b[k] !== undefined) ?? keys[0];
+  const fracRow = (label: string, ...keys: string[]) => {
+    const key = pickKey(...keys);
+    out.push(`| ${label} | ${a[key] ?? '—'} | ${b[key] ?? '—'} | ${delta(frac(a[key]), frac(b[key]))} |`);
+  };
   const numRow = (label: string, key: string, d = 2) => out.push(`| ${label} | ${f(n(a[key]), d)} | ${f(n(b[key]), d)} | ${delta(n(a[key]), n(b[key]), d)} |`);
-  fracRow('Verified success on solvable (fraction)', 'successOnSolvable');
-  fracRow('Label-consistent outcomes', 'labelConsistent');
-  numRow('False success on unsolvable', 'falseSuccessOnUnsolvable', 0);
+  fracRow('Verified success on normal (non-trapped) cases', 'successOnNormal', 'successOnSolvable');
+  fracRow('Outcomes matching expectation', 'labelConsistent');
+  numRow('False success on trapped cases', pickKey('falseSuccessOnTrapped', 'falseSuccessOnUnsolvable'), 0);
+  fracRow('People escaped and checked in', 'peopleEscaped');
+  numRow('People lost on normal cases', 'peopleLostOnNormal', 0);
+  fracRow('Fire alarm pulled', 'alarmRaised');
   numRow('Mean reward', 'meanReward');
   numRow('Invalid-call rate', 'invalidCallRate', 3);
   numRow('Recoveries', 'recoveries', 0);
@@ -63,10 +72,11 @@ export function compare(basePath: string, finalPath: string): string {
   const byB = new Map<string, BenchRow>(B.rows.map((r) => [r.caseId, r]));
   for (const ra of A.rows) {
     const rb = byB.get(ra.caseId);
-    out.push(`| ${ra.caseId} | ${ra.outcome} (r=${ra.reward}) | ${rb ? `${rb.outcome} (r=${rb.reward})` : '—'} |`);
+    const cell = (r: BenchRow) => `${r.outcome} (r=${r.reward}${typeof r.lost === 'number' && r.lost ? `, lost ${r.lost}` : ''})`;
+    out.push(`| ${ra.caseId} | ${cell(ra)} | ${rb ? cell(rb) : '—'} |`);
   }
   out.push('');
-  out.push('Single run per case at temperature > 0: differences of one or two cases may be noise.');
+  out.push('Single run per case at temperature > 0 (and, in ruleset 2, a seeded stochastic fire): differences of one or two cases may be noise.');
   return out.join('\n') + '\n';
 }
 

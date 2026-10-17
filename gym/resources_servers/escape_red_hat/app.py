@@ -4,10 +4,14 @@
 # rollouts run the exact simulation, tool validation and scoring the app uses. Per-rollout state lives in
 # the TS server, keyed by Gym's per-session id (SESSION_ID_KEY from the session cookie middleware).
 #
-# Tools: observe, consult_plan, notify, plan_route, move, request_assistance, assist, check_in, verify_roster.
+# Tools: observe, consult_plan, notify, plan_route, move, request_assistance, assist, check_in, verify_roster,
+# pull_alarm.
 # Each tool result returned to the model is JSON: {result, done, outcome, state(compact)}.
-# Reward (from the engine's score): +1 verified success with required procedures, 0 incomplete / timeout /
-# unresolved, -1 critical violation (repeated invalid calls after feedback, repeated moves into known hazards).
+# Rules (gameplay v2): fire spreads and anyone it reaches is lost; electric sliding doors can lose power; there is
+# no time limit (a stall ceiling only stops runs that can no longer progress).
+# Reward (from the engine's score): +1 verified success (everyone alive, checked in, roster verified), 0 partial /
+# incomplete / unresolved, -1 everyone lost or a critical violation (repeated invalid calls after feedback,
+# repeated moves into known hazards).
 from __future__ import annotations
 
 import os
@@ -37,6 +41,7 @@ TOOL_NAMES = (
     "assist",
     "check_in",
     "verify_roster",
+    "pull_alarm",
 )
 
 

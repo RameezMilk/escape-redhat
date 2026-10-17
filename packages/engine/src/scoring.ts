@@ -27,6 +27,8 @@ export interface Interruption {
   simTime: number;
   evidenceId: string | null;
   zone: string | null;
+  hazardKind: 'fire' | 'electrical';
+  component?: string;
 }
 
 export interface ScoringInput {
@@ -39,11 +41,14 @@ export interface ScoringInput {
   decisionsUsed: number;
   decisionMeta: { latencyMs?: number; promptTokens?: number; completionTokens?: number }[];
   counters: { knownHazardMoveAttempts: number; prematureVerifyAttempts: number; assistWithoutConsentAttempts: number; scheduledFailures: number };
-  roster: { checkedIn: ActorId[]; outstanding: ActorId[]; required: boolean; fulfilled: boolean };
+  roster: { checkedIn: ActorId[]; outstanding: ActorId[]; lost: ActorId[]; required: boolean; fulfilled: boolean };
   rosterVerified: boolean;
   simTime: number;
   wallTimeMs: number;
   danielPreference: 'buddy' | 'independent';
+  lost: { actor: ActorId; simTime: number; alertedAt: number | null }[];
+  alarm: { active: boolean; at: number | null; by: ActorId | null; stationId: string | null; stationLabel: string | null };
+  componentLabels: Record<string, string>;
 }
 
 const name = (id: string) => ACTOR_PROFILES[id as ActorId]?.name ?? id;
@@ -86,7 +91,11 @@ export function computeResult(input: ScoringInput): EpisodeResult {
   const firstFire = input.events.find((e) => e.type === 'observation' && e.data.kind === 'fire');
   const fireEvidence = new Set(input.events.filter((e) => e.type === 'observation' && e.data.kind === 'fire').flatMap((e) => e.evidenceIds ?? []));
   const report = tools.find((l) => l.ok && l.tool === 'notify' && (l.topic === 'fire' || l.topic === 'evacuate') && l.evidenceIds.some((id) => fireEvidence.has(id)));
-  const reportLatency = report && firstFire ? Math.round((report.simTime - firstFire.simTime) * 10) / 10 : null;
+  // The first warning to others: an evidence-citing notify or the building alarm, whichever came first.
+  const alarmAt = input.alarm.active ? input.alarm.at : null;
+  const firstWarningAt = [report?.simTime, alarmAt ?? undefined].filter((x): x is number => typeof x === 'number').sort((a, b) => a - b)[0];
+  const reportLatency = firstWarningAt !== undefined && firstFire ? Math.round((firstWarningAt - firstFire.simTime) * 10) / 10 : null;
+  const alarmLatency = alarmAt !== null && firstFire ? Math.round((alarmAt - firstFire.simTime) * 10) / 10 : null;
   const replanned = input.interruptions.some((i) =>
     tools.some((l) => l.ok && l.started && l.tool === 'move' && (l.actor === i.actor || l.actor === i.partner) && l.decisionIndex > i.decisionIndex),
   );
@@ -111,7 +120,7 @@ export function computeResult(input: ScoringInput): EpisodeResult {
     promptTokens: input.decisionMeta.reduce((s, m) => s + (m.promptTokens ?? 0), 0),
     completionTokens: input.decisionMeta.reduce((s, m) => s + (m.completionTokens ?? 0), 0),
     procedural: {
-      hazardReported: !!report,
+      hazardReported: !!report || input.alarm.active,
       reportLatencySimSec: reportLatency,
       assistanceRequired: input.roster.required,
       assistanceFulfilled: input.roster.fulfilled,
@@ -122,12 +131,18 @@ export function computeResult(input: ScoringInput): EpisodeResult {
       knownHazardMoveAttempts: input.counters.knownHazardMoveAttempts,
       routeInterruptions: input.interruptions.length,
       replannedAfterInterruption: replanned,
+      alarmRaised: input.alarm.active,
+      alarmLatencySimSec: alarmLatency,
+      escaped: input.roster.checkedIn.length,
+      lost: input.lost.length,
     },
   };
 
-  const proceduresOk = metrics.procedural.hazardReported && (!input.roster.required || input.roster.fulfilled) && input.rosterVerified;
+  // Buddy assistance is good practice but no longer gates success (gameplay v2).
+  const proceduresOk = metrics.procedural.hazardReported && input.rosterVerified;
   const critical = repeatedInvalid >= 3 || metrics.procedural.knownHazardMoveAttempts >= 2;
-  const reward = critical ? -1 : success && proceduresOk ? 1 : 0;
+  const failed = input.outcome.status === 'failed';
+  const reward = critical || failed ? -1 : success && proceduresOk ? 1 : 0;
 
   return {
     episodeId: input.episodeId,
@@ -140,9 +155,12 @@ export function computeResult(input: ScoringInput): EpisodeResult {
       success,
       checks: {
         hazardReported: metrics.procedural.hazardReported,
+        alarmRaised: input.alarm.active,
         assistanceOk: !input.roster.required || input.roster.fulfilled,
         rosterVerified: input.rosterVerified,
         checkedIn: input.roster.checkedIn.length,
+        escaped: input.roster.checkedIn.length,
+        lost: input.lost.length,
         criticalViolation: critical,
         recoveries,
         invalidCalls: invalid.length,
@@ -158,10 +176,28 @@ function lesson(id: DebriefLesson['id'], title: string, text: string, ruleIds: s
 
 function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogEntry | undefined, firstFire: WorldEvent | undefined): DebriefLesson[] {
   const candidates: { score: number; l: DebriefLesson }[] = [];
+  const fmt = (t: number) => `${t.toFixed(1)} s`;
+
+  if (input.lost.length) {
+    const parts = input.lost.map((x) =>
+      x.alertedAt === null
+        ? `${name(x.actor)} at ${fmt(x.simTime)}, before anyone had alerted them`
+        : `${name(x.actor)} at ${fmt(x.simTime)}, ${(x.simTime - x.alertedAt).toFixed(1)} s after being alerted`,
+    );
+    candidates.push({
+      score: 9,
+      l: lesson(
+        'losses',
+        input.outcome.status === 'failed' ? 'Nobody got out' : 'Lost to the spreading fire',
+        `The fire reached ${parts.join('; ')}. Fire spreads to nearby floor every second: early warning, leaving at once and keeping away from known fire are what buy time.`,
+        ['EAP-REPORT', 'EAP-ROUTES'],
+      ),
+    });
+  }
 
   if (input.outcome.status === 'unresolved') {
     candidates.push({
-      score: 10,
+      score: 8,
       l: lesson(
         'unresolved',
         'No safe way out — an unresolved outcome',
@@ -171,37 +207,69 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
     });
   }
 
+  if (firstFire) {
+    candidates.push(
+      input.alarm.active
+        ? {
+            score: 6,
+            l: lesson(
+              'alarm',
+              'Raising the alarm',
+              `${input.alarm.by ? name(input.alarm.by) : 'Someone'} pulled the fire alarm at the ${input.alarm.stationLabel ?? 'pull station'} ${
+                m.procedural.alarmLatencySimSec !== null ? `${m.procedural.alarmLatencySimSec.toFixed(1)} s after the fire was first seen` : ''
+              }. The siren alerts everyone at once — but it does not say where the fire is, so a spoken report with evidence still helps people choose a safe route.`,
+              ['EAP-REPORT', 'ALARM-SYSTEM'],
+            ),
+          }
+        : {
+            score: 4.5,
+            l: lesson(
+              'alarm',
+              'The alarm was never pulled',
+              `Nobody used a manual pull station; people were warned only by word of mouth${report ? '' : ' (or not at all)'}. A pull station alerts the whole building at once, including people who cannot see the fire.`,
+              ['EAP-REPORT', 'ALARM-SYSTEM'],
+            ),
+          },
+    );
+  }
+
   if (input.interruptions.length) {
     const i = input.interruptions[0];
     const who = i.partner ? `${name(i.actor)} and ${name(i.partner)}` : name(i.actor);
+    const door = i.hazardKind === 'electrical';
+    const what = door
+      ? `${(i.component && input.componentLabels[i.component]) || 'a sliding door'} jammed shut by a power failure${i.evidenceId ? ` (${i.evidenceId})` : ''}`
+      : `fire${i.evidenceId ? ` (${i.evidenceId})` : ''} across their route`;
     candidates.push({
-      score: 6,
+      score: 6.5,
       l: lesson(
         'routes',
         'Updated route information',
-        `${who} found the route through ${i.zone ?? 'the corridor'} obstructed${i.evidenceId ? ` (${i.evidenceId})` : ''} at ${i.simTime.toFixed(1)} s. ${
+        `${who} found ${what} at ${fmt(i.simTime)}. ${
           m.procedural.replannedAfterInterruption ? 'The team re-planned around it using what they now knew' : 'The team did not re-plan after the obstruction'
-        }. Exit routes must stay unobstructed; when one is not, current observations should replace the usual route.`,
-        ['EXIT-CLEAR', 'EAP-ROUTES', 'GUIDE-LAYOUT-BUDDY'],
+        }. Exit routes must stay unobstructed; when one is not, current observations should replace the usual route.${
+          door ? ' The exit doors themselves are not electric: exit doors must open from the inside without power, keys or special knowledge.' : ''
+        }`,
+        door ? ['EXIT-CLEAR', 'EXIT-OPENABLE', 'EAP-ROUTES'] : ['EXIT-CLEAR', 'EAP-ROUTES', 'GUIDE-LAYOUT-BUDDY'],
       ),
     });
   } else {
     candidates.push({
       score: 2,
-      l: lesson('routes', 'Planned routes', 'Everyone evacuated without needing to re-route. The plan assigns primary and alternate routes so people can adapt if one is unavailable.', ['EAP-ROUTES']),
+      l: lesson('routes', 'Planned routes', 'Everyone who evacuated did so without needing to re-route. The plan assigns primary and alternate routes so people can adapt if one is unavailable.', ['EAP-ROUTES']),
     });
   }
 
   if (firstFire) {
     const seer = firstFire.actor ? name(firstFire.actor) : 'Someone';
     candidates.push({
-      score: 5,
+      score: report ? 5 : 5.5,
       l: lesson(
         'reporting',
         'Reporting the hazard',
         report
-          ? `${seer} saw the fire${firstFire.data.via === 'smoke' ? ' (smoke)' : ''} at ${firstFire.simTime.toFixed(1)} s and ${report.actor ? name(report.actor) : 'someone'} raised the alarm ${m.procedural.reportLatencySimSec?.toFixed(1)} s later, citing evidence. Prompt, evidence-based reporting alerts others who cannot see the hazard.`
-          : `${seer} saw the fire at ${firstFire.simTime.toFixed(1)} s, but nobody raised the alarm with evidence. Others only learn about hazards they cannot see if someone reports them.`,
+          ? `${seer} saw the fire${firstFire.data.via === 'smoke' ? ' (smoke)' : ''} at ${fmt(firstFire.simTime)} and ${report.actor ? name(report.actor) : 'someone'} reported it with evidence ${(report.simTime - firstFire.simTime).toFixed(1)} s later. Prompt, evidence-based reporting tells others where the danger is.`
+          : `${seer} saw the fire at ${fmt(firstFire.simTime)}, but nobody described it to the others with evidence. Others only learn where a hazard is if someone reports it.`,
         ['EAP-REPORT'],
       ),
     });
@@ -209,19 +277,19 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
 
   if (input.roster.required) {
     candidates.push({
-      score: 4,
+      score: 3,
       l: lesson(
         'assistance',
         "Daniel's buddy arrangement",
         input.roster.fulfilled
           ? 'Daniel asked for his agreed buddy, Alex came to him, and they travelled together on wheelchair-accessible tiles to the assembly point. Consent came first; nobody carried him.'
-          : `Daniel had asked for a buddy in advance, but the escort was not completed${m.procedural.assistWithoutConsentAttempts ? ' (assistance was attempted before he had asked)' : ''}. Pre-arranged, consent-based assistance is part of the plan.`,
+          : `Daniel had asked for a buddy in advance, but the escort was not completed${m.procedural.assistWithoutConsentAttempts ? ' (assistance was attempted before he had asked)' : ''}. It is optional in this exercise, but pre-arranged, consent-based assistance is good practice.`,
         ['EAP-ASSIST', 'GUIDE-LAYOUT-BUDDY'],
       ),
     });
   } else if (input.danielPreference === 'independent') {
     candidates.push({
-      score: 3,
+      score: 2.5,
       l: lesson(
         'assistance',
         "Respecting Daniel's preference",
@@ -231,14 +299,17 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
     });
   }
 
+  const survivors = 3 - input.lost.length;
   candidates.push({
     score: 3.5,
     l: lesson(
       'accountability',
       'Accounting for everyone',
       input.rosterVerified
-        ? `${input.roster.checkedIn.length}/3 checked in at the assembly point and the warden verified the roster at ${input.outcome.simTime.toFixed(1)} s${m.procedural.prematureVerifyAttempts ? ` (after ${m.procedural.prematureVerifyAttempts} early check(s) that correctly reported people outstanding)` : ''}. Only a physical check-in plus the roster check confirms everyone is out.`
-        : `${input.roster.checkedIn.length}/3 checked in; the roster was not verified. Saying "everyone is out" is not accountability — a check-in and roster check are.`,
+        ? `${input.roster.checkedIn.length}/${survivors} survivors checked in at the assembly point and the warden verified the roster at ${fmt(input.outcome.simTime)}${input.lost.length ? `, reporting ${input.lost.map((x) => name(x.actor)).join(' and ')} as lost` : ''}${
+            m.procedural.prematureVerifyAttempts ? ` (after ${m.procedural.prematureVerifyAttempts} early check(s) that correctly reported people outstanding)` : ''
+          }. Only a physical check-in plus the roster check confirms who is out.`
+        : `${input.roster.checkedIn.length}/${survivors} survivors checked in; the roster was not verified. Saying "everyone is out" is not accountability — a check-in and roster check are.`,
       ['EAP-ACCOUNT'],
     ),
   });

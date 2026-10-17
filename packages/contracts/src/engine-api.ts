@@ -25,6 +25,10 @@ export interface EngineOptions {
   stallCeilingSimSec?: number;
   /** Seed for idle/ambient behaviour; defaults to scenario.seed. */
   seed?: number;
+  /** Per-tick probability that a burning cell tries to ignite one random neighbour (default: engine FIRE_SPREAD_PER_TICK). */
+  fireSpreadPerTick?: number;
+  /** Idle ambient wandering before people are alerted (default true). Headless experiments may turn it off. */
+  ambient?: boolean;
 }
 
 export type PlacementCode =

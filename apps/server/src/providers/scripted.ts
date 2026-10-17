@@ -104,70 +104,99 @@ export class ScriptedProvider implements DecisionProvider {
   private policy(view: PlannerView): Omit<NormalizedToolCall, 'id'> {
     const A = Object.fromEntries(view.actors.map((a) => [a.id, a])) as Record<ActorId, ViewActor>;
     const mk = (name: string, args: Record<string, unknown>): Omit<NormalizedToolCall, 'id'> => ({ name, arguments: args });
+    const alive = view.actors.filter((a) => !a.lost);
+    const stations = view.alarm?.stations ?? [];
+    const dist = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const nearestStation = (a: ViewActor) => stations.map((st) => dist(a.tile, st.stand)).sort((x, y) => x - y)[0] ?? Infinity;
+    const alarmActive = !!view.alarm?.active;
 
-    // 1. Report hazards nobody else knows about yet (fire before blockers).
+    // 1. Report. Fire: pull the alarm if the reporter is at (or close to) a pull station, otherwise shout to everyone.
+    //    Electrical: share the dead door so routes are re-planned.
     const unreported = [...view.evidence]
       .sort((x, y) => (x.kind === y.kind ? 0 : x.kind === 'fire' ? -1 : 1))
-      .find((e) => e.known_by.length < view.actors.length && !this.mem.reported.has(e.id));
+      .find((e) => !this.mem.reported.has(e.id) && alive.some((a) => !e.known_by.includes(a.id)));
     if (unreported) {
-      const speaker = unreported.known_by.includes(unreported.observed_by) ? unreported.observed_by : unreported.known_by[0];
-      this.mem.reported.add(unreported.id);
-      const where = unreported.zone ? unreported.zone.replace(/_/g, ' ') : 'nearby';
-      return unreported.kind === 'fire'
-        ? mk('notify', {
-            actor_id: speaker,
-            recipient: 'all',
-            topic: 'fire',
-            evidence_ids: [unreported.id],
-            message: `Fire in the ${where}! Everyone evacuate to the assembly point now.`,
-            reason_summary: 'Report the hazard with evidence before anyone moves.',
-          })
-        : mk('notify', {
-            actor_id: speaker,
+      const speakers = unreported.known_by.map((id) => A[id]).filter((a): a is ViewActor => !!a && !a.lost);
+      const speaker = speakers.find((a) => a.id === unreported.observed_by) ?? speakers[0];
+      if (speaker) {
+        const where = unreported.zone === 'rh_room' ? 'Red Hat room' : unreported.zone ? unreported.zone.replace(/_/g, ' ') : 'nearby';
+        if (unreported.kind === 'fire') {
+          // Whoever knows about the fire and is closest to a pull station raises the alarm.
+          const puller = [...speakers].filter((a) => a.alerted).sort((a, b) => nearestStation(a) - nearestStation(b))[0];
+          if (!alarmActive && puller && !puller.busy && stations.length) {
+            const d = nearestStation(puller);
+            if (d <= 1.5) {
+              return mk('pull_alarm', { actor_id: puller.id, reason_summary: 'Raise the building alarm so everyone evacuates.' });
+            }
+            if (d <= 6 && this.mem.lastMoveDest[puller.id] !== 'alarm') {
+              return mk('move', { actor_id: puller.id, destination: 'alarm', reason_summary: 'Go to the nearby pull station.' });
+            }
+          }
+          const headingToAlarm = !alarmActive && !!puller && puller.busy !== null && this.mem.lastMoveDest[puller.id] === 'alarm';
+          if (!headingToAlarm) {
+            this.mem.reported.add(unreported.id);
+            return mk('notify', {
+              actor_id: speaker.id,
+              recipient: 'all',
+              topic: 'fire',
+              evidence_ids: [unreported.id],
+              message: `Fire in the ${where}! Everyone evacuate to the assembly point now and keep away from it.`,
+              reason_summary: alarmActive ? 'Tell everyone where the fire is.' : 'Report the fire with evidence.',
+            });
+          }
+        } else {
+          this.mem.reported.add(unreported.id);
+          return mk('notify', {
+            actor_id: speaker.id,
             recipient: 'all',
             topic: 'route_blocked',
             evidence_ids: [unreported.id],
-            message: `The ${where} is blocked — use the other route.`,
-            reason_summary: 'Share the new obstruction so routes are re-planned.',
+            message: `The ${unreported.component ? unreported.component.replace(/_/g, ' ') : 'sliding door'} is dead — use another route.`,
+            reason_summary: 'Share the dead door so routes are re-planned.',
           });
+        }
+      }
     }
 
-    // 2. Accountability.
-    const all = view.actors;
-    if (all.every((a) => a.checked_in) && !view.roster.verified) {
-      return mk('verify_roster', { actor_id: 'alex', reason_summary: 'Everyone is checked in; warden verifies the roster.' });
+    // 2. Accountability (survivors only).
+    const alex = A.alex && !A.alex.lost ? A.alex : undefined;
+    if (alive.length && alive.every((a) => a.checked_in) && !view.roster.verified && alex) {
+      return mk('verify_roster', { actor_id: 'alex', reason_summary: 'Everyone still alive is checked in; warden verifies the roster.' });
     }
-    const toCheck = all.find((a) => a.zone === 'assembly' && !a.checked_in && !a.busy);
+    const toCheck = alive.find((a) => a.zone === 'assembly' && !a.checked_in && !a.busy);
     if (toCheck) return mk('check_in', { actor_id: toCheck.id });
 
-    // 3. Daniel's buddy arrangement (consent first).
-    const buddy = view.assistance.preference === 'buddy' && !view.assistance.fulfilled;
-    const alex = A.alex;
-    const daniel = A.daniel;
-    if (buddy && daniel?.alerted && !view.assistance.requested && !daniel.checked_in) {
-      return mk('request_assistance', {
-        actor_id: 'daniel',
-        helper_id: 'alex',
-        reason_summary: "Daniel asks for the pre-arranged buddy guidance.",
-      });
-    }
+    // 3. Optional buddy arrangement: only when Daniel prefers it AND Alex is close; otherwise Daniel goes on his own.
+    const daniel = A.daniel && !A.daniel.lost ? A.daniel : undefined;
     const escortActive = !!(alex?.escort || daniel?.escort) || daniel?.status === 'escorted';
-    if (buddy && view.assistance.requested && !view.assistance.accepted && !escortActive && alex && daniel && alex.alerted) {
-      const d = Math.hypot(alex.tile[0] - daniel.tile[0], alex.tile[1] - daniel.tile[1]);
+    const buddyClose = !!alex && !!daniel && dist(alex.tile, daniel.tile) <= 6;
+    const buddy =
+      view.assistance.preference === 'buddy' &&
+      !view.assistance.fulfilled &&
+      !!alex?.alerted &&
+      !alex.checked_in &&
+      !!daniel &&
+      !daniel.checked_in &&
+      daniel.zone !== 'assembly' &&
+      (escortActive || view.assistance.requested || buddyClose);
+    if (buddy && daniel?.alerted && !daniel.busy && !view.assistance.requested) {
+      return mk('request_assistance', { actor_id: 'daniel', helper_id: 'alex', reason_summary: 'Daniel asks for the pre-arranged buddy guidance.' });
+    }
+    if (buddy && view.assistance.requested && !view.assistance.accepted && !escortActive && alex && daniel) {
+      const d = dist(alex.tile, daniel.tile);
       if (d <= 1.5 && !alex.busy && !daniel.busy) {
         return mk('assist', { actor_id: 'alex', person_id: 'daniel', reason_summary: 'Start the agreed escort.' });
       }
-      if (!alex.busy) {
+      if (!alex.busy && this.mem.lastMoveDest.alex !== 'daniel') {
         return mk('move', { actor_id: 'alex', destination: 'daniel', reason_summary: 'Go to Daniel for the buddy arrangement.' });
       }
     }
 
-    // 4. Evacuate everyone who is alerted, idle and not yet at assembly.
-    for (const a of all) {
+    // 4. Evacuate everyone alive, alerted, idle and not yet at assembly — immediately (fire spreads).
+    for (const a of alive) {
       if (!a.alerted || a.checked_in || a.busy || a.zone === 'assembly') continue;
       if (a.status === 'escorted') continue; // follower moves with the leader
-      if (a.id === 'daniel' && buddy && !escortActive) continue; // waiting for Alex
-      if (a.id === 'alex' && buddy && view.assistance.requested && !escortActive) continue; // handled above
+      if (buddy && !escortActive && (a.id === 'daniel' || a.id === 'alex') && view.assistance.requested) continue; // handled above
       const route = [...view.routes]
         .reverse()
         .find((r) => r.actor === a.id && r.destination === 'assembly' && !this.mem.usedRoutes.has(r.route_id));
@@ -182,23 +211,20 @@ export class ScriptedProvider implements DecisionProvider {
       }
       const interrupted =
         this.mem.lastMoveDest[a.id] === 'assembly' ||
-        view.recent_actions.some(
-          (r) => r.actor === a.id && !r.ok && (r.error_code === 'ROUTE_UNAVAILABLE' || r.error_code === 'STALE_STATE'),
-        );
+        view.recent_actions.some((r) => r.actor === a.id && !r.ok && (r.error_code === 'ROUTE_UNAVAILABLE' || r.error_code === 'STALE_STATE'));
       if (interrupted) {
         return mk('plan_route', { actor_id: a.id, destination: 'assembly', reason_summary: 'Previous route failed; plan an alternate.' });
       }
-      return mk('move', { actor_id: a.id, destination: 'assembly', reason_summary: 'Evacuate to the assembly point.' });
+      return mk('move', { actor_id: a.id, destination: 'assembly', reason_summary: 'Evacuate to the assembly point now.' });
     }
 
     // 5. Nothing actionable right now (people are moving): ground in the plan once, then monitor.
-    for (const section of buddy ? ['assistance', 'routes'] : ['routes']) {
-      if (!this.mem.consulted.has(section)) {
-        this.mem.consulted.add(section);
-        return mk('consult_plan', { actor_id: 'alex', section, reason_summary: `Warden checks the ${section} section while people move.` });
-      }
+    const watcher = alex ?? alive[0] ?? view.actors[0];
+    if (!this.mem.consulted.has('routes')) {
+      this.mem.consulted.add('routes');
+      return mk('consult_plan', { actor_id: watcher.id, section: 'routes', reason_summary: 'Check the routes section while people move.' });
     }
-    const someone = all.find((a) => !a.checked_in) ?? all[0];
+    const someone = alive.find((a) => !a.checked_in) ?? watcher;
     return mk('observe', { actor_id: someone.id, reason_summary: 'Monitor while others move.' });
   }
 }

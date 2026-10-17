@@ -12,11 +12,11 @@
   "danielPreference": "buddy",
   "events": [
     { "id": "ev-fire", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "fire", "col": 8, "row": 5 } },
-    { "id": "ev-blocker", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "blocker", "col": 26, "row": 15 } }
+    { "id": "ev-door", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "electrical", "col": 26, "row": 14 } }
   ],
   "labels": {
     "solvable": true,
     "primaryRouteBlocked": true,
-    "notes": "Presenter drops the fire just inside door A (Maya sees it), then blocks the south branch while Alex escorts Daniel toward the east exit. Alternate route: lobby connector -> north corridor -> west exit -> sidewalk -> assembly."
+    "notes": "Presenter drops the fire just inside door A (Maya sees it; it spreads), someone pulls a fire alarm, then an electrical failure jams the south sliding door (to the east exit) while Alex and Daniel head through the lobby. Alternate route: lobby connector -> north corridor -> west exit -> sidewalk -> assembly."
   }
 }

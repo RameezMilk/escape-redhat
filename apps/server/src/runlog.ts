@@ -18,7 +18,6 @@ import type {
 
 export type RunInput =
   | { tick: number; type: 'place'; kind: HazardKind; col: number; row: number }
-  | { tick: number; type: 'remove'; kind: HazardKind }
   | { tick: number; type: 'begin'; decisionId: string }
   | { tick: number; type: 'view' }
   | { tick: number; type: 'tool'; call: NormalizedToolCall; meta: DecisionMeta }
@@ -35,7 +34,8 @@ export interface RunHeader {
   mapHash: string;
   provider: Omit<ProviderInfo, 'healthy' | 'healthDetail' | 'p50LatencyMs' | 'lastLatencyMs'>;
   harness: string;
-  engineOptions: { maxDecisions: number; maxSimTime?: number; seed?: number; tickMs?: number };
+  /** Live runs have no stall ceiling (there is no gameplay timer); headless/Gym runs record theirs. */
+  engineOptions: { maxDecisions: number; stallCeilingSimSec?: number; seed?: number; tickMs?: number };
   clock: 'live' | 'lockstep';
 }
 
@@ -46,14 +46,22 @@ export type RunLine =
   | { type: 'result'; tick: number; result: EpisodeResult }
   | { type: 'footer'; finalTick: number; hash: string; eventCount: number };
 
+/** Engine options recorded in a run header, minus anything older rulesets used (e.g. maxSimTime). */
+export function replayEngineOptions(h: RunHeader): RunHeader['engineOptions'] {
+  const o = h.engineOptions;
+  return {
+    maxDecisions: o.maxDecisions,
+    ...(o.stallCeilingSimSec !== undefined ? { stallCeilingSimSec: o.stallCeilingSimSec } : {}),
+    ...(o.seed !== undefined ? { seed: o.seed } : {}),
+    ...(o.tickMs !== undefined ? { tickMs: o.tickMs } : {}),
+  };
+}
+
 /** Apply a recorded input to an engine (used live, in headless runs and in replay). */
 export function applyInput(engine: Engine, input: RunInput): void {
   switch (input.type) {
     case 'place':
       engine.placeHazard(input.kind, input.col, input.row);
-      return;
-    case 'remove':
-      engine.removeHazard(input.kind);
       return;
     case 'begin':
       engine.beginDecision();
@@ -70,6 +78,10 @@ export function applyInput(engine: Engine, input: RunInput): void {
       return;
     case 'end':
       engine.end(input.status, input.reason);
+      return;
+    default:
+      // Inputs from older rulesets (e.g. 'remove') have no meaning in this engine; a replay of such a log
+      // reports divergence honestly via the footer hash check.
       return;
   }
 }

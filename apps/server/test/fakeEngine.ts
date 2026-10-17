@@ -47,11 +47,15 @@ export class FakeEngine implements Engine {
     this.tick++;
     return [];
   }
+  placements: { kind: HazardKind; col: number; row: number }[] = [];
   placeHazard(kind: HazardKind, col: number, row: number): PlacementResult {
-    return { ok: true, event: this.push('hazard_placed', { kind, col, row }) };
+    this.placements.push({ kind, col, row });
+    const hazardId = `H${this.placements.length}`;
+    return { ok: true, hazardId, event: this.push('hazard_placed', { hazardId, kind, col, row }) };
   }
-  removeHazard(kind: HazardKind) {
-    return { ok: true, event: this.push('hazard_removed', { kind }) };
+  /** Test helper: emit an arbitrary engine event (e.g. alarm_activated, actor_lost). */
+  emitEvent(type: WorldEvent['type'], data: Record<string, unknown>, extra: Partial<WorldEvent> = {}): WorldEvent {
+    return this.push(type, data, extra);
   }
   beginDecision(): string {
     this.decisions++;
@@ -73,12 +77,13 @@ export class FakeEngine implements Engine {
     return {
       sim_time: this.tick / 10,
       phase: 'incident',
-      decisions_remaining: 24 - this.decisions,
+      decisions_remaining: 60 - this.decisions,
       actors: [],
       evidence: [],
+      alarm: { active: false, stations: [] },
       messages: [],
       assistance: { person: 'daniel', preference: 'buddy', buddy: 'alex', requested: false, accepted: false, fulfilled: false },
-      roster: { checked_in: [], verified: false },
+      roster: { checked_in: [], verified: false, lost: [] },
       routes: [],
       recent_actions: [],
       new_since_last_decision: [],
@@ -97,9 +102,10 @@ export class FakeEngine implements Engine {
       mode: 'live',
       actors: [],
       hazards: [],
-      roster: { checkedIn: [], verified: false },
-      assistance: { required: true, requested: false, accepted: false, fulfilled: false },
-      decisions: { used: this.decisions, max: 24, inFlight: false },
+      roster: { checkedIn: [], verified: false, lost: [] },
+      assistance: { required: false, requested: false, accepted: false, fulfilled: false },
+      alarm: { active: false },
+      decisions: { used: this.decisions, max: 60, inFlight: false },
       outcome: this._outcome,
     };
   }
@@ -136,6 +142,8 @@ export const fakeMap = {
   zones: [],
   zoneEdges: [],
   spawnSpots: { alex: [], maya: [], daniel: [] },
+  components: [{ id: 'door_b', kind: 'sliding_door', label: 'Sliding door B (Red Hat room east)', zone: 'door_b', tiles: [], orientation: 'vertical' }],
+  alarms: [{ id: 'alarm_rh', label: 'Pull station — Red Hat room (by door B)', zone: 'rh_room', wall: { col: 18, row: 12 }, stand: { col: 17, row: 12 } }],
 } as unknown as MapData;
 
 export const fakeScenario: ScenarioCase = {

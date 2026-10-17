@@ -36,7 +36,7 @@ function useKeyboard(enabled: boolean) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key;
       if (k === 'f' || k === 'F') placement.select('fire');
-      else if (k === 'b' || k === 'B') placement.select('blocker');
+      else if (k === 'e' || k === 'E') placement.select('electrical');
       else if (k === 'Escape') placement.cancel();
       else if (k === 'p' || k === 'P') {
         const snap = store.getState().snapshot;

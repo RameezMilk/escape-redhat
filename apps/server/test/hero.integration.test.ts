@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createEngine } from '@escape/engine';
-import type { ServerMessage } from '@escape/contracts';
+import type { ScenarioCase, ServerMessage } from '@escape/contracts';
 import { readPlannerConfig } from '../src/config.js';
 import { loadCases, loadMapFile } from '../src/data.js';
 import { runEpisodeHeadless } from '../src/headless.js';
@@ -15,30 +15,50 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 const cases = loadCases();
 const map = loadMapFile();
 
+/** The hero scenario built in-test (independent of dataset regeneration): fire just inside door A at t=1, and the
+ *  south-branch sliding door loses power when anyone enters the lobby. */
+function heroCase(): ScenarioCase {
+  const base = cases.get('demo-hero') ?? [...cases.values()][0];
+  return {
+    ...base,
+    caseId: 'test-hero-v2',
+    split: 'dev',
+    family: 'hero',
+    events: [
+      { id: 'ev-fire', trigger: { type: 'at_time', simTime: 1 }, action: { type: 'place_hazard', kind: 'fire', col: 8, row: 5 } },
+      { id: 'ev-power', trigger: { type: 'actor_enters_zone', actor: 'any', zone: 'lobby' }, action: { type: 'place_hazard', kind: 'electrical', col: 26, row: 14 } },
+    ],
+    labels: { solvable: true, primaryRouteBlocked: true },
+  };
+}
+
 describe('scripted fixture × real engine', () => {
-  it('headless dev hero case (fire at t=1, blocker when someone enters the lobby) reaches verified success', async () => {
-    const scenario = cases.get('dev-00-hero')!;
+  it('headless hero (fire, then a dead south door) reaches verified success with an alarm/report, an interruption and a replan', async () => {
     const { result, trace, runLogLines } = await runEpisodeHeadless({
-      scenario,
+      scenario: heroCase(),
+      map,
       provider: new ScriptedProvider({ latencyMs: [0, 0] }),
       harness: 'v2',
     });
     expect(result.outcome.status).toBe('success');
     expect(result.score.success).toBe(true);
+    expect(trace.some((r) => r.kind === 'decision' && (r.tool === 'pull_alarm' || r.tool === 'notify') && r.status === 'completed')).toBe(true);
     expect(trace.some((r) => r.status === 'failed' && r.tool === 'move')).toBe(true); // an interrupted move
-    expect(trace.some((r) => r.tool === 'plan_route' && r.status === 'completed')).toBe(true); // recovery
+    expect(trace.some((r) => (r.tool === 'plan_route' && r.status === 'completed') || (r.tool === 'move' && !!r.args?.route_id))).toBe(true); // recovery
     expect(trace.every((r) => r.kind !== 'decision' || r.origin.startsWith('SCRIPTED fixture'))).toBe(true);
+    expect(trace.some((r) => /spread|charred/i.test(r.summary) && r.kind === 'engine')).toBe(false);
+    expect(runLogLines[0]).toMatchObject({ type: 'header', engineOptions: { stallCeilingSimSec: 900 } });
     expect(runLogLines.at(-1)).toMatchObject({ type: 'footer' });
   });
 
-  it('live session: presenter places fire then blocker, episode succeeds, replay re-simulates identically', async () => {
+  it('live session: presenter starts a fire then cuts power to the south door; success; replay re-simulates identically', async () => {
     const runsDir = mkdtempSync(join(tmpdir(), 'escape-runs-'));
     const sent: ServerMessage[] = [];
     const session = new Session({
       map,
       cases,
       provider: new ScriptedProvider({ latencyMs: [0, 0] }),
-      planner: { ...readPlannerConfig({}), maxDecisions: 30 },
+      planner: readPlannerConfig({}),
       createEngine,
       broadcast: (m) => sent.push(m),
       runsDir,
@@ -47,30 +67,30 @@ describe('scripted fixture × real engine', () => {
     });
     session.start('demo-hero');
     const episodeId = session.episodeId;
-    let blockerPlaced = false;
-    for (let i = 0; i < 3000 && !session.currentEngine.outcome(); i++) {
+    let powerCut = false;
+    for (let i = 0; i < 5000 && !session.currentEngine.outcome(); i++) {
       if (i === 10) expect(session.place('fire', 8, 5)).toMatchObject({ ok: true });
       const snap = session.snapshot();
-      const alex = snap.actors.find((a) => a.id === 'alex')!;
-      if (!blockerPlaced && alex.status === 'escorting' && alex.zone === 'lobby') {
-        expect(session.place('blocker', 26, 15)).toMatchObject({ ok: true });
-        blockerPlaced = true;
+      if (!powerCut && snap.actors.some((a) => a.zone === 'lobby' && a.task?.kind === 'move' && a.task.destination === 'assembly')) {
+        expect(session.place('electrical', 26, 14)).toMatchObject({ ok: true });
+        powerCut = true;
       }
       session.loop();
       await flush();
     }
     session.loop(); // emits episode_end
-    expect(blockerPlaced).toBe(true);
+    expect(powerCut).toBe(true);
     const end = sent.find((m) => m.type === 'episode_end' && m.episodeId === episodeId);
     expect(end && end.type === 'episode_end' && end.result.outcome.status).toBe('success');
     expect(sent.some((m) => m.type === 'bubble' && m.kind === 'message')).toBe(true);
+    expect(sent.some((m) => m.type === 'trace' && m.row.summary.startsWith('Presenter cut power to'))).toBe(true);
 
     // Replay the saved run.
     expect(readdirSync(runsDir)).toContain(`${episodeId}.jsonl`);
     session.handle({ type: 'replay', runId: episodeId });
     const replayId = session.episodeId;
     expect(replayId).toMatch(/^replay-/);
-    for (let i = 0; i < 4000; i++) {
+    for (let i = 0; i < 6000; i++) {
       session.loop();
       if (sent.some((m) => m.type === 'episode_end' && m.episodeId === replayId)) break;
     }

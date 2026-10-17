@@ -1,12 +1,14 @@
-// Presenter placement tool: select Fire/Blocker (card click, drag, or F/B key), preview a 2×2 ghost, place.
-// Validity uses the engine's own validatePlacement (shared code); the server re-validates authoritatively.
+// Presenter placement tool: select Fire / Electrical failure (card click, drag, or F/E key), preview, place.
+// Any number of each threat can be placed (Reset clears them). Validity uses the engine's shared validatePlacement;
+// the server re-validates authoritatively.
 import { useSyncExternalStore } from 'react';
 
 import type { HazardKind, MapData, Snapshot, Tile } from '@escape/contracts';
-import { validatePlacement } from '@escape/engine';
+import { doorNear, validatePlacement } from '@escape/engine';
 
 import { send } from '../net/socket';
 import { store } from './store';
+
 
 export interface GhostState {
   kind: HazardKind | null;
@@ -20,9 +22,9 @@ export interface GhostState {
 export interface GhostEval {
   valid: boolean;
   reason: string;
+  /** Fire: the 2×2 seed. Electrical: the snapped door's tiles (or the hovered tile when invalid). */
   tiles: Tile[];
-  noGo: Tile[];
-  reposition: boolean;
+  componentId?: string;
 }
 
 type Listener = () => void;
@@ -63,8 +65,8 @@ class PlacementStore {
   }
   nudge(dc: number, dr: number): void {
     if (!this.map) return;
-    const col = Math.max(0, Math.min(this.map.cols - 2, this.state.col + dc));
-    const row = Math.max(0, Math.min(this.map.rows - 2, this.state.row + dr));
+    const col = Math.max(0, Math.min(this.map.cols - 1, this.state.col + dc));
+    const row = Math.max(0, Math.min(this.map.rows - 1, this.state.row + dr));
     this.set({ col, row, visible: true });
   }
   cancel(): void {
@@ -72,26 +74,24 @@ class PlacementStore {
   }
 
   evaluate(kind: HazardKind, col: number, row: number, snap: Snapshot | null): GhostEval {
-    if (!this.map || !snap) return { valid: false, reason: 'Waiting for the simulation…', tiles: [], noGo: [], reposition: false };
-    if (snap.outcome || snap.phase === 'ended') {
-      return { valid: false, reason: 'Episode is over — reset to place hazards.', tiles: [], noGo: [], reposition: false };
+    const here: Tile[] = kind === 'fire' ? [{ col, row }, { col: col + 1, row }, { col, row: row + 1 }, { col: col + 1, row: row + 1 }] : [{ col, row }];
+    if (!this.map || !snap) return { valid: false, reason: 'Waiting for the simulation…', tiles: here };
+    if (snap.outcome || snap.phase === 'ended') return { valid: false, reason: 'Episode is over — reset to place hazards.', tiles: here };
+    if (snap.mode === 'replay') return { valid: false, reason: 'Replay is read-only.', tiles: here };
+    const actors = snap.actors.filter((a) => !a.lost).map((a) => ({ col: Math.round(a.x), row: Math.round(a.y) }));
+    const res = validatePlacement(this.map, { hazards: snap.hazards, actors }, kind, col, row);
+    if (res.ok) {
+      const door = res.componentId ? this.map.components.find((d) => d.id === res.componentId) : undefined;
+      return {
+        valid: true,
+        reason: kind === 'fire' ? 'Start a fire here' : `Cut power: ${door?.label ?? res.componentId}`,
+        tiles: res.tiles,
+        componentId: res.componentId,
+      };
     }
-    if (snap.mode === 'replay') return { valid: false, reason: 'Replay is read-only.', tiles: [], noGo: [], reposition: false };
-    const existing = snap.hazards.some((h) => h.kind === kind);
-    const reposition = existing && snap.paused;
-    const hazards = reposition ? snap.hazards.filter((h) => h.kind !== kind) : snap.hazards;
-    const actors = snap.actors.map((a) => ({ col: Math.round(a.x), row: Math.round(a.y) }));
-    const res = validatePlacement(this.map, { hazards, actors }, kind, col, row);
-    if (res.ok) return { valid: true, reason: reposition ? `Move the ${kind} here` : `Place ${kind} here`, tiles: res.tiles, noGo: res.noGo, reposition };
-    const tiles: Tile[] = [
-      { col, row },
-      { col: col + 1, row },
-      { col, row: row + 1 },
-      { col: col + 1, row: row + 1 },
-    ];
-    const noGo: Tile[] = [];
-    if (kind === 'fire') for (let r = row - 1; r <= row + 2; r++) for (let c = col - 1; c <= col + 2; c++) noGo.push({ col: c, row: r });
-    return { valid: false, reason: res.reason, tiles, noGo, reposition };
+    // Electrical: still show which door the pointer is near (e.g. ALREADY_DISABLED) so the red preview is meaningful.
+    const near = kind === 'electrical' ? doorNear(this.map, col, row) : null;
+    return { valid: false, reason: res.reason, tiles: near ? near.tiles : here, componentId: near?.id };
   }
 
   /** Place at the current ghost position (or given tile). Returns true when a command was sent. */
@@ -103,7 +103,6 @@ class PlacementStore {
       store.toast(ev.reason, 'error');
       return false;
     }
-    if (ev.reposition) send({ type: 'remove', kind });
     send({ type: 'place', kind, col, row });
     this.set({ kind: null, visible: false, dragging: false });
     return true;

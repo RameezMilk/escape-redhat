@@ -5,9 +5,10 @@ import { send } from '../net/socket';
 import { useStore } from '../state/store';
 
 const OUTCOME: Record<string, { title: string; tone: string }> = {
-  success: { title: 'Everyone accounted for', tone: 'good' },
-  incomplete: { title: 'Incomplete', tone: 'warn' },
-  timed_out: { title: 'Timed out', tone: 'warn' },
+  success: { title: 'Everyone made it out', tone: 'good' },
+  partial: { title: 'Partial', tone: 'warn' },
+  failed: { title: 'Nobody made it out', tone: 'bad' },
+  incomplete: { title: 'Incomplete — safety stop', tone: 'warn' },
   unresolved: { title: 'Unresolved — no safe route', tone: 'bad' },
   aborted: { title: 'Aborted', tone: 'bad' },
 };
@@ -29,8 +30,13 @@ export function DebriefOverlay() {
       </button>
     );
   }
-  const o = OUTCOME[result.outcome.status] ?? { title: result.outcome.status, tone: 'warn' };
   const m = result.metrics;
+  const base = OUTCOME[result.outcome.status] ?? { title: result.outcome.status, tone: 'warn' };
+  const o = result.outcome.status === 'partial' ? { ...base, title: `Partial — ${m.procedural.escaped} of 3 escaped` } : base;
+  const alarm = snapshot?.alarm;
+  const alarmText = m.procedural.alarmRaised
+    ? `${alarm?.by ? alarm.by[0].toUpperCase() + alarm.by.slice(1) : 'yes'}${m.procedural.alarmLatencySimSec !== null ? ` · +${m.procedural.alarmLatencySimSec.toFixed(1)} s` : ''}`
+    : 'not raised';
   const run = runs.find((r) => r.runId === result.episodeId) ?? runs.find((r) => r.caseId === result.caseId) ?? runs[0];
 
   return (
@@ -43,12 +49,16 @@ export function DebriefOverlay() {
         </div>
         <div className="metrics">
           <div>
-            <b>{m.procedural.checkedIn}/3</b>
-            <span>checked in</span>
+            <b>{m.procedural.escaped}/3</b>
+            <span>escaped (checked in)</span>
           </div>
           <div>
-            <b>{fmtS(m.simTimeToComplete ?? m.simTime)}</b>
-            <span>simulated time</span>
+            <b>{m.procedural.lost}</b>
+            <span>lost to the fire</span>
+          </div>
+          <div>
+            <b>{alarmText}</b>
+            <span>fire alarm raised (after first sighting)</span>
           </div>
           <div>
             <b>{m.decisions}</b>
@@ -69,8 +79,8 @@ export function DebriefOverlay() {
             <span>model p50 latency</span>
           </div>
           <div>
-            <b>{(m.wallTimeMs / 1000).toFixed(0)} s</b>
-            <span>wall clock</span>
+            <b>{fmtS(m.simTimeToComplete ?? m.simTime)}</b>
+            <span>simulated time · {(m.wallTimeMs / 1000).toFixed(0)} s wall</span>
           </div>
           <div>
             <b>{m.procedural.rosterVerified ? 'yes' : 'no'}</b>

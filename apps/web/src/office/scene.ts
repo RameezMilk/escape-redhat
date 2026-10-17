@@ -16,7 +16,8 @@ import type {
 import { CharacterState, Direction } from '../vendor/pixel-agents/webview-ui/src/office/types';
 import { ACTOR_VIEW } from './actors';
 import { getDecorSprites } from './sprites/decor';
-import { getBlockerSprite, getFireFrames } from './sprites/hazards';
+import { getAlarmSprites, getDoorSprites } from './sprites/fixtures';
+import { CELL_FLAME_HEIGHT, cellFlameFor, getBoltSprite, getCharTiles, getFireFrames, getMiniBolt } from './sprites/hazards';
 import { Raster, type SpriteData } from './sprites/raster';
 import { getWheelchairSprites } from './sprites/wheelchair';
 
@@ -207,51 +208,194 @@ export function staticDrawables(map: MapData): ExtraDrawable[] {
   return out;
 }
 
-export function hazardDrawables(hazards: HazardSnapshot[], timeMs: number): ExtraDrawable[] {
+// Ignition pop-in: when a cell is first seen burning (per episode), fade/scale its flame in over 250 ms.
+const firstSeen = new Map<string, number>();
+let seenEpisode = '';
+
+/** Fire cells (flames, ember glow, heat margin) and charred floor. Electrical hazards are drawn by fixtureDrawables. */
+export function hazardDrawables(hazards: HazardSnapshot[], timeMs: number, episodeId = ''): ExtraDrawable[] {
+  if (episodeId !== seenEpisode) {
+    firstSeen.clear();
+    seenEpisode = episodeId;
+  }
   const out: ExtraDrawable[] = [];
+  const chars = getCharTiles();
+  const burning = new Set<string>();
+  const charred = new Set<string>();
   for (const h of hazards) {
-    const foot = new Set(h.tiles.map((t) => `${t.col},${t.row}`));
-    // Danger tint on the no-go area (under walls/furniture/characters)
-    out.push({
-      zY: -400,
-      draw: (c, ox, oy, z) => {
-        const s = T * z;
-        c.save();
-        if (h.kind === 'fire') {
-          const pulse = 0.18 + 0.06 * Math.sin(timeMs / 260);
-          for (const t of h.noGo) {
-            c.fillStyle = foot.has(`${t.col},${t.row}`) ? `rgba(120, 20, 10, 0.35)` : `rgba(255, 96, 32, ${pulse.toFixed(3)})`;
-            c.fillRect(ox + t.col * s, oy + t.row * s, s, s);
-          }
-          const cx = ox + (h.col + h.w / 2) * s;
-          const cy = oy + (h.row + h.h / 2) * s;
-          const g = c.createRadialGradient(cx, cy, s * 0.4, cx, cy, s * 3.2);
-          g.addColorStop(0, 'rgba(255, 170, 60, 0.28)');
-          g.addColorStop(1, 'rgba(255, 120, 40, 0)');
-          c.fillStyle = g;
-          c.fillRect(cx - s * 3.2, cy - s * 3.2, s * 6.4, s * 6.4);
-        } else {
-          for (const t of h.tiles) {
-            c.fillStyle = 'rgba(242, 194, 48, 0.18)';
-            c.fillRect(ox + t.col * s, oy + t.row * s, s, s);
-          }
+    if (h.kind !== 'fire') continue;
+    for (const t of h.cells) burning.add(`${t.col},${t.row}`);
+    for (const t of h.charred) charred.add(`${t.col},${t.row}`);
+  }
+  if (!burning.size && !charred.size) return out;
+
+  // Ground layer: charred floor, ember glow under burning cells, faint heat margin around the fire front.
+  out.push({
+    zY: -400,
+    draw: (c, ox, oy, z) => {
+      const s = T * z;
+      c.save();
+      for (const k of charred) {
+        const [col, row] = k.split(',').map(Number);
+        const img = getCachedSprite(chars[(col + row) % 2], z);
+        c.drawImage(img, ox + col * s, oy + row * s);
+        // occasional glowing ember pixels
+        const ph = Math.floor(timeMs / 380) + col * 7 + row * 3;
+        if (ph % 5 === 0) {
+          c.fillStyle = 'rgba(255, 110, 40, 0.9)';
+          c.fillRect(ox + (col * T + 3 + ((col * 5) % 9)) * z, oy + (row * T + 4 + ((row * 3) % 8)) * z, z, z);
         }
-        c.restore();
-      },
-    });
-    const sprite = h.kind === 'fire' ? getFireFrames()[Math.floor(timeMs / 140) % 3] : getBlockerSprite();
+      }
+      const pulse = 0.3 + 0.08 * Math.sin(timeMs / 230);
+      for (const k of burning) {
+        const [col, row] = k.split(',').map(Number);
+        c.fillStyle = `rgba(150, 30, 10, 0.55)`;
+        c.fillRect(ox + col * s, oy + row * s, s, s);
+        c.fillStyle = `rgba(255, 140, 40, ${pulse.toFixed(3)})`;
+        c.fillRect(ox + col * s, oy + row * s, s, s);
+      }
+      // heat margin: walkable neighbours of burning cells (where the fire can spread next)
+      const margin = new Set<string>();
+      for (const k of burning) {
+        const [col, row] = k.split(',').map(Number);
+        for (let dr = -1; dr <= 1; dr++)
+          for (let dc = -1; dc <= 1; dc++) {
+            const nk = `${col + dc},${row + dr}`;
+            if (!burning.has(nk) && !charred.has(nk)) margin.add(nk);
+          }
+      }
+      c.fillStyle = `rgba(255, 120, 40, ${(0.1 + 0.05 * Math.sin(timeMs / 300)).toFixed(3)})`;
+      for (const k of margin) {
+        const [col, row] = k.split(',').map(Number);
+        c.fillRect(ox + col * s, oy + row * s, s, s);
+      }
+      c.restore();
+    },
+  });
+
+  // Flames: one z-sorted drawable per burning cell (rises 6 px into the row above).
+  for (const k of burning) {
+    const [col, row] = k.split(',').map(Number);
+    const seenKey = k;
+    if (!firstSeen.has(seenKey)) firstSeen.set(seenKey, timeMs);
+    const age = timeMs - (firstSeen.get(seenKey) ?? timeMs);
+    const grow = Math.min(1, age / 250);
     out.push({
-      zY: (h.row + h.h) * T - 0.25,
-      draw: (c, ox, oy, z) => blit(c, sprite, h.col * T, (h.row + h.h) * T - sprite.length, ox, oy, z),
+      zY: (row + 1) * T - 0.25,
+      draw: (c, ox, oy, z) => {
+        const sprite = cellFlameFor(col, row, timeMs);
+        const img = getCachedSprite(sprite, z);
+        const x = ox + col * T * z;
+        const bottom = oy + (row + 1) * T * z;
+        if (grow >= 1) {
+          c.drawImage(img, Math.round(x), Math.round(bottom - CELL_FLAME_HEIGHT * z));
+        } else {
+          // pop in: grow upward from the floor + fade in
+          c.save();
+          c.globalAlpha = 0.35 + 0.65 * grow;
+          const h = img.height * (0.35 + 0.65 * grow);
+          c.drawImage(img, Math.round(x), Math.round(bottom - h), img.width, h);
+          c.restore();
+        }
+      },
     });
   }
   return out;
 }
 
+/** Sliding doors (open, or stuck shut with sparks when an electrical hazard disabled them) and pull stations. */
+export function fixtureDrawables(
+  map: MapData,
+  hazards: HazardSnapshot[],
+  alarm: { active: boolean; stationId?: string } | undefined,
+  timeMs: number,
+  reducedMotion = false,
+): ExtraDrawable[] {
+  const out: ExtraDrawable[] = [];
+  const ds = getDoorSprites();
+  const disabled = new Set(hazards.filter((h) => h.kind === 'electrical').map((h) => h.componentId ?? ''));
+  for (const d of map.components ?? []) {
+    const shut = disabled.has(d.id);
+    const minC = Math.min(...d.tiles.map((t) => t.col));
+    const minR = Math.min(...d.tiles.map((t) => t.row));
+    const maxR = Math.max(...d.tiles.map((t) => t.row));
+    if (d.orientation === 'horizontal') {
+      const sprite = shut ? ds.h.shut : ds.h.open;
+      out.push({ zY: (minR + 1) * T, draw: (c, ox, oy, z) => blit(c, sprite, minC * T, (minR + 1) * T - sprite.length, ox, oy, z) });
+    } else {
+      const sprite = shut ? ds.v.shut : ds.v.open;
+      out.push({ zY: (maxR + 1) * T, draw: (c, ox, oy, z) => blit(c, sprite, minC * T, (maxR + 1) * T - sprite.length, ox, oy, z) });
+    }
+    if (shut) {
+      // flickering electric sparks + a small ⚡ over the stuck door
+      const cx = (minC + (d.orientation === 'horizontal' ? 1 : 0.5)) * T;
+      const cy = d.orientation === 'horizontal' ? minR * T + 2 : (minR + 1) * T;
+      const bolt = getMiniBolt();
+      out.push({
+        zY: (maxR + 1) * T + 0.5,
+        draw: (c, ox, oy, z) => {
+          const f = Math.floor(timeMs / 70);
+          c.save();
+          for (let i = 0; i < 6; i++) {
+            const h = Math.sin(f * 12.9898 + i * 78.233) * 43758.5453;
+            const r = h - Math.floor(h);
+            if (r < 0.45) continue;
+            const ang = r * Math.PI * 2;
+            const dist = 3 + r * 7;
+            c.fillStyle = r > 0.8 ? '#ffffff' : r > 0.62 ? '#ffe65a' : '#7fd3ff';
+            c.fillRect(ox + (cx + Math.cos(ang) * dist) * z, oy + (cy + Math.sin(ang) * dist * 0.7) * z, z, z);
+          }
+          if (Math.floor(timeMs / 400) % 2 === 0) blit(c, bolt, cx - 3, cy - 13, ox, oy, z);
+          c.restore();
+        },
+      });
+    }
+  }
+  const as = getAlarmSprites();
+  for (const a of map.alarms ?? []) {
+    const { col, row } = a.wall;
+    const active = !!alarm?.active;
+    const phase = Math.floor(timeMs / (reducedMotion ? 700 : 210)) % 3;
+    const strobe = !active ? as.off : phase === 0 ? as.white : as.red;
+    // Mounted on a vertical wall (wall continues below): sort after the wall tile beneath so the box stays visible.
+    const wallBelow = row + 1 < map.rows && map.terrain[(row + 1) * map.cols + col] === 'wall';
+    out.push({
+      zY: (row + (wallBelow ? 2 : 1)) * T + 0.3,
+      draw: (c, ox, oy, z) => {
+        blit(c, as.box, col * T + 3, row * T - 4, ox, oy, z);
+        blit(c, strobe, col * T + 4, row * T - 10, ox, oy, z);
+        if (active) {
+          const cx = ox + (col * T + 8) * z;
+          const cy = oy + (row * T - 8) * z;
+          const g = c.createRadialGradient(cx, cy, 0, cx, cy, 26 * z);
+          g.addColorStop(0, `rgba(255, 40, 40, ${phase === 0 ? 0.45 : 0.25})`);
+          g.addColorStop(1, 'rgba(255, 40, 40, 0)');
+          c.save();
+          c.fillStyle = g;
+          c.fillRect(cx - 26 * z, cy - 26 * z, 52 * z, 52 * z);
+          c.restore();
+        }
+      },
+    });
+  }
+  return out;
+}
+
+/** Whole-office red strobe while the alarm is active (≤ 0.18 alpha; slow and soft with reduced motion). */
+export function drawAlarmStrobe(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: number, reducedMotion: boolean): void {
+  const hz = reducedMotion ? 0.35 : 1.2;
+  const wave = 0.5 + 0.5 * Math.sin((timeMs / 1000) * hz * Math.PI * 2);
+  const a = reducedMotion ? 0.04 + 0.04 * wave : 0.03 + 0.15 * wave * wave;
+  ctx.save();
+  ctx.fillStyle = `rgba(255, 24, 24, ${a.toFixed(3)})`;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+}
+
 /** Placement preview drawn on top of the finished frame. */
 export function drawGhost(
   ctx: CanvasRenderingContext2D,
-  ghost: { kind: HazardKind; col: number; row: number; valid: boolean; tiles: Tile[]; noGo: Tile[] },
+  ghost: { kind: HazardKind; col: number; row: number; valid: boolean; tiles: Tile[] },
   ox: number,
   oy: number,
   zoom: number,
@@ -259,27 +403,37 @@ export function drawGhost(
 ): void {
   const s = T * zoom;
   ctx.save();
-  const fill = ghost.valid ? 'rgba(64, 214, 120, 0.28)' : 'rgba(240, 64, 64, 0.32)';
-  const stroke = ghost.valid ? '#40d678' : '#f04040';
   if (ghost.kind === 'fire') {
+    const fill = ghost.valid ? 'rgba(255, 150, 60, 0.28)' : 'rgba(240, 64, 64, 0.32)';
+    // hint that fire spreads: dashed ring one tile around the seed
     ctx.setLineDash([3 * zoom, 2 * zoom]);
-    ctx.strokeStyle = ghost.valid ? 'rgba(255, 140, 50, 0.9)' : 'rgba(240, 64, 64, 0.7)';
+    ctx.strokeStyle = ghost.valid ? 'rgba(255, 140, 50, 0.8)' : 'rgba(240, 64, 64, 0.6)';
     ctx.lineWidth = Math.max(1, zoom);
-    const minC = Math.min(...ghost.noGo.map((t) => t.col));
-    const minR = Math.min(...ghost.noGo.map((t) => t.row));
-    const maxC = Math.max(...ghost.noGo.map((t) => t.col));
-    const maxR = Math.max(...ghost.noGo.map((t) => t.row));
-    ctx.strokeRect(ox + minC * s + 0.5, oy + minR * s + 0.5, (maxC - minC + 1) * s - 1, (maxR - minR + 1) * s - 1);
+    ctx.strokeRect(ox + (ghost.col - 1) * s + 0.5, oy + (ghost.row - 1) * s + 0.5, 4 * s - 1, 4 * s - 1);
     ctx.setLineDash([]);
+    for (const t of ghost.tiles) {
+      ctx.fillStyle = fill;
+      ctx.fillRect(ox + t.col * s, oy + t.row * s, s, s);
+    }
+    ctx.strokeStyle = ghost.valid ? '#ff9a3a' : '#f04040';
+    ctx.lineWidth = Math.max(2, zoom);
+    ctx.strokeRect(ox + ghost.col * s + 1, oy + ghost.row * s + 1, 2 * s - 2, 2 * s - 2);
+    const sprite = getFireFrames()[Math.floor(timeMs / 140) % 3];
+    blit(ctx, sprite, ghost.col * T, (ghost.row + 2) * T - sprite.length, ox, oy, zoom, ghost.valid ? 0.8 : 0.4);
+  } else {
+    // electrical: highlight the snapped door's tiles (yellow) or the hovered tile (red)
+    const pulse = 0.25 + 0.15 * Math.sin(timeMs / 160);
+    for (const t of ghost.tiles) {
+      ctx.fillStyle = ghost.valid ? `rgba(255, 214, 60, ${(pulse + 0.15).toFixed(3)})` : 'rgba(240, 64, 64, 0.35)';
+      ctx.fillRect(ox + t.col * s, oy + t.row * s, s, s);
+      ctx.strokeStyle = ghost.valid ? '#ffd23f' : '#f04040';
+      ctx.lineWidth = Math.max(2, zoom);
+      ctx.strokeRect(ox + t.col * s + 1, oy + t.row * s + 1, s - 2, s - 2);
+    }
+    const minC = Math.min(...ghost.tiles.map((t) => t.col));
+    const minR = Math.min(...ghost.tiles.map((t) => t.row));
+    const bolt = getBoltSprite();
+    blit(ctx, bolt, minC * T - 8, minR * T - 30, ox, oy, zoom, ghost.valid ? 0.9 : 0.45);
   }
-  for (const t of ghost.tiles) {
-    ctx.fillStyle = fill;
-    ctx.fillRect(ox + t.col * s, oy + t.row * s, s, s);
-  }
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = Math.max(2, zoom);
-  ctx.strokeRect(ox + ghost.col * s + 1, oy + ghost.row * s + 1, 2 * s - 2, 2 * s - 2);
-  const sprite = ghost.kind === 'fire' ? getFireFrames()[Math.floor(timeMs / 140) % 3] : getBlockerSprite();
-  blit(ctx, sprite, ghost.col * T, (ghost.row + 2) * T - sprite.length, ox, oy, zoom, ghost.valid ? 0.75 : 0.4);
   ctx.restore();
 }

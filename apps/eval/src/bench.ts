@@ -19,9 +19,11 @@ export interface BenchRow {
   caseId: string;
   family: string;
   solvableLabel: boolean;
+  /** Trapped-by-design case (labels.expectLosses): success would be a false claim. */
+  expectLosses: boolean;
   outcome: string;
   outcomeReason: string;
-  /** success on a solvable case, or any non-success outcome on an unsolvable one */
+  /** success on a normal case, or any non-success outcome on a trapped one */
   labelConsistent: boolean;
   reward: number;
   decisions: number;
@@ -38,6 +40,11 @@ export interface BenchRow {
   rosterVerified: boolean;
   routeInterruptions: number;
   replannedAfterInterruption: boolean;
+  alarmRaised: boolean;
+  alarmLatencySimSec: number | null;
+  /** Survivors who reached assembly and checked in. */
+  escaped: number;
+  lost: number;
   simTime: number;
   simTimeToComplete: number | null;
   wallTimeMs: number;
@@ -98,14 +105,17 @@ const fmt = (x: number | null | undefined, digits = 1) => (x === null || x === u
 
 function rowFrom(c: ScenarioCase, result: EpisodeResult): BenchRow {
   const m = result.metrics;
+  const pr = m.procedural;
   const success = result.outcome.status === 'success';
+  const expectLosses = c.labels.expectLosses ?? false;
   return {
     caseId: c.caseId,
     family: c.family,
     solvableLabel: c.labels.solvable,
+    expectLosses,
     outcome: result.outcome.status,
     outcomeReason: result.outcome.reason,
-    labelConsistent: c.labels.solvable ? success : !success,
+    labelConsistent: expectLosses ? !success : success,
     reward: result.score.reward,
     decisions: m.decisions,
     toolCalls: m.toolCalls,
@@ -121,6 +131,10 @@ function rowFrom(c: ScenarioCase, result: EpisodeResult): BenchRow {
     rosterVerified: m.procedural.rosterVerified,
     routeInterruptions: m.procedural.routeInterruptions,
     replannedAfterInterruption: m.procedural.replannedAfterInterruption,
+    alarmRaised: pr.alarmRaised ?? false,
+    alarmLatencySimSec: pr.alarmLatencySimSec ?? null,
+    escaped: pr.escaped ?? pr.checkedIn ?? 0,
+    lost: pr.lost ?? 0,
     simTime: m.simTime,
     simTimeToComplete: m.simTimeToComplete,
     wallTimeMs: m.wallTimeMs,
@@ -137,25 +151,38 @@ function decisionLatencies(trace: TraceRow[]): number[] {
   return [...byId.values()].map((r) => r.latencyMs).filter((x): x is number => typeof x === 'number');
 }
 
+const OUTCOMES = ['success', 'partial', 'failed', 'incomplete', 'unresolved', 'aborted', 'error'] as const;
+
 export function aggregate(rows: BenchRow[], latencies: number[], wallMs: number) {
   const ok = rows.filter((r) => !r.error);
-  const byFamily: Record<string, { n: number; success: number; labelConsistent: number }> = {};
+  const byFamily: Record<string, { n: number; success: number; labelConsistent: number; escaped: number; lost: number }> = {};
   for (const r of ok) {
-    const f = (byFamily[r.family] ??= { n: 0, success: 0, labelConsistent: 0 });
+    const f = (byFamily[r.family] ??= { n: 0, success: 0, labelConsistent: 0, escaped: 0, lost: 0 });
     f.n++;
     if (r.outcome === 'success') f.success++;
     if (r.labelConsistent) f.labelConsistent++;
+    f.escaped += r.escaped;
+    f.lost += r.lost;
   }
-  const solvable = ok.filter((r) => r.solvableLabel);
+  const outcomeMix = Object.fromEntries(OUTCOMES.map((o) => [o, rows.filter((r) => r.outcome === o).length]));
+  const normal = ok.filter((r) => !r.expectLosses);
+  const trapped = ok.filter((r) => r.expectLosses);
   const toolCalls = ok.reduce((a, r) => a + r.toolCalls, 0);
   const invalid = ok.reduce((a, r) => a + r.invalidCalls, 0);
   const interrupted = ok.filter((r) => r.routeInterruptions > 0);
+  const alarmLat = ok.map((r) => r.alarmLatencySimSec).filter((x): x is number => typeof x === 'number');
   return {
     episodes: rows.length,
     errored: rows.length - ok.length,
-    successOnSolvable: `${solvable.filter((r) => r.outcome === 'success').length}/${solvable.length}`,
+    outcomeMix,
+    successOnNormal: `${normal.filter((r) => r.outcome === 'success').length}/${normal.length}`,
+    falseSuccessOnTrapped: trapped.filter((r) => r.outcome === 'success').length,
+    trappedCases: trapped.length,
     labelConsistent: `${ok.filter((r) => r.labelConsistent).length}/${ok.length}`,
-    falseSuccessOnUnsolvable: ok.filter((r) => !r.solvableLabel && r.outcome === 'success').length,
+    peopleEscaped: `${ok.reduce((a, r) => a + r.escaped, 0)}/${ok.length * 3}`,
+    peopleLost: ok.reduce((a, r) => a + r.lost, 0),
+    peopleLostOnNormal: normal.reduce((a, r) => a + r.lost, 0),
+    peopleLostOnTrapped: trapped.reduce((a, r) => a + r.lost, 0),
     meanReward: mean(ok.map((r) => r.reward)),
     byFamily,
     toolCalls,
@@ -167,10 +194,12 @@ export function aggregate(rows: BenchRow[], latencies: number[], wallMs: number)
     repeatedInvalid: ok.reduce((a, r) => a + r.repeatedInvalid, 0),
     replannedAfterInterruption: `${interrupted.filter((r) => r.replannedAfterInterruption).length}/${interrupted.length}`,
     hazardReported: `${ok.filter((r) => r.hazardReported).length}/${ok.length}`,
-    assistanceFulfilledWhenRequired: `${ok.filter((r) => r.assistanceRequired && r.assistanceFulfilled).length}/${ok.filter((r) => r.assistanceRequired).length}`,
+    alarmRaised: `${ok.filter((r) => r.alarmRaised).length}/${ok.length}`,
+    meanAlarmLatencySimSec: mean(alarmLat),
+    assistanceFulfilledWhenRequested: `${ok.filter((r) => r.assistanceRequired && r.assistanceFulfilled).length}/${ok.filter((r) => r.assistanceRequired).length}`,
     rosterVerified: `${ok.filter((r) => r.rosterVerified).length}/${ok.length}`,
     meanDecisions: mean(ok.map((r) => r.decisions)),
-    meanSimTimeToCompleteSuccess: mean(ok.filter((r) => r.simTimeToComplete !== null).map((r) => r.simTimeToComplete!)),
+    meanSimTimeToCompleteSuccess: mean(ok.filter((r) => r.outcome === 'success' && r.simTimeToComplete !== null).map((r) => r.simTimeToComplete!)),
     decisionLatencyMsP50: percentile(latencies, 50),
     decisionLatencyMsP95: percentile(latencies, 95),
     decisionsMeasured: latencies.length,
@@ -196,43 +225,47 @@ export function renderMarkdown(s: BenchSummary): string {
   lines.push('');
   lines.push('| Metric | Value |');
   lines.push('|---|---|');
-  lines.push(`| Verified success on solvable cases | ${a.successOnSolvable} |`);
-  lines.push(`| Label-consistent outcomes (success iff solvable) | ${a.labelConsistent} |`);
-  lines.push(`| False success on unsolvable cases | ${a.falseSuccessOnUnsolvable} |`);
+  lines.push(`| Verified success (all 3 alive, checked in, roster verified) on normal cases | ${a.successOnNormal} |`);
+  lines.push(`| False success on trapped-by-design cases | ${a.falseSuccessOnTrapped}/${a.trappedCases} |`);
+  lines.push(`| Outcome mix | ${Object.entries(a.outcomeMix).filter(([, n]) => n).map(([o, n]) => `${o} ${n}`).join(' · ')} |`);
+  lines.push(`| Outcomes matching expectation (success on normal, non-success on trapped) | ${a.labelConsistent} |`);
+  lines.push(`| People escaped and checked in | ${a.peopleEscaped} |`);
+  lines.push(`| People lost — normal cases / trapped cases | ${a.peopleLostOnNormal} / ${a.peopleLostOnTrapped} |`);
   lines.push(`| Mean reward | ${fmt(a.meanReward, 2)} |`);
   lines.push(`| Tool calls / invalid (rate) | ${a.toolCalls} / ${a.invalidCalls} (${a.invalidCallRate === null ? '—' : (100 * a.invalidCallRate).toFixed(1) + '%'}) |`);
   lines.push(`| Malformed responses / provider errors | ${a.malformed} / ${a.providerErrors} |`);
   lines.push(`| Recoveries after an error | ${a.recoveries} |`);
   lines.push(`| Repeated identical invalid calls | ${a.repeatedInvalid} |`);
   lines.push(`| Re-planned after a route interruption | ${a.replannedAfterInterruption} |`);
-  lines.push(`| Hazard reported with evidence | ${a.hazardReported} |`);
-  lines.push(`| Assistance fulfilled when required | ${a.assistanceFulfilledWhenRequired} |`);
+  lines.push(`| Hazard reported (notify with evidence or alarm) | ${a.hazardReported} |`);
+  lines.push(`| Fire alarm pulled · mean sim s after first sighting | ${a.alarmRaised} · ${fmt(a.meanAlarmLatencySimSec)} |`);
+  lines.push(`| Buddy assistance completed when Daniel asked | ${a.assistanceFulfilledWhenRequested} |`);
   lines.push(`| Roster verified | ${a.rosterVerified} |`);
   lines.push(`| Mean decisions / episode | ${fmt(a.meanDecisions)} |`);
-  lines.push(`| Mean sim time to verified completion (s) | ${fmt(a.meanSimTimeToCompleteSuccess)} |`);
+  lines.push(`| Mean sim time to verified success (s) | ${fmt(a.meanSimTimeToCompleteSuccess)} |`);
   lines.push(`| Decision latency p50 / p95 (ms, n=${a.decisionsMeasured}) | ${fmt(a.decisionLatencyMsP50, 0)} / ${fmt(a.decisionLatencyMsP95, 0)} |`);
   lines.push(`| Tokens prompt / completion | ${a.promptTokens} / ${a.completionTokens} |`);
   lines.push(`| Wall time total (s) · episodes/min | ${(a.totalWallMs / 1000).toFixed(1)} · ${fmt(a.episodesPerMinute, 2)} |`);
   lines.push('');
-  lines.push('| Family | n | success | label-consistent |');
-  lines.push('|---|---|---|---|');
-  for (const [f, v] of Object.entries(a.byFamily)) lines.push(`| ${f} | ${v.n} | ${pct(v.success, v.n)} | ${pct(v.labelConsistent, v.n)} |`);
+  lines.push('| Family | n | success | as expected | escaped | lost |');
+  lines.push('|---|---|---|---|---|---|');
+  for (const [f, v] of Object.entries(a.byFamily)) lines.push(`| ${f} | ${v.n} | ${pct(v.success, v.n)} | ${pct(v.labelConsistent, v.n)} | ${v.escaped}/${v.n * 3} | ${v.lost} |`);
   lines.push('');
   lines.push('## Cases');
   lines.push('');
-  lines.push('| Case | Family | Solvable | Outcome | Reward | Decisions | Invalid | Recov. | Sim s | Wall s | p50/p95 ms | Tokens in/out |');
-  lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
+  lines.push('| Case | Family | Trapped | Outcome | Escaped/lost | Alarm | Reward | Decisions | Invalid | Recov. | Sim s | Wall s | p50/p95 ms | Tokens in/out |');
+  lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of s.rows) {
     if (r.error) {
-      lines.push(`| ${r.caseId} | ${r.family} | ${r.solvableLabel ? 'yes' : 'no'} | ERROR: ${r.error.slice(0, 60)} | | | | | | | | |`);
+      lines.push(`| ${r.caseId} | ${r.family} | ${r.expectLosses ? 'yes' : 'no'} | ERROR: ${r.error.slice(0, 60)} | | | | | | | | | | |`);
       continue;
     }
     lines.push(
-      `| ${r.caseId} | ${r.family} | ${r.solvableLabel ? 'yes' : 'no'} | ${r.outcome}${r.labelConsistent ? '' : ' ⚠'} | ${r.reward} | ${r.decisions} | ${r.invalidCalls} | ${r.recoveries} | ${fmt(r.simTime)} | ${(r.wallTimeMs / 1000).toFixed(1)} | ${fmt(r.latencyMsP50, 0)}/${fmt(r.latencyMsP95, 0)} | ${r.promptTokens}/${r.completionTokens} |`,
+      `| ${r.caseId} | ${r.family} | ${r.expectLosses ? 'yes' : 'no'} | ${r.outcome}${r.labelConsistent ? '' : ' ⚠'} | ${r.escaped}/${r.lost} | ${r.alarmRaised ? 'yes' : '—'} | ${r.reward} | ${r.decisions} | ${r.invalidCalls} | ${r.recoveries} | ${fmt(r.simTime)} | ${(r.wallTimeMs / 1000).toFixed(1)} | ${fmt(r.latencyMsP50, 0)}/${fmt(r.latencyMsP95, 0)} | ${r.promptTokens}/${r.completionTokens} |`,
     );
   }
   lines.push('');
-  lines.push('⚠ = outcome inconsistent with the solvability label. Small sample: report counts, not just rates.');
+  lines.push('⚠ = not the expected outcome (success on a normal case; anything but success on a trapped one). Fire spread is seeded but the planner samples at temperature > 0: report counts, not just rates.');
   return lines.join('\n') + '\n';
 }
 
@@ -299,7 +332,7 @@ async function main() {
 
   const summary: BenchSummary = {
     meta: {
-      dataset: 'escape-office-scenarios-v1',
+      dataset: datasetId(),
       split,
       cases: cases.length,
       provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, thinking: info.thinking, baseUrl: info.baseUrl },
@@ -312,7 +345,7 @@ async function main() {
       note:
         info.endpointKind === 'scripted'
           ? 'SCRIPTED fixture run: validates the harness only; these are not model results.'
-          : 'Small sample (≤32 cases); single run per case; temperature > 0 so reruns can differ.',
+          : 'Ruleset 2 (spreading fire, electrical doors, alarms, no time limit). Small sample (≤32 cases); single run per case; temperature > 0 and seeded fire spread, so reruns can differ.',
     },
     aggregates: aggregate(rows, latencies, wallMs),
     rows,
@@ -321,6 +354,14 @@ async function main() {
   writeFileSync(join(outDir, 'summary.md'), renderMarkdown(summary));
   console.log(`[bench] wrote ${join(outDir, 'summary.md')}`);
   console.log(renderMarkdown(summary).split('\n## Cases')[0]);
+}
+
+function datasetId(): string {
+  try {
+    return (JSON.parse(readFileSync(join(root, 'data/scenarios/splits.json'), 'utf8')) as { dataset?: string }).dataset ?? 'escape-office-scenarios';
+  } catch {
+    return 'escape-office-scenarios';
+  }
 }
 
 function emptyResult(c: ScenarioCase): EpisodeResult {
@@ -357,6 +398,10 @@ function emptyResult(c: ScenarioCase): EpisodeResult {
         knownHazardMoveAttempts: 0,
         routeInterruptions: 0,
         replannedAfterInterruption: false,
+        alarmRaised: false,
+        alarmLatencySimSec: null,
+        escaped: 0,
+        lost: 0,
       },
     },
     debrief: [],
