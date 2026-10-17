@@ -21,8 +21,8 @@
     "data:map": "tsx data/maps/build-map.ts",
     "data:scenarios": "tsx data/scenarios/generator.ts",
     "assets:build": "tsx scripts/build-pixel-assets.ts",
-    "bench": "tsx apps/eval/src/bench.ts",
-    "replay": "tsx apps/eval/src/replay.ts",
+    "bench": "tsx --env-file-if-exists=.env apps/eval/src/bench.ts",
+    "replay": "tsx --env-file-if-exists=.env apps/eval/src/replay.ts",
     "deps:audit": "node scripts/audit-dep-dates.mjs"
   },
   "devDependencies": {

@@ -2,8 +2,8 @@
 # One-shot evidence collection once vLLM is serving Nemotron on Brev.
 # Produces the numbers the README / bounty write-ups cite — nothing is copied by hand.
 #
-#   ssh -N -L 8000:localhost:8000 <brev-instance>          # in another terminal
-#   BASE_URL=http://localhost:8000/v1 API_KEY=<vllm --api-key> deploy/vllm/measure.sh [quick|full]
+#   brev port-forward escape-nemotron --port 8001:8000      # in another terminal
+#   API_KEY=<ESCAPE_VLLM_KEY> deploy/vllm/measure.sh [quick|full]
 #
 # quick (default): endpoint check + smoke/recovery + dev split (v2) + held-out test split (v2)
 # full:            quick + test split with baseline harness v1 + concurrency 1 vs 8 throughput + thinking-on A/B
@@ -11,9 +11,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 MODE="${1:-quick}"
-BASE_URL="${BASE_URL:-http://localhost:8000/v1}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8001/v1}"
 API_KEY="${API_KEY:-${VLLM_API_KEY:-}}"
-MODEL="${MODEL:-nemotron-3.5-lightning}"
+MODEL="${MODEL:-escape-nemotron}"
 STAMP="$(date +%Y%m%d-%H%M)"
 OUT="results/vllm-${STAMP}"
 mkdir -p "$OUT"

@@ -939,7 +939,15 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       path = plan.path;
     }
     if (!path.length) {
-      return { ok: true, actionId, status: 'completed', data: { destination: args.destination, already_there: true, at: [leader.col, leader.row] } };
+      const toPerson = (ACTOR_IDS as readonly string[]).includes(args.destination);
+      const next = toPerson
+        ? args.destination === 'daniel' && leader.id === 'alex'
+          ? requests.some((r) => r.person === 'daniel' && r.helper === 'alex')
+            ? 'Alex is already next to Daniel and Daniel has asked for help: call assist (alex → daniel).'
+            : 'Alex is already next to Daniel. Daniel has not asked for help yet: Daniel calls request_assistance with helper_id "alex".'
+          : `Already next to ${name(args.destination as ActorId)}.`
+        : 'Already there.';
+      return { ok: true, actionId, status: 'completed', data: { destination: args.destination, already_there: true, at: [leader.col, leader.row], next } };
     }
     startTask(leader, {
       kind: 'move',
@@ -1084,6 +1092,11 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       );
     } else {
       counters.prematureVerifyAttempts++;
+      if (rs.outstanding.length === 0 && rs.required && !rs.fulfilled) {
+        // Everyone is out and checked in, but the agreed buddy arrangement was never carried out: this cannot be
+        // fixed any more (people stay at assembly), so end the exercise instead of letting the planner loop.
+        endEpisode('incomplete', "Everyone reached the assembly point, but Daniel's agreed buddy arrangement with Alex was not carried out.");
+      }
     }
     return {
       ok: true,
@@ -1115,7 +1128,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       case 'plan_route':
         return `${who} route ${d.route_id} to ${d.destination}: ${(d.zones as string[]).join(' → ')} (${d.length_tiles} tiles)`;
       case 'move':
-        return d.already_there ? `${who} already at ${d.destination}` : `${who}${d.moving_together_with ? ` + ${name(d.moving_together_with as ActorId)}` : ''} moving to ${d.destination} (${d.length_tiles} tiles, ~${d.eta_s}s)`;
+        return d.already_there ? `${who} already at ${d.destination} — no movement. ${d.next ?? ''}`.trim() : `${who}${d.moving_together_with ? ` + ${name(d.moving_together_with as ActorId)}` : ''} moving to ${d.destination} (${d.length_tiles} tiles, ~${d.eta_s}s)`;
       case 'request_assistance':
         return `${who} asked ${name(call.args.helper_id as ActorId)} for assistance`;
       case 'assist':

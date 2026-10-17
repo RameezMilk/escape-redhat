@@ -5,9 +5,9 @@
 #   ssh -N -L 8000:localhost:8000 <brev-instance>    # in another terminal
 #   BASE_URL=http://localhost:8000/v1 API_KEY=$VLLM_API_KEY ./check.sh
 set -euo pipefail
-BASE_URL="${BASE_URL:-http://localhost:8000/v1}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8001/v1}"
 API_KEY="${API_KEY:-${VLLM_API_KEY:-}}"
-MODEL="${MODEL:-nemotron-3.5-lightning}"
+MODEL="${MODEL:-escape-nemotron}"
 N="${N:-20}"
 AUTH=(-H "Authorization: Bearer ${API_KEY}" -H "Content-Type: application/json")
 

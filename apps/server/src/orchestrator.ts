@@ -16,7 +16,7 @@ import {
   type WorldEvent,
 } from '@escape/contracts';
 import type { Harness } from './config.js';
-import { buildSystemPrompt } from './prompt.js';
+import { buildSystemPrompt, toolsFor } from './prompt.js';
 import { plannerName, type DecisionProvider, type DecisionResult } from './providers/types.js';
 import type { RunInput } from './runlog.js';
 
@@ -255,7 +255,7 @@ export class Orchestrator {
       this.emit(base);
 
       const ask = () =>
-        provider.decide({ system: this.system, view, harness: this.d.harness, tools: TOOL_DEFS, signal: this.controller.signal, deadlineMs: this.d.deadlineMs });
+        provider.decide({ system: this.system, view, harness: this.d.harness, tools: toolsFor(this.d.harness, view), signal: this.controller.signal, deadlineMs: this.d.deadlineMs });
       let res: DecisionResult = await ask();
       let retried = false;
       if (res.kind === 'error' && res.code !== 'ABORTED' && !this.disposed) {

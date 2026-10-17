@@ -1,40 +1,57 @@
 #!/usr/bin/env bash
-# Serve Nemotron 3.5 Lightning 30B-A3B with vLLM on ONE GPU (Brev H100 80–96 GB recommended).
-# Run this ON the GPU machine. Flags come from the NVIDIA model card's vLLM recipe (BF16, 1x H100),
-# plus a modest context (16K) and an API key. Record what you actually ran in MODEL_MANIFEST.md.
+# Serve Nemotron 3.5 Lightning 30B-A3B (BF16) with vLLM on ONE H100. This is the exact configuration that ran for the
+# submitted demo and results (Brev, 1x H100 80GB HBM3, 2026-10-17); see MODEL_MANIFEST.md for measured values.
+# Flags adapt the NVIDIA model card's single-H100 BF16 recipe to a small context/concurrency for 3 game characters.
+# Run ON the GPU VM:
 #
-#   export VLLM_API_KEY=$(openssl rand -hex 16)   # keep it; put the same value in the app's .env as PLANNER_API_KEY
-#   export HF_REVISION=<full commit sha from https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16/commits/main>
+#   export ESCAPE_ROOT="$HOME/escape-inference"; mkdir -p "$ESCAPE_ROOT/hf-cache" "$ESCAPE_ROOT/vllm-cache"
+#   python3 -c "import secrets;print('ESCAPE_VLLM_KEY='+secrets.token_urlsafe(32))" > "$ESCAPE_ROOT/server.env"; chmod 600 "$ESCAPE_ROOT/server.env"
 #   ./serve.sh
+#
+# Laptop (game backend):  brev port-forward escape-nemotron --port 8001:8000
+#   .env → PLANNER_BASE_URL=http://127.0.0.1:8001/v1  PLANNER_MODEL=escape-nemotron  PLANNER_API_KEY=<ESCAPE_VLLM_KEY>
 set -euo pipefail
 
-: "${VLLM_API_KEY:?set VLLM_API_KEY (any random string; the app sends it as a Bearer token)}"
-HF_REVISION="${HF_REVISION:-main}"   # pin a sha for reproducibility
-IMAGE="${IMAGE:-vllm/vllm-openai:v0.27.1}"   # v0.27.1 = model card's named version (released 2026-08-11)
-MODEL="${MODEL:-nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16}"
-PORT="${PORT:-8000}"
+ESCAPE_ROOT="${ESCAPE_ROOT:-$HOME/escape-inference}"
+# shellcheck disable=SC1091
+. "$ESCAPE_ROOT/server.env"
+: "${ESCAPE_VLLM_KEY:?missing ESCAPE_VLLM_KEY in $ESCAPE_ROOT/server.env}"
+IMAGE="${IMAGE:-vllm/vllm-openai:v0.27.1}"   # resolved digest on 2026-10-17: sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
 
-if [ "$HF_REVISION" = "main" ]; then
-  echo "WARNING: HF_REVISION not pinned; record the resolved sha in MODEL_MANIFEST.md" >&2
-fi
+docker run -d \
+  --name escape-nemotron \
+  --restart unless-stopped \
+  --gpus all \
+  --ipc=host \
+  -p 127.0.0.1:8000:8000 \
+  -v "$ESCAPE_ROOT/hf-cache:/root/.cache/huggingface" \
+  -v "$ESCAPE_ROOT/vllm-cache:/root/.cache/vllm" \
+  -e HF_HUB_DOWNLOAD_TIMEOUT=120 \
+  -e HF_HUB_ETAG_TIMEOUT=60 \
+  "$IMAGE" \
+  --model nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16 \
+  --served-model-name escape-nemotron \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --dtype bfloat16 \
+  --max-model-len 8192 \
+  --max-num-seqs 4 \
+  --max-num-batched-tokens 8192 \
+  --gpu-memory-utilization 0.90 \
+  --enable-prefix-caching \
+  --async-scheduling \
+  --mamba-backend flashinfer \
+  --mamba-ssm-cache-dtype float16 \
+  --enable-mamba-cache-stochastic-rounding \
+  --mamba-cache-philox-rounds 5 \
+  --reasoning-parser nemotron_v3 \
+  --tool-call-parser qwen3_coder \
+  --enable-auto-tool-choice \
+  --api-key "$ESCAPE_VLLM_KEY"
 
-docker rm -f nemotron-vllm >/dev/null 2>&1 || true
-docker run -d --name nemotron-vllm --restart unless-stopped \
-  --gpus all --ipc=host -p "${PORT}:8000" \
-  -v "${HOME}/.cache/huggingface:/root/.cache/huggingface" \
-  "${IMAGE}" \
-  --model "${MODEL}" --revision "${HF_REVISION}" \
-  --served-model-name nemotron-3.5-lightning \
-  --max-model-len 16384 --max-num-seqs 32 \
-  --enable-prefix-caching --async-scheduling \
-  --mamba-backend flashinfer --mamba-ssm-cache-dtype float16 \
-  --enable-mamba-cache-stochastic-rounding --mamba-cache-philox-rounds 5 \
-  --reasoning-parser nemotron_v3 --tool-call-parser qwen3_coder --enable-auto-tool-choice \
-  --api-key "${VLLM_API_KEY}"
-
-echo "Started container nemotron-vllm. First start downloads ~66 GB of weights. Follow with:"
-echo "  docker logs -f nemotron-vllm"
-echo "Then run ./check.sh (on this machine, or through an SSH tunnel from your laptop)."
+echo "Started escape-nemotron (first start downloads ~62 GB of weights; ~10 min to load on H100). Follow with:"
+echo "  docker logs --follow --tail 80 escape-nemotron"
+echo "Then: curl -f http://127.0.0.1:8000/health"
 
 # ---------------------------------------------------------------------------------------------
 # Fallback 1 — NVFP4 checkpoint on 1x H100 (W4A16 'humming' kernels; Hopper has no FP4 tensor cores).

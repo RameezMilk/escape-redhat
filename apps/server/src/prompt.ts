@@ -2,7 +2,7 @@
 //   v1 = baseline: role, people, map, tools; no procedural guidance.
 //   v2 = v1 + explicit exercise procedure and error-recovery guidance.
 // The model never sees unobserved hazard truth: the user message is exactly engine.plannerView().
-import { ACTOR_IDS, ACTOR_PROFILES, type MapData, type PlannerView, type ScenarioCase } from '@escape/contracts';
+import { ACTOR_IDS, ACTOR_PROFILES, TOOL_DEFS, type MapData, type OpenAIToolDef, type PlannerView, type ScenarioCase } from '@escape/contracts';
 import type { Harness } from './config.js';
 
 function briefing(map: MapData, scenario: ScenarioCase): string {
@@ -41,7 +41,7 @@ const PROCEDURE_V2 = `PROCEDURE (follow in order of need)
 3. Evacuate: move each alerted person to destination "assembly". Moves take time — you are told when they complete or are interrupted; meanwhile you may act for other people.
 4. Recover: if a move fails with ROUTE_UNAVAILABLE or STALE_STATE, have the person who saw it notify "all" with topic "route_blocked" and the new evidence id, then call plan_route for the traveller to destination "assembly" and move with the returned route_id.
 5. Account: when a person is inside the assembly area and not moving, call check_in for them. When all three are checked in, Alex calls verify_roster — only this confirms the drill is complete.
-RULES: one tool call per turn; never repeat a rejected call unchanged — read its error hint and fix the cause; only cite evidence ids that appear in the state; keep messages short and calm; reason_summary is optional, one short line.`;
+RULES: each turn the tool list (and each tool's actor_id options) shows only the people who can take that action right now; one tool call per turn; never repeat a rejected call unchanged — read its error hint and fix the cause; only cite evidence ids that appear in the state; keep messages short and calm; reason_summary is optional, one short line.`;
 
 export function buildSystemPrompt(harness: Harness, map: MapData, scenario: ScenarioCase): string {
   return [ROLE, briefing(map, scenario), harness === 'v2' ? PROCEDURE_V2 : GOAL_V1].join('\n\n');
@@ -67,13 +67,23 @@ export function stateDigest(view: PlannerView): string {
     open.push(`Not alerted yet: ${unalerted.map((a) => a.id).join(', ')} — someone who knows the evidence must notify them before they can evacuate.`);
   }
   const as = view.assistance;
-  if (as && as.preference === 'buddy' && !as.fulfilled) {
-    if (!as.requested) open.push('Daniel\'s buddy arrangement has not started (he has not called request_assistance with helper "alex").');
-    else if (!as.accepted) open.push('Daniel has asked Alex for help; Alex must be next to Daniel and then call assist before they travel together.');
-    else open.push('Alex is escorting Daniel; moving Alex moves both.');
+  const alex = actors.find((a) => a.id === 'alex');
+  const daniel = actors.find((a) => a.id === 'daniel');
+  const buddyPending = !!as && as.preference === 'buddy' && !as.fulfilled && !!daniel && !daniel.checked_in;
+  if (buddyPending && alex && daniel) {
+    const gap = Math.hypot(alex.tile[0] - daniel.tile[0], alex.tile[1] - daniel.tile[1]);
+    if (!as.requested) open.push('Daniel\'s buddy arrangement has not started: Daniel must call request_assistance with helper_id "alex". Daniel waits for Alex rather than leaving alone.');
+    else if (!as.accepted) {
+      if (alex.busy) open.push(`Alex is on his way (${alex.busy}); nothing to do for Alex or Daniel until he arrives — give orders to others.`);
+      else if (gap > 1.5) open.push(`Daniel has asked Alex for help; Alex is ${gap.toFixed(1)} tiles away — move alex to destination "daniel".`);
+      else open.push('Alex is next to Daniel and Daniel has asked for help — Alex can call assist for Daniel now.');
+    } else open.push('Alex is escorting Daniel; moving Alex moves both.');
   }
   for (const a of actors) {
-    if (a.zone === 'assembly' && !a.checked_in && !a.busy) open.push(`${a.name} is at the assembly point but not checked in.`);
+    if (a.zone !== 'assembly' || a.checked_in || a.busy) continue;
+    if (a.id === 'alex' && buddyPending && daniel?.zone !== 'assembly') {
+      open.push('Alex reached assembly but Daniel (his buddy) is still inside — do not check Alex in yet; send Alex to Daniel.');
+    } else open.push(`${a.name} is at the assembly point but not checked in.`);
   }
   if (actors.length && actors.every((a) => a.checked_in) && !view.roster?.verified) open.push('Everyone is checked in; the roster has not been verified.');
   const last = recent[recent.length - 1];
@@ -106,4 +116,50 @@ export function buildMessages(harness: Harness, map: MapData, scenario: Scenario
     { role: 'system' as const, content: buildSystemPrompt(harness, map, scenario) },
     { role: 'user' as const, content: userContent(view, harness) },
   ];
+}
+
+
+/** v2 only: per-decision action masking. Each tool's actor_id enum lists only the people who can sensibly take that
+ *  action right now (derived from the planner-visible state). The engine still validates every call, and any invalid
+ *  proposal is still recorded — masking narrows the menu, it does not hide failures. v1 sends the static TOOL_DEFS. */
+export function toolsFor(harness: Harness, view: PlannerView): OpenAIToolDef[] {
+  if (harness === 'v1') return TOOL_DEFS;
+  const actors = view.actors ?? [];
+  if (!actors.length) return TOOL_DEFS;
+  const as = view.assistance;
+  const daniel = actors.find((a) => a.id === 'daniel');
+  const buddyPending = !!as && as.preference === 'buddy' && !as.fulfilled && !!daniel && !daniel.checked_in && daniel.zone !== 'assembly';
+  const free = (a: PlannerView['actors'][number]) => a.alerted && !a.checked_in && !a.busy;
+  const allowed: Record<string, string[]> = {
+    observe: actors.filter((a) => !a.checked_in).map((a) => a.id),
+    consult_plan: actors.map((a) => a.id),
+    notify: actors.filter((a) => a.alerted && a.knows_evidence.length).map((a) => a.id),
+    plan_route: actors.filter((a) => !a.checked_in).map((a) => a.id),
+    // Daniel asked to travel with his buddy: until the escort starts, he waits for Alex instead of leaving alone.
+    move: actors.filter((a) => free(a) && !(a.id === 'daniel' && buddyPending && !as?.accepted)).map((a) => a.id),
+    request_assistance: actors.filter((a) => a.alerted && !a.checked_in && a.uses_wheelchair && !(as?.requested)).map((a) => a.id),
+    assist: [],
+    check_in: actors
+      .filter((a) => a.zone === 'assembly' && !a.checked_in && !a.busy && !(a.id === 'alex' && buddyPending))
+      .map((a) => a.id),
+    verify_roster: actors.every((a) => a.checked_in) ? ['alex'] : [],
+  };
+  if (as?.requested && !as.accepted && daniel) {
+    const alex = actors.find((a) => a.id === 'alex');
+    if (alex && free(alex) && !daniel.busy && Math.hypot(alex.tile[0] - daniel.tile[0], alex.tile[1] - daniel.tile[1]) <= 1.5) allowed.assist = ['alex'];
+  }
+  const out: OpenAIToolDef[] = [];
+  for (const def of TOOL_DEFS) {
+    const ids = allowed[def.function.name];
+    if (!ids || !ids.length) continue;
+    const params = def.function.parameters as { properties: Record<string, Record<string, unknown>> };
+    out.push({
+      ...def,
+      function: {
+        ...def.function,
+        parameters: { ...params, properties: { ...params.properties, actor_id: { ...params.properties.actor_id, enum: ids } } },
+      },
+    });
+  }
+  return out.length ? out : TOOL_DEFS;
 }
