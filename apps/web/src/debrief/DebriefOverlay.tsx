@@ -62,7 +62,7 @@ export function DebriefOverlay() {
           </div>
           <div>
             <b>{m.recoveries}</b>
-            <span>recoveries</span>
+            <span>recoveries (after a rejected call or blocked route)</span>
           </div>
           <div>
             <b>{fmtMs(m.latencyMsP50)}</b>

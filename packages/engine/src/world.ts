@@ -148,6 +148,9 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   const tickMs = opts.tickMs ?? 100;
   const maxDecisions = opts.maxDecisions ?? 24;
   const maxSimTime = opts.maxSimTime ?? 240;
+  /** Sim time when the incident began. The time limit counts from here, so a calm office can idle indefinitely. */
+  let incidentAt: number | null = null;
+  const IDLE_CEILING_S = 3600;
   const rng = mulberry32(opts.seed ?? scenario.seed);
   const speedPerTick = (SPEED_TILES_PER_SEC * tickMs) / 1000;
   const idx = (t: Tile) => tileIndex(map, t.col, t.row);
@@ -263,6 +266,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   function setPhase(p: Phase) {
     if (phase === p || phase === 'ended') return;
     const from = phase;
+    if (from === 'idle' && incidentAt === null) incidentAt = simTime();
     phase = p;
     emit('phase_changed', { from, to: p });
   }
@@ -350,7 +354,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     const outstanding = ACTOR_IDS.filter((id) => !actors[id].checkedIn);
     const detail = outstanding.length ? `not checked in: ${outstanding.map(name).join(', ')}` : rosterVerified ? 'roster verified' : 'roster not verified by the warden';
     if (kind === 'cap') endEpisode('incomplete', `Decision cap (${maxDecisions}) reached; ${detail}.`);
-    else endEpisode('timed_out', `Time limit (${maxSimTime}s simulated) reached; ${detail}.`);
+    else endEpisode('timed_out', `Time limit (${maxSimTime}s simulated after the incident began) reached; ${detail}.`);
   }
 
   function checkCap() {
@@ -620,7 +624,10 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (!outcome && (phase === 'incident' || phase === 'evacuating')) {
       if (ACTOR_IDS.every((id) => actors[id].checkedIn || zoneAt(map, actors[id].col, actors[id].row) === 'assembly')) setPhase('accounting');
     }
-    if (!outcome && simTime() >= maxSimTime) endByLimit('time');
+    if (!outcome) {
+      if (incidentAt !== null && simTime() - incidentAt >= maxSimTime) endByLimit('time');
+      else if (incidentAt === null && simTime() >= IDLE_CEILING_S) endEpisode('incomplete', 'No incident occurred within an hour of simulated time.');
+    }
     return events.slice(before);
   }
 

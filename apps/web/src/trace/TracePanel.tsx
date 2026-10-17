@@ -158,7 +158,7 @@ export function TracePanel() {
         <div className="trace-stats">
           <span>{counts.decisions} decisions</span>
           <span className="amber">{counts.rejected} rejected</span>
-          <span className="green">{counts.recovered} recovered</span>
+          <span className="green" title="successful call by the same person within 3 decisions of a rejected call">{counts.recovered} recovered after rejection</span>
         </div>
         <nav className="filters" role="tablist">
           {(['all', ...ACTOR_ORDER, 'engine'] as Filter[]).map((f) => (

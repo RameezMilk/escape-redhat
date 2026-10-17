@@ -902,7 +902,8 @@ kbd {
   flex-direction: column;
 }
 .metrics b {
-  font: 700 18px var(--pixel);
+  /* Numbers use the UI font: the pixel font makes 3/5/8 hard to tell apart. */
+  font: 700 19px var(--ui);
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
