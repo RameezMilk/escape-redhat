@@ -35,10 +35,10 @@ The submission deadline is **Sun Oct 18, 11:00 a.m. ET**; that is also code free
 
 | t | Action | What to point at |
 |---|---|---|
-| 0:00 | Start screen → click the glowing floor. Calm office: Alex at the warden desk, Maya near door A, Daniel at his desk in the wheelchair | "Three characters. One Nemotron planner decides for all of them through tools." Point out the red pull stations and the sliding doors |
+| 0:00 | Start screen → click the glowing floor. Calm office: Alex at the warden desk, Maya near door A, Daniel at his desk in the wheelchair | "Three characters. One Nemotron planner decides for all of them through tools." Point out the single red pull station in the hallway and the sliding doors |
 | 0:05 | Drag **Fire** onto the floor just inside **door A**, next to Maya (green ghost = valid) | The placement ghost. The fire starts spreading tile by tile |
 | 0:08 | Maya sees it (engine observation E1) | Trace: engine row "Maya observed fire (E1)" |
-| 0:10 | Someone moves to the nearest pull station and **pull_alarm** → siren + red strobes, everyone alerted; and/or **Nemotron planner → Maya → notify**(all, fire, [E1]) | "The alarm tells everyone to get out; it doesn't say where the fire is — notify does." |
+| 0:10 | **Nemotron planner → Maya → notify**(all, fire, [E1]) — heard by Daniel (same room) but not Alex (lobby). Someone heads to the hallway pull station and **pull_alarm** → siren + red strobes, now Alex is alerted | "Voice only carries within a room — the alarm is the only way to reach the lobby. It doesn't say where the fire is; notify does." |
 | 0:15 | People start moving; Daniel may request Alex as his buddy (optional) | "Consent first, no carrying. The fire keeps spreading — speed matters." |
 | 0:30 | Alex (with Daniel) heads through the NVIDIA lobby toward the east exit; Maya evacuates | Movement driven by accepted `move` rows |
 | 0:35 | When they are in the **lobby**, drag **⚡ Electrical failure** onto the **south sliding door** (or run `node scripts/auto-electrical.mjs` beforehand) | The door jams shut with sparks |

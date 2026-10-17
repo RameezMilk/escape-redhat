@@ -19,7 +19,7 @@ const ev = (type: WorldEvent['type'], data: Record<string, unknown>, extra: Part
   ...extra,
 });
 
-const stations: PlannerView['alarm']['stations'] = [{ id: 'alarm_rh', zone: 'rh_room', stand: [17, 12] }];
+const stations: PlannerView['alarm']['stations'] = [{ id: 'alarm_corridor', zone: 'north_corridor', stand: [14, 1] }];
 
 function view(over: Partial<PlannerView> = {}): PlannerView {
   const actor = (id: 'alex' | 'maya' | 'daniel', o: Partial<PlannerView['actors'][number]> = {}) => ({
@@ -42,7 +42,7 @@ function view(over: Partial<PlannerView> = {}): PlannerView {
     sim_time: 12,
     phase: 'evacuating',
     decisions_remaining: 50,
-    actors: [actor('alex', { tile: [17, 13] }), actor('maya'), actor('daniel', { tile: [15, 12] })],
+    actors: [actor('alex', { tile: [14, 2], zone: 'north_corridor' }), actor('maya'), actor('daniel', { tile: [15, 12] })],
     evidence: [
       { id: 'E1', kind: 'fire', zone: 'rh_room', zones: ['rh_room', 'door_a'], cells_known: 37, bbox: [6, 4, 12, 9], spreading: true, observed_by: 'maya', at: 3, known_by: ['alex', 'maya', 'daniel'] },
     ],
@@ -63,7 +63,7 @@ const enumOf = (tools: ReturnType<typeof toolsFor>, name: string) =>
 
 describe('v2 event wording and bubbles', () => {
   it('describes alarm, losses, power cuts and fires in fixed wording', () => {
-    expect(describeEvent(ev('alarm_activated', { stationId: 'alarm_rh' }, { actor: 'maya' }), fakeMap)).toBe('Alarm raised by Maya — Red Hat room pull station');
+    expect(describeEvent(ev('alarm_activated', { stationId: 'alarm_corridor' }, { actor: 'maya' }), fakeMap)).toBe('Alarm raised by Maya — north corridor pull station');
     expect(describeEvent(ev('actor_lost', { cause: 'fire' }, { actor: 'maya' }), fakeMap)).toBe('Maya was lost to the fire');
     expect(describeEvent(ev('door_disabled', { componentId: 'door_b' }), fakeMap)).toBe('Presenter cut power to sliding door B');
     expect(describeEvent(ev('hazard_placed', { kind: 'electrical', componentId: 'door_b' }), fakeMap)).toBe('Presenter cut power to sliding door B');
@@ -72,7 +72,7 @@ describe('v2 event wording and bubbles', () => {
   });
 
   it('alarm → 🚨 on every living actor + a message on the puller; loss → no bubble; ⚡ for dead doors', () => {
-    const b = bubblesForEvent(ev('alarm_activated', { stationId: 'alarm_rh' }, { actor: 'maya' }), { living: ['alex', 'maya'] });
+    const b = bubblesForEvent(ev('alarm_activated', { stationId: 'alarm_corridor' }, { actor: 'maya' }), { living: ['alex', 'maya'] });
     expect(b).toContainEqual(expect.objectContaining({ actor: 'alex', text: '🚨', kind: 'alert' }));
     expect(b).toContainEqual(expect.objectContaining({ actor: 'maya', text: 'Pulling the fire alarm!', kind: 'message' }));
     expect(b.some((x) => x.actor === 'daniel')).toBe(false); // lost people get nothing
@@ -100,13 +100,13 @@ describe('v2 event wording and bubbles', () => {
     engine.emitEvent('cell_charred', { cells: [[1, 1]] });
     engine.emitEvent('hazard_placed', { kind: 'electrical', componentId: 'door_b', col: 18, row: 9 });
     engine.emitEvent('door_disabled', { componentId: 'door_b' });
-    engine.emitEvent('alarm_activated', { stationId: 'alarm_rh' }, { actor: 'maya' });
+    engine.emitEvent('alarm_activated', { stationId: 'alarm_corridor' }, { actor: 'maya' });
     engine.emitEvent('actor_lost', { cause: 'fire' }, { actor: 'daniel' });
     orch.ingestNew();
     const summaries = rows.map((r) => r.summary);
     expect(summaries.filter((s) => /spread|charred/i.test(s))).toEqual([]);
     expect(summaries.filter((s) => s === 'Presenter cut power to sliding door B')).toHaveLength(1);
-    expect(summaries).toContain('Alarm raised by Maya — Red Hat room pull station');
+    expect(summaries).toContain('Alarm raised by Maya — north corridor pull station');
     expect(summaries).toContain('Daniel was lost to the fire');
     orch.dispose();
   });
@@ -119,7 +119,7 @@ describe('v2 masking and digest', () => {
     });
     const tools = toolsFor('v2', v, fakeMap);
     for (const t of tools) expect(enumOf(tools, t.function.name) ?? []).not.toContain('daniel');
-    expect(enumOf(tools, 'pull_alarm')).toEqual(['alex']); // alex at (17,13) is 1 tile from the stand (17,12); maya is far
+    expect(enumOf(tools, 'pull_alarm')).toEqual(['alex']); // alex at (14,2) is 1 tile from the hallway stand (14,1); maya is far
     expect(enumOf(tools, 'move')).toEqual(['alex', 'maya']);
     const active = toolsFor('v2', view({ alarm: { active: true, by: 'alex', at: 5, stations } }), fakeMap);
     expect(enumOf(active, 'pull_alarm')).toBeNull();
@@ -186,5 +186,42 @@ describe('v2 session placement', () => {
     expect(engines[0].placements).toHaveLength(3);
     // createEngine received no time limit
     session.stop();
+  });
+});
+
+describe('earshot: voice reaches only the same room', () => {
+  const split = () =>
+    view({
+      actors: view().actors.map((a) =>
+        a.id === 'alex'
+          ? { ...a, zone: 'lobby' as const, tile: [22, 8] as [number, number], alerted: false, status: 'working' as const, knows_evidence: [] }
+          : { ...a, zone: 'rh_room' as const },
+      ),
+      evidence: [{ ...view().evidence[0], known_by: ['maya', 'daniel'] }],
+    });
+
+  it('digest shows who can hear whom and sends the unreachable to the hallway alarm', () => {
+    const d = stateDigest(split(), fakeMap);
+    const earshotLine = d.split('\n').find((l) => l.startsWith('EARSHOT (who can hear whom — notify reaches only these groups):'))!;
+    expect(earshotLine).toContain('rh_room: maya, daniel');
+    expect(earshotLine).toContain('lobby: alex');
+    expect(d).toMatch(/Not alerted yet: alex \(in lobby\) — out of earshot of everyone who knows; only the fire alarm in the north corridor reaches them/);
+    const near = stateDigest(
+      view({ actors: view().actors.map((a) => (a.id === 'daniel' ? { ...a, alerted: false, status: 'working' as const, knows_evidence: [] } : a)) }),
+      fakeMap,
+    );
+    expect(near).toMatch(/Not alerted yet: daniel \(in rh_room\) — maya can tell them in person/);
+  });
+
+  it('notify is offered only to speakers with someone in earshot; recipients = people in earshot', () => {
+    const tools = toolsFor('v2', split(), fakeMap);
+    expect(enumOf(tools, 'notify')).toEqual(['maya', 'daniel']);
+    const recipients = (tools.find((t) => t.function.name === 'notify')!.function.parameters as { properties: { recipient: { enum: string[] } } }).properties.recipient.enum;
+    expect(recipients).toEqual(['all', 'maya', 'daniel']);
+    // Alone in the lobby, alerted Alex has nobody to talk to: notify is not offered to him
+    const alone = view({
+      actors: view().actors.map((a) => (a.id === 'alex' ? { ...a, zone: 'lobby' as const, tile: [22, 8] as [number, number] } : { ...a, zone: 'rh_room' as const })),
+    });
+    expect(enumOf(toolsFor('v2', alone, fakeMap), 'notify')).toEqual(['maya', 'daniel']);
   });
 });

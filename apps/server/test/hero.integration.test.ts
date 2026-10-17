@@ -42,7 +42,9 @@ describe('scripted fixture × real engine', () => {
     });
     expect(result.outcome.status).toBe('success');
     expect(result.score.success).toBe(true);
-    expect(trace.some((r) => r.kind === 'decision' && (r.tool === 'pull_alarm' || r.tool === 'notify') && r.status === 'completed')).toBe(true);
+    // Voice only reaches the same room: Alex (lobby) can only be alerted by the hallway fire alarm.
+    expect(trace.some((r) => r.kind === 'decision' && r.tool === 'pull_alarm' && r.status === 'completed')).toBe(true);
+    expect(result.metrics.procedural.alarmRaised).toBe(true);
     expect(trace.some((r) => r.status === 'failed' && r.tool === 'move')).toBe(true); // an interrupted move
     expect(trace.some((r) => (r.tool === 'plan_route' && r.status === 'completed') || (r.tool === 'move' && !!r.args?.route_id))).toBe(true); // recovery
     expect(trace.every((r) => r.kind !== 'decision' || r.origin.startsWith('SCRIPTED fixture'))).toBe(true);
@@ -82,6 +84,7 @@ describe('scripted fixture × real engine', () => {
     expect(powerCut).toBe(true);
     const end = sent.find((m) => m.type === 'episode_end' && m.episodeId === episodeId);
     expect(end && end.type === 'episode_end' && end.result.outcome.status).toBe('success');
+    expect(end && end.type === 'episode_end' && end.result.metrics.procedural.alarmRaised).toBe(true);
     expect(sent.some((m) => m.type === 'bubble' && m.kind === 'message')).toBe(true);
     expect(sent.some((m) => m.type === 'trace' && m.row.summary.startsWith('Presenter cut power to'))).toBe(true);
 

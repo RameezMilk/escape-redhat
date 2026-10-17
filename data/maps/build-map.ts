@@ -152,11 +152,10 @@ const COMPONENTS: DoorComponent[] = [
   { id: 'south_door', kind: 'sliding_door', label: 'South branch door (to east exit)', zone: 'south_branch', orientation: 'horizontal', tiles: [{ col: 26, row: 14 }, { col: 27, row: 14 }] },
 ];
 
-// Manual fire-alarm pull stations: mounted on a wall tile, operated from the adjacent stand tile.
+// Manual fire-alarm pull station (one, in the hallway): mounted on a wall tile, operated from the adjacent stand tile.
+// It is the ONLY building-wide alert — spoken notify reaches only people in the same room.
 const ALARMS: AlarmStation[] = [
-  { id: 'alarm_rh', label: 'Pull station — Red Hat room (by door B)', zone: 'rh_room', wall: { col: 18, row: 12 }, stand: { col: 17, row: 12 } },
   { id: 'alarm_corridor', label: 'Pull station — north corridor', zone: 'north_corridor', wall: { col: 14, row: 0 }, stand: { col: 14, row: 1 } },
-  { id: 'alarm_lobby', label: 'Pull station — NVIDIA lobby', zone: 'lobby', wall: { col: 24, row: 4 }, stand: { col: 24, row: 5 } },
 ];
 
 const SPAWNS: Record<ActorId, SpawnSpot[]> = {

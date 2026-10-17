@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { Driver, errCode, okData } from './helpers.js';
+import { Driver, errCode, hero, map, okData } from './helpers.js';
+import { inEarshot, roomsOf } from '../src/index.js';
 
-// Fire in doorway A: Maya (13,7) sees it, Daniel (15,12) and Alex (22,8) do not.
+// Fire in doorway A: Maya (13,7) sees it, Daniel (15,12) and Alex (22,8) do not. Maya's shout reaches Daniel (same
+// room) but not Alex (lobby), so she raises the hallway alarm (via door B → lobby → connector, door A is on fire).
 function alerted() {
   const d = new Driver();
   d.run(5);
   d.place('fire', 8, 4);
   d.run(2);
-  okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire at door A!' }));
+  const r = okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire at door A!' }));
+  expect(r).toMatchObject({ delivered_to: ['daniel'], not_reached: ['alex'] });
+  expect(d.actor('alex').alerted).toBe(false);
+  okData(d.call('move', { actor_id: 'maya', destination: 'alarm' }));
+  expect(d.until(() => d.idle('maya'), 3000)).toBe(true);
+  okData(d.call('pull_alarm', { actor_id: 'maya' }));
+  expect(d.actor('alex').alerted).toBe(true);
   return d;
 }
 
@@ -103,8 +111,11 @@ describe('tool validation never mutates state', () => {
     expect(d.engine.plannerView().evidence.find((e) => e.id === e2)).toMatchObject({ kind: 'electrical', component: 'south_door', cells_known: 2 });
     const stale = d.call('move', { actor_id: 'alex', destination: 'assembly', route_id: route.route_id });
     expect(errCode(stale)).toBe('STALE_STATE');
+    // The re-plan avoids what Alex knows (the jammed door + any fire cells he has actually seen) — never unseen cells.
+    expect(d.actor('alex').knows).toContain(e2);
     const r2 = okData(d.call('plan_route', { actor_id: 'alex', destination: 'assembly' }));
-    expect(r2.zones).toContain('connector');
+    expect(r2.zones).not.toContain('south_branch');
+    expect(r2.zones).toContain('west_exit');
   });
 
   it('a jammed door blocks sight of the fire behind it', () => {
@@ -131,16 +142,16 @@ describe('fire alarm', () => {
     expect(errCode(d.call('pull_alarm', { actor_id: 'maya' }))).toBe('ACTOR_BUSY');
     expect(mv.zones).toBeDefined();
     expect(d.until(() => d.idle('maya'))).toBe(true);
-    expect([d.actor('maya').col, d.actor('maya').row]).toEqual([17, 12]);
+    expect([d.actor('maya').col, d.actor('maya').row]).toEqual([14, 1]); // the single hallway pull station
     expect(d.actor('alex').alerted).toBe(false);
     const r = okData(d.call('pull_alarm', { actor_id: 'maya' }));
-    expect(r).toMatchObject({ alarm: 'active', station: 'alarm_rh' });
+    expect(r).toMatchObject({ alarm: 'active', station: 'alarm_corridor' });
     for (const id of ['alex', 'maya', 'daniel']) expect(d.actor(id).alerted).toBe(true);
     expect(d.actor('alex').knows).toEqual([]);
-    expect(d.engine.snapshot().alarm).toMatchObject({ active: true, by: 'maya', stationId: 'alarm_rh' });
+    expect(d.engine.snapshot().alarm).toMatchObject({ active: true, by: 'maya', stationId: 'alarm_corridor' });
     expect(d.engine.plannerView().alarm).toMatchObject({ active: true, by: 'maya' });
     const ev = d.engine.events.find((e) => e.type === 'alarm_activated')!;
-    expect(ev).toMatchObject({ actor: 'maya', data: { station: 'alarm_rh' } });
+    expect(ev).toMatchObject({ actor: 'maya', data: { station: 'alarm_corridor' } });
     expect(okData(d.call('pull_alarm', { actor_id: 'maya' }))).toMatchObject({ already_active: true });
     // Alerted by the alarm alone, Alex may now evacuate
     okData(d.call('move', { actor_id: 'alex', destination: 'assembly' }));
@@ -161,7 +172,9 @@ describe('check-in, roster and outcomes', () => {
   });
 
   it('someone lost, survivors checked in and verified → partial', () => {
-    const d = new Driver(); // Maya at (13,7), Daniel (15,12), Alex (22,8)
+    // Everyone in the Red Hat room so Maya's shout reaches them: Maya (13,7), Daniel (15,12), Alex (12,13)
+    const base = hero();
+    const d = new Driver({ ...base, spawns: { ...base.spawns, alex: { col: 12, row: 13, dir: 'up', pose: 'stand' } } });
     expect(d.place('fire', 11, 7).ok).toBe(true);
     d.run(2);
     okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire!' }));
@@ -178,5 +191,65 @@ describe('check-in, roster and outcomes', () => {
     expect(res.score.reward).toBe(0);
     expect(res.metrics.procedural).toMatchObject({ escaped: 2, lost: 1 });
     expect(res.debrief[0].id).toBe('losses');
+  });
+});
+
+describe('earshot: spoken alerts reach only the same room', () => {
+  it('rooms: doorways join both sides; outside is one room', () => {
+    expect(roomsOf(map, 'rh_room')).toEqual(['rh_room']);
+    expect(roomsOf(map, 'door_b')).toEqual(['lobby', 'rh_room']);
+    expect(roomsOf(map, 'connector')).toEqual(['lobby', 'north_corridor']);
+    expect(roomsOf(map, 'west_exit')).toEqual(['north_corridor', 'outside']);
+    expect(inEarshot(map, 'rh_room', 'lobby')).toBe(false);
+    expect(inEarshot(map, 'door_b', 'lobby')).toBe(true);
+    expect(inEarshot(map, 'door_b', 'rh_room')).toBe(true);
+    expect(inEarshot(map, 'plaza', 'assembly')).toBe(true);
+    expect(inEarshot(map, 'west_sidewalk', 'assembly')).toBe(true);
+    expect(inEarshot(map, 'south_branch', 'lobby')).toBe(false);
+    expect(inEarshot(map, null, 'lobby')).toBe(false);
+  });
+
+  it('notify all reaches the room only; out-of-earshot named recipient and empty rooms are rejected without mutation', () => {
+    const d = new Driver(); // Maya (13,7) + Daniel (15,12) in rh_room; Alex (22,8) in the lobby
+    d.run(5);
+    d.place('fire', 8, 4);
+    d.run(2);
+    const h0 = d.engine.hash();
+    const named = d.call('notify', { actor_id: 'maya', recipient: 'alex', topic: 'fire', evidence_ids: ['E1'], message: 'Alex, fire!' });
+    expect(errCode(named)).toBe('OUT_OF_RANGE');
+    expect(named.ok ? null : named.error.details).toMatchObject({ recipient_zone: 'lobby', speaker_zone: 'rh_room' });
+    expect(named.ok ? '' : named.error.hint).toContain('pull the fire alarm in the north corridor');
+    expect(d.engine.hash()).toBe(h0);
+    const all = okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire!' }));
+    expect(all).toMatchObject({ delivered_to: ['daniel'], not_reached: ['alex'] });
+    expect(d.actor('daniel').alerted).toBe(true);
+    expect(d.actor('alex').alerted).toBe(false);
+    expect(d.actor('alex').knows).toEqual([]);
+    const msg = d.engine.events.filter((e) => e.type === 'message_delivered').at(-1)!;
+    expect(msg.data).toMatchObject({ recipients: ['daniel'], not_reached: ['alex'] });
+  });
+
+  it("'all' with nobody in earshot is OUT_OF_RANGE (state unchanged)", () => {
+    const d = new Driver(); // Alex alone in the lobby
+    expect(d.place('electrical', 18, 9).ok).toBe(true);
+    d.run(2);
+    expect(d.actor('alex').knows).toEqual(['E1']);
+    const h0 = d.engine.hash();
+    const r = d.call('notify', { actor_id: 'alex', recipient: 'all', topic: 'route_blocked', evidence_ids: ['E1'], message: 'Door B is dead.' });
+    expect(errCode(r)).toBe('OUT_OF_RANGE');
+    expect(r.ok ? '' : r.error.message).toContain('Nobody is within earshot of Alex (lobby)');
+    expect(d.engine.hash()).toBe(h0);
+  });
+
+  it('someone standing in a doorway is heard on both sides', () => {
+    const base = hero();
+    const d = new Driver({ ...base, spawns: { ...base.spawns, maya: { col: 18, row: 9, dir: 'left', pose: 'stand' } } }, { ambient: false });
+    d.place('fire', 12, 12);
+    d.run(3);
+    expect(d.actor('maya').zone).toBe('door_b');
+    expect(d.actor('maya').knows).toContain('E1');
+    const r = okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire! Everyone out!' }));
+    expect([...(r.delivered_to as string[])].sort()).toEqual(['alex', 'daniel']);
+    expect(r.not_reached).toEqual([]);
   });
 });

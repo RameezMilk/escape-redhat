@@ -44,7 +44,7 @@ import {
 } from '@escape/contracts';
 import { hashValue, canonicalJson } from './hash.js';
 import { SITE_PLAN, ruleSources, type PlanSectionId } from './knowledge.js';
-import { inBounds, tileDistance, tileIndex, zoneAt } from './map.js';
+import { inBounds, inEarshot, tileDistance, tileIndex, zoneAt } from './map.js';
 import { findPath, lineOfSight, type NavMask } from './nav.js';
 import { HAZARD_SPECS, isFlammable, validatePlacement } from './placement.js';
 import { mulberry32 } from './rng.js';
@@ -903,7 +903,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     error: { code, message, ...(hint ? { hint } : {}), ...(details ? { details } : {}) },
   });
 
-  /** 'alarm' = nearest pull station; a station id (alarm_rh, …) = that station. */
+  /** 'alarm' = nearest pull station; a station id (alarm_corridor) = that station. */
   const isAlarmDest = (d: string) => d === 'alarm' || stations.some((s) => s.id === d);
 
   /** Candidate target tiles for a destination (zone, person or 'alarm'), excluding occupied/claimed/known-blocked tiles. */
@@ -1085,7 +1085,38 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (args.topic === 'evacuate' && !a.alerted) {
       return fail(actionId, 'NOT_AUTHORIZED', `${name(a.id)} is not aware of any emergency yet.`, 'Someone who saw the hazard must report it first (or pull the alarm).');
     }
-    const recipients = args.recipient === 'all' ? living().filter((id) => id !== a.id) : [args.recipient as ActorId];
+    // Spoken: only people in the same room hear it (doorways join both sides). The fire alarm is the only
+    // building-wide alert.
+    const speakerZone = zoneAt(map, a.col, a.row);
+    const canHear = (id: ActorId) => {
+      const r = actors[id];
+      return inEarshot(map, speakerZone, zoneAt(map, r.col, r.row));
+    };
+    const others = living().filter((id) => id !== a.id);
+    const alarmHint = `pull the fire alarm in the north corridor (move ${a.id} to destination "alarm", then pull_alarm), or go to them`;
+    let recipients: ActorId[];
+    let notReached: ActorId[] = [];
+    if (args.recipient === 'all') {
+      recipients = others.filter(canHear);
+      notReached = others.filter((id) => !canHear(id));
+      if (!recipients.length) {
+        return fail(actionId, 'OUT_OF_RANGE', `Nobody is within earshot of ${name(a.id)} (${speakerZone ?? 'unknown zone'}).`, `Spoken alerts only reach the same room — ${alarmHint}.`, {
+          speaker_zone: speakerZone,
+          out_of_earshot: notReached.map((id) => ({ id, zone: zoneAt(map, actors[id].col, actors[id].row) })),
+        });
+      }
+    } else {
+      const rid = args.recipient as ActorId;
+      if (actors[rid].lost) return fail(actionId, 'NOT_AUTHORIZED', `${name(rid)} was lost to the fire.`, 'Speak to someone who is still in the building.');
+      if (!canHear(rid)) {
+        const rz = zoneAt(map, actors[rid].col, actors[rid].row);
+        return fail(actionId, 'OUT_OF_RANGE', `${name(rid)} is in ${rz ?? 'another area'} — out of earshot of ${name(a.id)} (${speakerZone ?? 'unknown zone'}).`, `Spoken alerts only reach the same room — ${alarmHint}.`, {
+          speaker_zone: speakerZone,
+          recipient_zone: rz,
+        });
+      }
+      recipients = [rid];
+    }
     const dupKey = canonicalJson([a.id, args.recipient, args.topic, [...args.evidence_ids].sort(), args.message]);
     const recent = lastNotify.find((n) => n.key === dupKey && simTime() - n.at <= DUPLICATE_NOTIFY_WINDOW_SEC);
     if (recent) return { ok: true, actionId, status: 'completed', data: { duplicate: true, note: 'Identical message already delivered moments ago.' } };
@@ -1106,7 +1137,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     }
     emit(
       'message_delivered',
-      { from: a.id, to: args.recipient, recipients, topic: args.topic, message: args.message, newly_alerted: newlyAlerted },
+      { from: a.id, to: args.recipient, recipients, not_reached: notReached, topic: args.topic, message: args.message, newly_alerted: newlyAlerted },
       { actor: a.id, actionId, evidenceIds: args.evidence_ids },
     );
     if (phase === 'idle' && newlyAlerted.length) setPhase('incident');
@@ -1114,7 +1145,13 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       ok: true,
       actionId,
       status: 'completed',
-      data: { delivered_to: recipients, newly_alerted: newlyAlerted, evidence_shared: learned },
+      data: {
+        delivered_to: recipients,
+        not_reached: notReached,
+        newly_alerted: newlyAlerted,
+        evidence_shared: learned,
+        ...(notReached.length ? { note: `Out of earshot (other rooms): ${notReached.join(', ')} — only the fire alarm reaches them.` } : {}),
+      },
       evidenceIds: args.evidence_ids,
     };
   }
@@ -1460,7 +1497,10 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       case 'consult_plan':
         return `${who} read the plan: ${d.section}`;
       case 'notify':
-        return d.duplicate ? `${who}'s repeated message ignored (duplicate)` : `${who} → ${call.args.recipient}: ${call.args.topic} (${((d.delivered_to as string[]) ?? []).map((x) => name(x as ActorId)).join(', ')})`;
+        if (d.duplicate) return `${who}'s repeated message ignored (duplicate)`;
+        return `${who} → ${call.args.recipient}: ${call.args.topic} (heard by ${((d.delivered_to as string[]) ?? []).map((x) => name(x as ActorId)).join(', ')})${
+          ((d.not_reached as string[]) ?? []).length ? `; out of earshot: ${(d.not_reached as string[]).map((x) => name(x as ActorId)).join(', ')} — only the fire alarm reaches them` : ''
+        }`;
       case 'plan_route':
         return `${who} route ${d.route_id} to ${d.destination}: ${(d.zones as string[]).join(' → ')} (${d.length_tiles} tiles)`;
       case 'move':

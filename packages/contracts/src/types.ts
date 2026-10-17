@@ -98,7 +98,7 @@ export interface DoorComponent {
 
 /** Manual fire-alarm pull station: mounted on `wall`, operated from the adjacent `stand` tile. */
 export interface AlarmStation {
-  id: string; // alarm_rh | alarm_corridor | alarm_lobby
+  id: string; // alarm_corridor (the single hallway pull station)
   label: string;
   zone: ZoneId;
   wall: Tile;

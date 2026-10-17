@@ -2,7 +2,8 @@
 //   v1 = baseline: role, people, map, tools; no procedural guidance.
 //   v2 = v1 + explicit exercise procedure and error-recovery guidance.
 // The model never sees unobserved hazard truth: the user message is exactly engine.plannerView().
-import { ACTOR_IDS, ACTOR_PROFILES, TOOL_DEFS, type MapData, type OpenAIToolDef, type PlannerView, type ScenarioCase } from '@escape/contracts';
+import { ACTOR_IDS, ACTOR_PROFILES, TOOL_DEFS, type MapData, type OpenAIToolDef, type PlannerView, type ScenarioCase, type ZoneId } from '@escape/contracts';
+import { inEarshot, roomsOf } from '@escape/engine';
 import type { Harness } from './config.js';
 
 function briefing(map: MapData, scenario: ScenarioCase): string {
@@ -29,8 +30,9 @@ ${people}
 MAP (one ground-level floor; fictional office)
 Zones: ${zones}.
 Connections: ${edges}.
-Exits: west_exit and east_exit, both lead outside to the plaza; exit doors are manual and always open. Assembly point: zone "assembly" in the plaza.${
-    alarms ? `\nFire-alarm pull stations: ${alarms}. Use move with destination "alarm" to reach the nearest one.` : ''
+Exits: west_exit and east_exit, both lead outside to the plaza; exit doors are manual and always open. Assembly point: zone "assembly" in the plaza.
+Speech: notify is spoken — it reaches only people in the same room (doorways join the two rooms they connect; outside is one area). People in other rooms do not hear it.${
+    alarms ? `\nFire-alarm pull station: ${alarms} — the ONLY way to alert people in other rooms. Use move with destination "alarm" to reach it.` : ''
   }${doors ? `\nElectric sliding doors (can fail closed in a power outage): ${doors}.` : ''}`;
 }
 
@@ -40,7 +42,7 @@ const GOAL_V1 = `GOAL
 Get everyone safely to the assembly point and accounted for. Use the tools. One tool call per turn.`;
 
 const PROCEDURE_V2 = `PROCEDURE (follow in order of need)
-1. Report: whoever sees fire raises the alarm. If they are standing next to a pull station (pull_alarm is offered for them) — or one is only a few steps away — pull_alarm; otherwise notify recipient "all" with topic "fire" and the evidence_ids they know. The alarm alerts everyone but does not say where the fire is. People who have not been alerted cannot evacuate (NOT_AUTHORIZED).
+1. Report and alert: whoever sees fire tells the people IN THE SAME ROOM with notify (recipient "all" reaches only those within earshot — doorways join both sides; anyone in another room does NOT hear it). To alert people in other rooms, someone must pull the fire alarm in the north corridor (move to destination "alarm", then pull_alarm) — or walk to them. The alarm alerts everyone but does not say where the fire is. People who have not been alerted cannot evacuate (NOT_AUTHORIZED). Get the people nearest the fire moving first; send someone who is not in danger to the hallway alarm if anyone elsewhere is still unaware.
 2. Evacuate immediately: move each alerted person to destination "assembly" — do not wait. Fire SPREADS every second and anyone it reaches is lost. Keep away from known fire. Moves take time — you are told when they complete or are interrupted; meanwhile act for other people.
 3. Recover: electric sliding doors can be dead (stuck closed) and fire can cut a route. If a move fails with ROUTE_UNAVAILABLE or STALE_STATE, have the person who saw it notify "all" with topic "route_blocked" and the new evidence id, then plan_route for the traveller to "assembly" and move with the returned route_id.
 4. Buddy (optional, good practice): Daniel may ask Alex for help (request_assistance with helper_id "alex"); Alex then comes next to him and calls assist, after which moving Alex moves both. Never assist without Daniel's request; nobody is carried; do not delay anyone's evacuation for it.
@@ -60,6 +62,25 @@ function stationsOf(view: PlannerView, map?: MapData): { id: string; zone: strin
   const fromView = view.alarm?.stations;
   if (fromView?.length) return fromView;
   return (map?.alarms ?? []).map((a) => ({ id: a.id, zone: a.zone, stand: [a.stand.col, a.stand.row] as [number, number] }));
+}
+
+/** Earshot between two zones: same room (doorways join both sides); without a map, same zone only. */
+function earshot(map: MapData | undefined, za: string | null, zb: string | null): boolean {
+  if (!za || !zb) return false;
+  if (!map) return za === zb;
+  return inEarshot(map, za as ZoneId, zb as ZoneId);
+}
+
+/** "rh_room: maya, daniel · lobby: alex" — people grouped by the room(s) they can be heard in. */
+function earshotGroups(people: ViewActor[], map?: MapData): string {
+  const groups = new Map<string, string[]>();
+  for (const a of people) {
+    if (!a.zone) continue;
+    const rooms = map ? roomsOf(map, a.zone as ZoneId) : [a.zone];
+    const key = rooms.length > 1 ? `${a.zone} (hears ${rooms.join(' + ')})` : (rooms[0] ?? a.zone);
+    groups.set(key, [...(groups.get(key) ?? []), a.id]);
+  }
+  return [...groups].map(([k, ids]) => `${k}: ${ids.join(', ')}`).join(' · ');
 }
 
 /** v2 only: a short digest of the (already planner-visible) state, so a small model does not have to dig through JSON.
@@ -97,6 +118,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
   const busy = actors.filter((a) => a.busy && !a.checked_in);
   const unalerted = actors.filter((a) => !a.alerted && !a.checked_in);
   const stations = stationsOf(view, map);
+  const hears = (a: ViewActor, b: ViewActor) => earshot(map, a.zone, b.zone);
 
   const hazardLines: string[] = [];
   for (const e of view.evidence ?? []) {
@@ -125,8 +147,13 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
   }
 
   const open: string[] = [];
-  if (unalerted.length) {
-    open.push(`Not alerted yet: ${unalerted.map((a) => a.id).join(', ')} — pull the alarm or notify them before they can evacuate.`);
+  for (const u of unalerted) {
+    const tellers = actors.filter((a) => a.id !== u.id && a.alerted && a.knows_evidence.length && hears(a, u));
+    open.push(
+      tellers.length
+        ? `Not alerted yet: ${u.id} (in ${u.zone}) — ${tellers.map((t) => t.id).join(' or ')} can tell them in person (same room).`
+        : `Not alerted yet: ${u.id} (in ${u.zone}) — out of earshot of everyone who knows; only the fire alarm in the north corridor reaches them (move someone to "alarm", then pull_alarm).`,
+    );
   }
   const as = view.assistance;
   const alex = actors.find((a) => a.id === 'alex');
@@ -155,7 +182,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
     lines.push(
       `URGENT — near known fire and not moving (closest first): ${atRisk
         .map((a) => `${a.id} (≈${Math.round(fireDist(a).d)} tiles from ${fireDist(a).id}, in ${a.zone}${a.alerted ? '' : ', NOT alerted'})`)
-        .join(', ')}. Fire spreads every second: get them moving to "assembly" before anything else${atRisk.some((a) => !a.alerted) ? ' (alert the un-alerted first: notify all or pull_alarm)' : ''}.`,
+        .join(', ')}. Fire spreads every second: get them moving to "assembly" before anything else${atRisk.some((a) => !a.alerted) ? ' (alert the un-alerted first: notify if in the same room, otherwise the hallway fire alarm)' : ''}.`,
     );
   }
   lines.push(
@@ -168,6 +195,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
         .join(', ') || 'nobody'
     }`,
     `BUSY MOVING (do not move/assist them again yet): ${busy.map((a) => `${a.id} — ${a.busy}`).join('; ') || 'nobody'}`,
+    `EARSHOT (who can hear whom — notify reaches only these groups): ${earshotGroups(actors.filter((a) => !a.checked_in), map) || 'nobody inside'}`,
     `HAZARDS: ${hazardLines.length ? hazardLines.map((h) => `\n- ${h}`).join('') : 'none known yet'}`,
     alarmLine,
   );
@@ -210,7 +238,9 @@ export function toolsFor(harness: Harness, view: PlannerView, map?: MapData): Op
   const allowed: Record<string, string[]> = {
     observe: actors.filter((a) => !a.checked_in).map((a) => a.id),
     consult_plan: actors.map((a) => a.id),
-    notify: actors.filter((a) => a.alerted && a.knows_evidence.length).map((a) => a.id),
+    notify: actors
+      .filter((a) => a.alerted && a.knows_evidence.length && actors.some((b) => b.id !== a.id && earshot(map, a.zone, b.zone)))
+      .map((a) => a.id),
     plan_route: actors.filter((a) => !a.checked_in).map((a) => a.id),
     move: actors.filter(free).map((a) => a.id),
     request_assistance: actors.filter((a) => a.alerted && !a.checked_in && a.uses_wheelchair && !as?.requested).map((a) => a.id),
@@ -226,18 +256,20 @@ export function toolsFor(harness: Harness, view: PlannerView, map?: MapData): Op
   if (as?.requested && !as.accepted && daniel && alex && free(alex) && !daniel.busy && dist(alex.tile, daniel.tile) <= 1.5) {
     allowed.assist = ['alex'];
   }
+  // notify recipients: only people within earshot of an offered speaker (plus 'all' = everyone within earshot).
+  const hearers = new Set<string>();
+  for (const sid of allowed.notify) {
+    const sp = actors.find((a) => a.id === sid)!;
+    for (const b of actors) if (b.id !== sid && earshot(map, sp.zone, b.zone)) hearers.add(b.id);
+  }
   const out: OpenAIToolDef[] = [];
   for (const def of TOOL_DEFS) {
     const ids = allowed[def.function.name];
     if (!ids || !ids.length) continue;
     const params = def.function.parameters as { properties: Record<string, Record<string, unknown>> };
-    out.push({
-      ...def,
-      function: {
-        ...def.function,
-        parameters: { ...params, properties: { ...params.properties, actor_id: { ...params.properties.actor_id, enum: ids } } },
-      },
-    });
+    const properties: Record<string, Record<string, unknown>> = { ...params.properties, actor_id: { ...params.properties.actor_id, enum: ids } };
+    if (def.function.name === 'notify') properties.recipient = { ...params.properties.recipient, enum: ['all', ...ACTOR_IDS.filter((id) => hearers.has(id))] };
+    out.push({ ...def, function: { ...def.function, parameters: { ...params, properties } } });
   }
   return out.length ? out : TOOL_DEFS;
 }

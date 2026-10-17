@@ -9,7 +9,7 @@
       "section": "29 CFR 1910.38(c)(1), (d)",
       "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.38",
       "principle": "Where an OSHA standard requires an emergency action plan, the plan must include procedures for reporting a fire or other emergency, and the employer must have and maintain an employee alarm system that uses a distinctive signal for each purpose.",
-      "exercise_policy": "Reporting is simulated two ways: the pull_alarm tool at a manual pull station (the building alarm — alerts everyone but tells nobody where the hazard is) and the notify tool (voice/radio — cites the evidence ID of what was seen, so others learn where the fire or failed door is). No external message or real emergency call is ever sent."
+      "exercise_policy": "Reporting is simulated two ways: the pull_alarm tool at the single manual pull station in the north corridor (the building alarm — the only way to alert people in other rooms; it tells nobody where the hazard is) and the notify tool (spoken — reaches only people in the same room, doorways joining the two rooms they connect; it cites the evidence ID of what was seen, so listeners learn where the fire or failed door is). No external message or real emergency call is ever sent."
     },
     {
       "id": "ALARM-SYSTEM",
@@ -18,7 +18,7 @@
       "section": "29 CFR 1910.165(b)(1)-(3), (d)(3), (e)",
       "source_url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.165",
       "principle": "An employee alarm system must provide warning for the emergency action called for in the emergency action plan, be perceivable above ambient noise or light levels by all employees in the affected portions of the workplace (tactile devices may be used for employees who could not otherwise recognize it), and be distinctive and recognizable as a signal to evacuate. Manual actuation devices (pull stations) must be unobstructed, conspicuous and readily accessible, and back-up means of alarm such as employee runners or telephones are required when a system is out of service.",
-      "exercise_policy": "Three manual pull stations: in the Red Hat room by door B, in the north corridor, and in the NVIDIA lobby. A character standing next to one can pull_alarm: the siren and strobes alert every person to evacuate, but the alarm conveys no location — people still learn where the fire or failed door is from what they see or are told (notify). notify also acts as the back-up 'runner' when nobody is near a pull station."
+      "exercise_policy": "One manual pull station, in the north corridor (hallway). A character standing next to it can pull_alarm: the siren and strobes alert every person to evacuate, but the alarm conveys no location — people still learn where the fire or failed door is from what they see or are told in person (notify, which reaches only the same room). Someone who sees fire must alert their own room by voice and get someone to the hallway pull station (or walk to the others) to reach people elsewhere."
     },
     {
       "id": "EAP-ROUTES",

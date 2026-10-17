@@ -6,7 +6,7 @@ import { ACTOR_IDS, ZONE_IDS, type ToolName } from './types.js';
 const actorEnum = [...ACTOR_IDS];
 const zoneEnum = [...ZONE_IDS];
 /** Destinations: a zone, a person (go next to them), 'alarm' (nearest reachable pull station) or a station id. */
-export const ALARM_STATION_IDS = ['alarm_rh', 'alarm_corridor', 'alarm_lobby'] as const;
+export const ALARM_STATION_IDS = ['alarm_corridor'] as const;
 const destinationEnum = [...ZONE_IDS, ...ACTOR_IDS, 'alarm', ...ALARM_STATION_IDS];
 
 export const PLAN_SECTIONS = ['reporting', 'routes', 'assistance', 'accountability'] as const;
@@ -65,10 +65,10 @@ export const TOOL_DEFS: OpenAIToolDef[] = [
   ),
   tool(
     'notify',
-    'Have a character tell others something (in-simulation shout / alarm / radio). Recipients learn the cited evidence and, for fire/route_blocked/evacuate, become alerted. topic fire or route_blocked requires evidence_ids the sender already knows.',
+    'Have a character SAY something out loud. Spoken — reaches only people in the same room (doorways connect both sides); anyone in another room is not reached. Recipients learn the cited evidence and, for fire/route_blocked/evacuate, become alerted. topic fire or route_blocked requires evidence_ids the sender already knows. To alert people in other rooms, pull the fire alarm.',
     {
       actor_id: actorIdJson('Who speaks.'),
-      recipient: { type: 'string', enum: [...RECIPIENTS], description: "'all' or one character id (not the speaker)." },
+      recipient: { type: 'string', enum: [...RECIPIENTS], description: "'all' (everyone within earshot) or one character id in the same room (not the speaker)." },
       topic: { type: 'string', enum: [...NOTIFY_TOPICS] },
       evidence_ids: {
         type: 'array',
@@ -88,7 +88,7 @@ export const TOOL_DEFS: OpenAIToolDef[] = [
       destination: {
         type: 'string',
         enum: destinationEnum,
-        description: 'A zone id, a character id (go next to that person), "alarm" (nearest fire-alarm pull station) or a station id (alarm_rh, alarm_corridor, alarm_lobby).',
+        description: 'A zone id, a character id (go next to that person), or "alarm" / "alarm_corridor" (the fire-alarm pull station in the north corridor).',
       },
     },
     ['actor_id', 'destination'],
@@ -139,7 +139,7 @@ export const TOOL_DEFS: OpenAIToolDef[] = [
   ),
   tool(
     'pull_alarm',
-    'Pull a fire-alarm pull station: the building siren sounds and every person is alerted to evacuate (it does not tell them where the hazard is). The character must be standing next to a pull station (move to destination "alarm" first) and not moving.',
+    'Pull the fire-alarm pull station in the north corridor: the building siren sounds and every person is alerted to evacuate (it does not tell them where the hazard is). This is the only way to alert people in other rooms. The character must be standing next to the pull station (move to destination "alarm" first) and not moving.',
     { actor_id: actorIdJson('Who pulls the alarm.') },
     ['actor_id'],
   ),

@@ -1,3 +1,4 @@
+import { loadMap } from '@escape/engine';
 // Minimal Engine stand-in for orchestrator/session tests (no simulation; records calls).
 import type {
   DecisionMeta,
@@ -140,10 +141,11 @@ export const fakeMap = {
   id: 'office-v1',
   hash: 'fake',
   zones: [],
-  zoneEdges: [],
+  // Real office zone graph so earshot (rooms joined by doorways) behaves as in the game.
+  zoneEdges: loadMap().zoneEdges,
   spawnSpots: { alex: [], maya: [], daniel: [] },
   components: [{ id: 'door_b', kind: 'sliding_door', label: 'Sliding door B (Red Hat room east)', zone: 'door_b', tiles: [], orientation: 'vertical' }],
-  alarms: [{ id: 'alarm_rh', label: 'Pull station — Red Hat room (by door B)', zone: 'rh_room', wall: { col: 18, row: 12 }, stand: { col: 17, row: 12 } }],
+  alarms: [{ id: 'alarm_corridor', label: 'Pull station — north corridor', zone: 'north_corridor', wall: { col: 14, row: 0 }, stand: { col: 14, row: 1 } }],
 } as unknown as MapData;
 
 export const fakeScenario: ScenarioCase = {

@@ -8,7 +8,7 @@
   - Maya, an employee;
   - Daniel, a visitor who uses a wheelchair.
 - **What you do.** Drag in one or more **fires** — they spread from tile to tile — and **⚡ electrical failures** that jam an interior sliding door shut.
-- **What you see.** The model gets someone to a **fire-alarm pull station** (siren and strobes alert everyone) or reports what was seen, moves people out before the fire reaches them, re-routes around jammed doors, can honour Daniel's buddy arrangement, and verifies everyone at the assembly point. Anyone the fire reaches is **lost** (they disintegrate). Every proposal and result appears in a live trace.
+- **What you see.** Voice carries only within a room, so the model has whoever sees the fire warn the people around them and gets someone to the **hallway fire-alarm pull station** (siren and strobes alert everyone, in every room), moves people out before the fire reaches them, re-routes around jammed doors, can honour Daniel's buddy arrangement, and verifies everyone at the assembly point. Anyone the fire reaches is **lost** (they disintegrate). Every proposal and result appears in a live trace.
 - **What the engine guarantees.** A deterministic, seeded engine owns the world, including the fire. The model can't walk anyone into fire they know about or declare success; only a verified roster can. There is no time limit: the run ends when every survivor is accounted for, or when everyone is lost.
 
 Main track: **Tool-Calling**. Built at the NVIDIA × Red Hat Small Models Hack, Raleigh, Oct 17–18 2026.
@@ -84,7 +84,8 @@ flowchart LR
 
 **Tools the model can call:** `observe`, `consult_plan`, `notify`, `plan_route`, `move`, `request_assistance`, `assist`, `check_in`, `verify_roster`, `pull_alarm`.
 
-- `pull_alarm` only works for someone standing at one of the three pull stations (`move` to destination `"alarm"` goes to the nearest). It alerts everyone to evacuate but, like a real alarm, says nothing about *where* the fire is; `notify` shares what someone actually saw.
+- `notify` is spoken: it reaches only people in the same room (a doorway joins the two rooms it connects; outside is one area). Anyone elsewhere is not reached, and a call with nobody in earshot is rejected with `OUT_OF_RANGE`.
+- `pull_alarm` only works for someone standing at the single pull station in the north corridor (`move` to destination `"alarm"`). It is the only way to alert people in other rooms, but, like a real alarm, says nothing about *where* the fire is; `notify` shares what someone actually saw.
 - Invalid calls return structured errors and never change the world. Codes include `ROUTE_UNAVAILABLE`, `STALE_STATE`, `ACTOR_BUSY`, `OUT_OF_RANGE`, `ASSISTANCE_NOT_ACCEPTED` and `NOT_AUTHORIZED`.
 - The planner sees each character's observations and reports, but never fire cells or jammed doors nobody has seen.
 - Each character can only act on what *they* know. Someone who hasn't been alerted (by the alarm or by a person) can't evacuate yet.
@@ -141,7 +142,7 @@ Development fallback with the same weights: the hosted NVIDIA API Catalog (see e
 1. `npm run dev`, then open http://localhost:5173. On the start screen, click the glowing floor of the (pixel-art) tower or press Enter; add `?intro=0` to the URL to skip it. Check that the top bar shows **Nemotron · self-hosted vLLM** and that the model is healthy.
 2. Watch the idle office. No model calls happen before an incident.
 3. Drag **Fire** onto the floor just inside **door A** (top wall of the Red Hat room), next to Maya. It starts spreading.
-4. Maya sees it. Follow the trace: someone pulls a **fire alarm** (siren and red strobes; everyone is alerted) and/or **Nemotron planner → Maya → notify** reports what she saw; people start moving (Daniel may ask Alex to be his buddy).
+4. Maya sees it. Follow the trace: **Nemotron planner → Maya → notify** warns Daniel, who is in the same room — but not Alex, who is in the lobby and out of earshot. Someone goes to the **hallway fire-alarm pull station** and pulls it (siren and red strobes): only then is Alex alerted. People start moving (Daniel may ask Alex to be his buddy).
 5. When Alex and Daniel enter the NVIDIA lobby heading for the east exit, drag **⚡ Electrical failure** onto the **south sliding door** (between the lobby and the east exit).
 6. Their move stops safely with `ROUTE_UNAVAILABLE`. The model reports the jammed door, re-plans through the lobby connector, the north corridor and the west exit, checks everyone in, and Alex runs `verify_roster`.
 7. Read the debrief. Use **Reset** to start again. To see losses, drop a fire right next to someone who hasn't been alerted.
@@ -157,7 +158,7 @@ Rehearsal helper: `node scripts/auto-electrical.mjs` drops the electrical failur
 | Data | Type | Provenance and licence | How it is used |
 |---|---|---|---|
 | `data/scenarios/` **escape-office-scenarios-v2** | **Synthetic**, generated during the event (2026-10-17) | `generator.ts` v2, master seed 20261017. Families: fire_only, multi_fire, fire_then_door, independent, trapped. Method, fields and limits are in [`DATASET_CARD.md`](data/scenarios/DATASET_CARD.md); hashes in `provenance.json`. CC BY 4.0 | The app boots `demo-hero`. The benchmark runs and scores 16 dev and 16 held-out test cases (test uses fire locations never seen in dev) |
-| `data/maps/office-v1` | Synthetic (authored) | `office-v1.ascii` plus `build-map.ts`, with 4 interior electric sliding doors and 3 fire-alarm pull stations. Furniture footprints come from the vendored Pixel Agents manifests | Shared by the engine (navigation truth) and the renderer |
+| `data/maps/office-v1` | Synthetic (authored) | `office-v1.ascii` plus `build-map.ts`, with 4 interior electric sliding doors and 1 fire-alarm pull station (north corridor). Furniture footprints come from the vendored Pixel Agents manifests | Shared by the engine (navigation truth) and the renderer |
 | `data/knowledge/` | Paraphrased public sources | 29 CFR 1910.36(d)(1), 1910.37(a)(3), 1910.38(c)–(f), 1910.165 (U.S. government works); OSHA *Getting Started* guidance; NC DOL EAP pages. Each card has a source URL, checked 2026-10-17. The site plan is **fictional** | `consult_plan` answers and the debrief's cited lessons |
 
 **Considered but not integrated:** LEMTA evacuation drills, Jülich bottleneck trajectories, NIST stair egress, and Raleigh building footprints. Reasons are in the dataset card. No real measurement is presented as describing this office.
@@ -217,9 +218,9 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 ## Known limitations and next steps
 
 **Limitations:**
-- One fictional single-level map with three characters, four interior sliding doors and three pull stations.
+- One fictional single-level map with three characters, four interior sliding doors and one hallway pull station.
 - The fire is a simple seeded cellular spread over floor tiles (each burning tile occasionally ignites a random neighbour; tiles burn out into impassable debris; closed doors stop it). It is not fire science: no smoke, heat, toxicity, ventilation or injury model — "lost" is a game state.
-- Perception, the smoke-notice rule and the alarm are simple deterministic rules; the alarm reaches everyone instantly.
+- Perception, the smoke-notice rule, earshot (same room only) and the alarm are simple deterministic rules; the alarm reaches everyone instantly.
 - A central planner controls all three characters. These are not independent agents, and we make no claim that a multi-agent setup is better.
 - Benchmark: 32 synthetic cases, a single run per case, temperature > 0, and a seeded stochastic fire. Treat differences of one or two cases as noise. The v2 harness was tuned on dev; it narrows the tool menu each turn (action masking), which is part of what is being measured.
 - Educational value is a hypothesis; no learning outcomes were measured. Not compliance training; no building-code claims.

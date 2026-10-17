@@ -1,6 +1,10 @@
 // SCRIPTED FIXTURE — not a model. A deterministic rule policy over the same PlannerView the model sees.
 // Used for UI development, tests and as a labeled offline demo; every trace row says "SCRIPTED fixture".
 import type { ActorId, NormalizedToolCall, PlannerView, ProviderInfo } from '@escape/contracts';
+import { inEarshot, loadMap } from '@escape/engine';
+
+/** Static office map: the fixture needs room layout to know who can hear whom. */
+const OFFICE = loadMap();
 import { LatencyStats, type DecideRequest, type DecisionProvider, type DecisionResult } from './types.js';
 
 function mulberry32(seed: number) {
@@ -110,51 +114,54 @@ export class ScriptedProvider implements DecisionProvider {
     const nearestStation = (a: ViewActor) => stations.map((st) => dist(a.tile, st.stand)).sort((x, y) => x - y)[0] ?? Infinity;
     const alarmActive = !!view.alarm?.active;
 
-    // 1. Report. Fire: pull the alarm if the reporter is at (or close to) a pull station, otherwise shout to everyone.
-    //    Electrical: share the dead door so routes are re-planned.
-    const unreported = [...view.evidence]
-      .sort((x, y) => (x.kind === y.kind ? 0 : x.kind === 'fire' ? -1 : 1))
-      .find((e) => !this.mem.reported.has(e.id) && alive.some((a) => !e.known_by.includes(a.id)));
-    if (unreported) {
-      const speakers = unreported.known_by.map((id) => A[id]).filter((a): a is ViewActor => !!a && !a.lost);
-      const speaker = speakers.find((a) => a.id === unreported.observed_by) ?? speakers[0];
-      if (speaker) {
-        const where = unreported.zone === 'rh_room' ? 'Red Hat room' : unreported.zone ? unreported.zone.replace(/_/g, ' ') : 'nearby';
-        if (unreported.kind === 'fire') {
-          // Whoever knows about the fire and is closest to a pull station raises the alarm.
-          const puller = [...speakers].filter((a) => a.alerted).sort((a, b) => nearestStation(a) - nearestStation(b))[0];
-          if (!alarmActive && puller && !puller.busy && stations.length) {
-            const d = nearestStation(puller);
-            if (d <= 1.5) {
-              return mk('pull_alarm', { actor_id: puller.id, reason_summary: 'Raise the building alarm so everyone evacuates.' });
-            }
-            if (d <= 6 && this.mem.lastMoveDest[puller.id] !== 'alarm') {
-              return mk('move', { actor_id: puller.id, destination: 'alarm', reason_summary: 'Go to the nearby pull station.' });
-            }
-          }
-          const headingToAlarm = !alarmActive && !!puller && puller.busy !== null && this.mem.lastMoveDest[puller.id] === 'alarm';
-          if (!headingToAlarm) {
-            this.mem.reported.add(unreported.id);
-            return mk('notify', {
+    // 1. Report and alert. Spoken notify reaches only the same room; the hallway fire alarm reaches everyone.
+    const hears = (a: ViewActor, b: ViewActor) => inEarshot(OFFICE, a.zone, b.zone);
+    const unaware = alive.filter((a) => !a.alerted);
+    //  a) Standing at the pull station during a known fire (or while someone is still unaware) → pull it.
+    const fireKnown = view.evidence.some((e) => e.kind === 'fire');
+    if (!alarmActive && (unaware.length || fireKnown)) {
+      const atStation = alive.find((a) => (a.alerted || a.knows_evidence.length) && !a.busy && nearestStation(a) <= 1.5);
+      if (atStation) return mk('pull_alarm', { actor_id: atStation.id, reason_summary: 'Raise the building alarm so people in other rooms hear it.' });
+    }
+    //  b) Tell people in the same room what you know (fire first, then dead doors).
+    const evidence = [...view.evidence].sort((x, y) => (x.kind === y.kind ? 0 : x.kind === 'fire' ? -1 : 1));
+    for (const e of evidence) {
+      for (const sid of e.known_by) {
+        const speaker = A[sid];
+        if (!speaker || speaker.lost || !speaker.alerted) continue;
+        const listeners = alive.filter((b) => b.id !== speaker.id && hears(speaker, b) && !e.known_by.includes(b.id));
+        if (!listeners.length) continue;
+        const where = e.zone === 'rh_room' ? 'Red Hat room' : e.zone ? e.zone.replace(/_/g, ' ') : 'nearby';
+        return e.kind === 'fire'
+          ? mk('notify', {
               actor_id: speaker.id,
               recipient: 'all',
               topic: 'fire',
-              evidence_ids: [unreported.id],
-              message: `Fire in the ${where}! Everyone evacuate to the assembly point now and keep away from it.`,
-              reason_summary: alarmActive ? 'Tell everyone where the fire is.' : 'Report the fire with evidence.',
+              evidence_ids: [e.id],
+              message: `Fire in the ${where}! Get out to the assembly point now and keep away from it.`,
+              reason_summary: 'Alert everyone in this room (voice only carries this far).',
+            })
+          : mk('notify', {
+              actor_id: speaker.id,
+              recipient: 'all',
+              topic: 'route_blocked',
+              evidence_ids: [e.id],
+              message: `The ${e.component ? e.component.replace(/_/g, ' ') : 'sliding door'} is dead — use another route.`,
+              reason_summary: 'Share the dead door with people in this room.',
             });
-          }
-        } else {
-          this.mem.reported.add(unreported.id);
-          return mk('notify', {
-            actor_id: speaker.id,
-            recipient: 'all',
-            topic: 'route_blocked',
-            evidence_ids: [unreported.id],
-            message: `The ${unreported.component ? unreported.component.replace(/_/g, ' ') : 'sliding door'} is dead — use another route.`,
-            reason_summary: 'Share the dead door so routes are re-planned.',
-          });
-        }
+      }
+    }
+    //  c) Someone is unaware and out of earshot of everyone who knows → send the nearest idle alerted person to the
+    //     hallway pull station (pulled on arrival by step a).
+    const knowers = alive.filter((a) => a.alerted);
+    const unreachable = unaware.filter((u) => !knowers.some((k) => k.knows_evidence.length && hears(k, u)));
+    if (!alarmActive && unreachable.length && stations.length) {
+      const enRoute = knowers.some((k) => k.busy !== null && this.mem.lastMoveDest[k.id] === 'alarm');
+      const runner = knowers
+        .filter((k) => !k.busy && !k.checked_in && k.status !== 'escorted')
+        .sort((a, b) => nearestStation(a) - nearestStation(b))[0];
+      if (!enRoute && runner && this.mem.lastMoveDest[runner.id] !== 'alarm') {
+        return mk('move', { actor_id: runner.id, destination: 'alarm', reason_summary: `Go pull the hallway fire alarm — ${unreachable.map((u) => u.id).join(', ')} cannot hear us.` });
       }
     }
 

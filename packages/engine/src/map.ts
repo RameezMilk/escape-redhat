@@ -24,3 +24,58 @@ export function zoneTiles(map: MapData, zone: ZoneId): Tile[] {
 }
 
 export const tileDistance = (a: Tile, b: Tile): number => Math.hypot(a.col - b.col, a.row - b.row);
+
+// ---------------------------------------------------------------------------------------------------------------
+// Earshot: spoken alerts (notify) reach only people in the same room. Rooms are the open spaces; doorway zones
+// (conference doors, lobby connector, exits) belong to BOTH rooms they join, so someone standing in a doorway hears
+// and is heard on both sides. Outside (sidewalk, plaza, assembly) is one room. Only the fire alarm reaches everyone.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Open spaces that are rooms in their own right. */
+const ROOM_ZONES: ReadonlySet<ZoneId> = new Set<ZoneId>(['rh_room', 'lobby', 'north_corridor', 'south_branch']);
+/** Outdoor zones that together form the single "outside" room. */
+const OUTSIDE_ZONES: ReadonlySet<ZoneId> = new Set<ZoneId>(['west_sidewalk', 'plaza', 'assembly']);
+export type RoomId = 'rh_room' | 'lobby' | 'north_corridor' | 'south_branch' | 'outside';
+
+const roomCache = new WeakMap<MapData, Map<ZoneId, RoomId[]>>();
+
+function baseRoom(zone: ZoneId): RoomId | null {
+  if (ROOM_ZONES.has(zone)) return zone as RoomId;
+  if (OUTSIDE_ZONES.has(zone)) return 'outside';
+  return null;
+}
+
+/** Rooms a zone belongs to: a room/outdoor zone → its room; a doorway zone → every room it joins (via map.zoneEdges). */
+export function roomsOf(map: MapData, zone: ZoneId | null): RoomId[] {
+  if (!zone) return [];
+  let cache = roomCache.get(map);
+  if (!cache) {
+    cache = new Map();
+    roomCache.set(map, cache);
+  }
+  const hit = cache.get(zone);
+  if (hit) return hit;
+  let rooms: RoomId[];
+  const own = baseRoom(zone);
+  if (own) rooms = [own];
+  else {
+    const set = new Set<RoomId>();
+    for (const [a, b] of map.zoneEdges) {
+      const other = a === zone ? b : b === zone ? a : null;
+      const r = other ? baseRoom(other) : null;
+      if (r) set.add(r);
+    }
+    rooms = [...set].sort();
+  }
+  cache.set(zone, rooms);
+  return rooms;
+}
+
+/** True if people standing in these two zones can hear each other (their room sets intersect). */
+export function inEarshot(map: MapData, zoneA: ZoneId | null, zoneB: ZoneId | null): boolean {
+  if (!zoneA || !zoneB) return false;
+  const ra = roomsOf(map, zoneA);
+  if (!ra.length) return false;
+  const rb = roomsOf(map, zoneB);
+  return ra.some((r) => rb.includes(r));
+}

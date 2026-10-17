@@ -19,9 +19,10 @@ describe('scheduled presenter events and decision gating', () => {
     d.run(3);
     expect(d.engine.snapshot().hazards.map((h) => h.kind)).toEqual(['fire']);
     expect(d.engine.needsDecision().needed).toBe(true);
+    // Maya's shout reaches Daniel (same room) but not Alex in the lobby
     okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire!' }));
-    for (const id of ['alex', 'maya', 'daniel']) okData(d.call('move', { actor_id: id, destination: 'assembly' }));
-    expect(d.engine.needsDecision()).toEqual({ needed: false, reason: 'waiting for movement' });
+    for (const id of ['maya', 'daniel']) okData(d.call('move', { actor_id: id, destination: 'assembly' }));
+    expect(d.engine.needsDecision()).toEqual({ needed: true, reason: 'not yet alerted: alex' });
     expect(d.until(() => d.engine.snapshot().hazards.length === 2, 400)).toBe(true);
     expect(d.actor('maya').zone).toBe('lobby');
   });

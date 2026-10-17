@@ -226,7 +226,7 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
             l: lesson(
               'alarm',
               'The alarm was never pulled',
-              `Nobody used a manual pull station; people were warned only by word of mouth${report ? '' : ' (or not at all)'}. A pull station alerts the whole building at once, including people who cannot see the fire.`,
+              `Nobody used the hallway pull station; people were warned only by word of mouth${report ? '' : ' (or not at all)'}, and a voice carries only within a room. The pull station alerts the whole building at once, including people in other rooms who cannot see or hear about the fire.`,
               ['EAP-REPORT', 'ALARM-SYSTEM'],
             ),
           },

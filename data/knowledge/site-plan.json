@@ -3,7 +3,7 @@
   "disclaimer": "Fictional plan for a fictional office used in a simulation exercise. Not a real building's plan, not compliance advice, not certified training. Not affiliated with or endorsed by Red Hat or NVIDIA.",
   "sections": {
     "reporting": {
-      "text": "Anyone who sees fire, smoke or a failed door reports it at once. The fastest way to warn the whole building is the nearest manual pull station (move to 'alarm', then pull_alarm): the siren alerts everyone to evacuate but does not say where the hazard is. Use notify to say what you saw and where, citing its evidence ID (e.g. E1); recipient 'all' reaches everyone. Fire spreads, so alert people early. No real emergency call is made in this exercise. Questions go to the warden, Alex.",
+      "text": "Anyone who sees fire, smoke or a failed door reports it at once. Speech (notify) reaches only people in the same room — doorways join the two rooms they connect; anyone elsewhere does not hear it. To warn the whole building, use the single manual pull station in the north corridor (move to 'alarm', then pull_alarm): the siren alerts everyone to evacuate but does not say where the hazard is. Tell people near you what you saw, citing its evidence ID (e.g. E1). Fire spreads, so alert people early. No real emergency call is made in this exercise.",
       "rule_ids": [
         "EAP-REPORT",
         "ALARM-SYSTEM",

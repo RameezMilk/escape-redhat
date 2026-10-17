@@ -17,12 +17,13 @@ describe('office-v1 map', () => {
     }
   });
 
-  it('doors A and B open onto different segments; 4 electric sliding doors and 3 pull stations', () => {
+  it('doors A and B open onto different segments; 4 electric sliding doors and one hallway pull station', () => {
     const neighbours = (z: ZoneId) => map.zoneEdges.filter((e) => e.includes(z)).map((e) => (e[0] === z ? e[1] : e[0]));
     expect(neighbours('door_a').sort()).toEqual(['north_corridor', 'rh_room']);
     expect(neighbours('door_b').sort()).toEqual(['lobby', 'rh_room']);
     expect(map.components.map((c) => c.id).sort()).toEqual(['connector', 'door_a', 'door_b', 'south_door']);
-    expect(map.alarms).toHaveLength(3);
+    expect(map.alarms.map((a) => a.id)).toEqual(['alarm_corridor']);
+    expect(map.alarms[0].zone).toBe('north_corridor');
     for (const a of map.alarms) expect(map.accessible[tileIndex(map, a.stand.col, a.stand.row)]).toBe(true);
   });
 
