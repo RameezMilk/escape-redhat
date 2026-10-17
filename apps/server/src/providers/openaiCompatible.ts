@@ -27,7 +27,10 @@ export class OpenAICompatibleProvider implements DecisionProvider {
   constructor(
     private cfg: PlannerConfig,
     private fetchImpl: FetchLike = fetch,
-  ) {}
+  ) {
+    // templateKwargs is optional so hand-built test configs keep the default (send them).
+    this.dropTemplateKwargs = cfg.templateKwargs === false;
+  }
 
   info(): ProviderInfo {
     return {
