@@ -99,7 +99,7 @@ export class OpenAICompatibleProvider implements DecisionProvider {
       model: this.cfg.model,
       messages: [
         { role: 'system', content: req.system },
-        { role: 'user', content: userContent(req.view) },
+        { role: 'user', content: userContent(req.view, req.harness) },
       ],
       tools: req.tools,
       tool_choice: 'auto',

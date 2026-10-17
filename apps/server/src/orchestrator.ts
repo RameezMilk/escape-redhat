@@ -255,7 +255,7 @@ export class Orchestrator {
       this.emit(base);
 
       const ask = () =>
-        provider.decide({ system: this.system, view, tools: TOOL_DEFS, signal: this.controller.signal, deadlineMs: this.d.deadlineMs });
+        provider.decide({ system: this.system, view, harness: this.d.harness, tools: TOOL_DEFS, signal: this.controller.signal, deadlineMs: this.d.deadlineMs });
       let res: DecisionResult = await ask();
       let retried = false;
       if (res.kind === 'error' && res.code !== 'ABORTED' && !this.disposed) {

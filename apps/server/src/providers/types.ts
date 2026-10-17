@@ -1,8 +1,11 @@
+import type { Harness } from '../config.js';
 import type { NormalizedToolCall, OpenAIToolDef, PlannerView, ProviderInfo } from '@escape/contracts';
 
 export interface DecideRequest {
   system: string;
   view: PlannerView;
+  /** Prompt harness for the user message (v1 baseline / v2 with state digest). Default v2. */
+  harness?: Harness;
   tools: OpenAIToolDef[];
   signal: AbortSignal;
   deadlineMs: number;

@@ -47,13 +47,63 @@ export function buildSystemPrompt(harness: Harness, map: MapData, scenario: Scen
   return [ROLE, briefing(map, scenario), harness === 'v2' ? PROCEDURE_V2 : GOAL_V1].join('\n\n');
 }
 
-export function userContent(view: PlannerView): string {
-  return `Current state (JSON):\n${JSON.stringify(view)}\n\nChoose the single best next tool call.`;
+/** v2 only: a short digest of the (already planner-visible) state, so a small model does not have to dig through JSON.
+ *  Derived purely from the PlannerView — no hidden world truth. */
+export function stateDigest(view: PlannerView): string {
+  const actors = view.actors ?? [];
+  const recent = view.recent_actions ?? [];
+  // Decisions since each person last received an order (within the recent window) — a starvation signal.
+  const sinceOrder = (id: string) => {
+    for (let i = recent.length - 1; i >= 0; i--) if (recent[i].actor === id) return recent.length - 1 - i;
+    return recent.length;
+  };
+  const ready = actors
+    .filter((a) => a.alerted && !a.checked_in && !a.busy)
+    .sort((a, b) => sinceOrder(b.id) - sinceOrder(a.id));
+  const busy = actors.filter((a) => a.busy && !a.checked_in);
+  const unalerted = actors.filter((a) => !a.alerted && !a.checked_in);
+  const open: string[] = [];
+  if (unalerted.length) {
+    open.push(`Not alerted yet: ${unalerted.map((a) => a.id).join(', ')} — someone who knows the evidence must notify them before they can evacuate.`);
+  }
+  const as = view.assistance;
+  if (as && as.preference === 'buddy' && !as.fulfilled) {
+    if (!as.requested) open.push('Daniel\'s buddy arrangement has not started (he has not called request_assistance with helper "alex").');
+    else if (!as.accepted) open.push('Daniel has asked Alex for help; Alex must be next to Daniel and then call assist before they travel together.');
+    else open.push('Alex is escorting Daniel; moving Alex moves both.');
+  }
+  for (const a of actors) {
+    if (a.zone === 'assembly' && !a.checked_in && !a.busy) open.push(`${a.name} is at the assembly point but not checked in.`);
+  }
+  if (actors.length && actors.every((a) => a.checked_in) && !view.roster?.verified) open.push('Everyone is checked in; the roster has not been verified.');
+  const last = recent[recent.length - 1];
+  const lines = [
+    `WAITING FOR YOUR ORDERS (most neglected first): ${
+      ready
+        .map((a) => {
+          const n = sinceOrder(a.id);
+          return `${a.id} (in ${a.zone}${n >= recent.length && recent.length ? `, no order in your last ${recent.length} decisions` : n > 0 ? `, last order ${n} decisions ago` : ''})`;
+        })
+        .join(', ') || 'nobody'
+    }`,
+    `BUSY MOVING (do not move/assist them again yet): ${busy.map((a) => `${a.id} — ${a.busy}`).join('; ') || 'nobody'}`,
+    `OPEN ITEMS: ${open.length ? open.map((o) => `\n- ${o}`).join('') : 'none'}`,
+  ];
+  lines.push('NOTE: move plans its own route; plan_route/observe/consult_plan are optional look-ups — they do not move anyone.');
+  if (last && !last.ok) {
+    lines.push(`YOUR LAST CALL WAS REJECTED (${last.decision} ${last.tool ?? ''} for ${last.actor ?? '?'}): ${last.error_code ?? ''} — ${last.hint ?? last.summary}. Do not repeat it unchanged.`);
+  }
+  return lines.join('\n');
+}
+
+export function userContent(view: PlannerView, harness: Harness = 'v2'): string {
+  if (harness === 'v1') return `Current state (JSON):\n${JSON.stringify(view)}\n\nChoose the single best next tool call.`;
+  return `${stateDigest(view)}\n\nCurrent state (JSON):\n${JSON.stringify(view)}\n\nChoose ONE tool call — normally for someone who is waiting for your orders.`;
 }
 
 export function buildMessages(harness: Harness, map: MapData, scenario: ScenarioCase, view: PlannerView) {
   return [
     { role: 'system' as const, content: buildSystemPrompt(harness, map, scenario) },
-    { role: 'user' as const, content: userContent(view) },
+    { role: 'user' as const, content: userContent(view, harness) },
   ];
 }

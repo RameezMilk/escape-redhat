@@ -875,16 +875,39 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (a.checkedIn) return fail(actionId, 'NOT_AUTHORIZED', `${name(a.id)} is already checked in at the assembly point.`, 'Checked-in people stay at assembly for the roster check.');
     if (isMoving(a)) {
       const t = leaderOf(a).task!;
-      return fail(actionId, 'ACTOR_BUSY', `${name(a.id)} is already moving to ${t.destination}.`, 'Wait for the move to complete or be interrupted; other characters can act meanwhile.', {
-        tiles_remaining: t.path.length,
-      });
+      const waiting = ACTOR_IDS.filter((id) => id !== a.id && actors[id].alerted && !actors[id].checkedIn && !isMoving(actors[id])).map((id) => name(id));
+      return fail(
+        actionId,
+        'ACTOR_BUSY',
+        `${name(a.id)} is already moving to ${t.destination} (${t.path.length} tiles left). Do not repeat this call.`,
+        waiting.length
+          ? `Give an order to someone who is waiting instead: ${waiting.join(', ')}.`
+          : 'Everyone alerted is busy or checked in; the next update arrives when a move finishes.',
+        { tiles_remaining: t.path.length, waiting_for_orders: waiting },
+      );
     }
     const leader = leaderOf(a);
     const follower = followerOf(leader);
     const partner = a.escort?.partner;
-    if (args.destination === a.id || (partner && args.destination === partner)) return fail(actionId, 'INVALID_ARGUMENT', 'Destination cannot be the mover or their escort partner.');
+    if (args.destination === a.id) return fail(actionId, 'INVALID_ARGUMENT', 'Destination cannot be the mover.');
+    if (partner && args.destination === partner) {
+      return fail(actionId, 'INVALID_ARGUMENT', `${name(a.id)} is already escorting ${name(partner as ActorId)} — they travel together.`, `move ${leaderOf(a).id} to "assembly" (or another zone); ${name(partner as ActorId)} comes along.`);
+    }
     if (follower && !follower.alerted) return fail(actionId, 'NOT_AUTHORIZED', `${name(follower.id)} has not been alerted.`);
     const movers = follower ? [leader.id, follower.id] : [leader.id];
+    if (zoneAt(map, leader.col, leader.row) === args.destination && (!follower || zoneAt(map, follower.col, follower.row) === args.destination)) {
+      return {
+        ok: true,
+        actionId,
+        status: 'completed',
+        data: {
+          destination: args.destination,
+          already_there: true,
+          at: [leader.col, leader.row],
+          next: args.destination === 'assembly' ? `Already at assembly — call check_in for ${movers.join(' and ')}.` : 'Already there.',
+        },
+      };
+    }
     let path: Tile[];
     let routeId: string | undefined;
     if (args.route_id) {
@@ -979,7 +1002,15 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     const person = actors[args.person_id];
     if (helper.id === person.id) return fail(actionId, 'INVALID_ARGUMENT', 'A character cannot assist themselves.');
     if (!helper.alerted) return fail(actionId, 'NOT_AUTHORIZED', `${name(helper.id)} has not been alerted to any emergency.`);
-    if (helper.escort || person.escort) return fail(actionId, 'INVALID_ARGUMENT', `${name(helper.escort ? helper.id : person.id)} is already part of an escort pair.`);
+    if (helper.escort || person.escort) {
+      const linked = helper.escort?.partner === person.id;
+      return fail(
+        actionId,
+        'INVALID_ARGUMENT',
+        linked ? `${name(helper.id)} is already escorting ${name(person.id)}.` : `${name(helper.escort ? helper.id : person.id)} is already part of an escort pair.`,
+        linked ? `No need to assist again — move ${helper.id} to "assembly"; ${name(person.id)} comes along.` : undefined,
+      );
+    }
     if (helper.checkedIn || person.checkedIn) return fail(actionId, 'NOT_AUTHORIZED', 'Checked-in people stay at assembly.');
     if (!requests.some((r) => r.person === person.id && r.helper === helper.id)) {
       counters.assistWithoutConsentAttempts++;
@@ -1233,7 +1264,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       case 'observation':
         return `${who} ${d.via === 'smoke' ? 'smelled smoke and found' : 'saw'} a ${d.kind} (${e.evidenceIds?.[0]}) in ${d.zone}${d.firstReport ? '' : ' (already reported)'}.`;
       case 'move_completed':
-        return `${who}${d.with ? ` and ${name(d.with as ActorId)}` : ''} arrived at ${d.destination} (${e.actionId}) — now in ${d.zone}.`;
+        return `${who}${d.with ? ` and ${name(d.with as ActorId)}` : ''} arrived at ${d.destination} (${e.actionId}) — now in ${d.zone}.${d.zone === 'assembly' ? ' Not checked in yet: call check_in.' : ''}`;
       case 'move_interrupted':
         return `${who}'s move to ${d.destination} (${e.actionId}) was interrupted: ROUTE_UNAVAILABLE — ${d.hazard_kind} ${d.evidence ?? ''} in ${d.hazard_zone}; stopped at ${d.zone} (${(d.stopped_at as number[]).join(',')}) after ${d.partial_tiles}/${d.total_tiles} tiles.`;
       case 'assistance_fulfilled':
@@ -1326,7 +1357,10 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (outcome) return { needed: false, reason: 'episode ended' };
     if (phase === 'idle') return { needed: false, reason: 'no incident yet' };
     if (decisionsUsed >= maxDecisions) return { needed: false, reason: 'decision cap reached' };
-    const fresh = events.slice(lastViewedSeq).filter((e) => RELEVANT.includes(e.type));
+    // A repeat sighting of an already-reported hazard is not news for the planner; only first reports wake it.
+    const fresh = events
+      .slice(lastViewedSeq)
+      .filter((e) => RELEVANT.includes(e.type) && (e.type !== 'observation' || e.data.firstReport === true));
     if (fresh.length) return { needed: true, reason: `new events: ${[...new Set(fresh.map((e) => e.type))].join(', ')}` };
     const ready = ACTOR_IDS.filter((id) => actors[id].alerted && !actors[id].checkedIn && !isMoving(actors[id]));
     if (ready.length) return { needed: true, reason: `ready for instructions: ${ready.join(', ')}` };

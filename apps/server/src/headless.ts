@@ -34,7 +34,7 @@ export async function runEpisodeHeadless(
   const map = opts.map ?? loadMapFile(opts.scenario.mapId);
   const create: CreateEngine = opts.createEngine ?? (await import('@escape/engine')).createEngine;
   const episodeId = opts.episodeId ?? `bench-${opts.scenario.caseId}-${Date.now().toString(36)}`;
-  const maxDecisions = opts.maxDecisions ?? 24;
+  const maxDecisions = opts.maxDecisions ?? readPlannerConfig().maxDecisions;
   const maxSimTime = opts.maxSimTime ?? 240;
   const engine = create(map, opts.scenario, { episodeId, maxDecisions, maxSimTime });
 

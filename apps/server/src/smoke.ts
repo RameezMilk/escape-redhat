@@ -77,7 +77,7 @@ async function main() {
   console.log(`health: ${h.ok ? 'OK' : 'FAIL'} — ${h.detail}`);
   const lat: number[] = [];
   for (let i = 0; i < N; i++) {
-    const r = await provider.decide({ system, view: baseView, tools: TOOL_DEFS, signal: new AbortController().signal, deadlineMs: cfg.deadlineMs });
+    const r = await provider.decide({ system, view: baseView, harness: cfg.harness, tools: TOOL_DEFS, signal: new AbortController().signal, deadlineMs: cfg.deadlineMs });
     show(N > 1 ? `call ${i + 1}` : 'tool call', r);
     if (r.kind !== 'error') lat.push(r.latencyMs);
   }
@@ -87,7 +87,7 @@ async function main() {
     console.log(`latency over ${s.length}: p50 ${q(0.5)} ms  p95 ${q(0.95)} ms  min ${s[0]}  max ${s[s.length - 1]}`);
   }
   if (recovery) {
-    const r = await provider.decide({ system, view: recoveryView, tools: TOOL_DEFS, signal: new AbortController().signal, deadlineMs: cfg.deadlineMs });
+    const r = await provider.decide({ system, view: recoveryView, harness: cfg.harness, tools: TOOL_DEFS, signal: new AbortController().signal, deadlineMs: cfg.deadlineMs });
     show('recovery', r);
     const name = r.kind === 'tool_call' ? r.calls[0]?.name : undefined;
     const good = name === 'plan_route' || name === 'notify' || (name === 'move' && !!(r.kind === 'tool_call' && r.calls[0].arguments.route_id));

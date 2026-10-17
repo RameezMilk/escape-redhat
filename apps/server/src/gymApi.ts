@@ -21,6 +21,7 @@ import {
 import type { Harness } from './config.js';
 import { IDLE_BACKOFF_SIM_SEC } from './orchestrator.js';
 import { buildSystemPrompt, userContent } from './prompt.js';
+import { readPlannerConfig } from './config.js';
 
 const QUIET_EVENTS = new Set<WorldEvent['type']>(['tool_executed', 'tool_rejected', 'decision_note', 'ambient_line']);
 const NON_PROGRESS_TOOLS = new Set(['observe', 'consult_plan']);
@@ -136,7 +137,7 @@ export class GymSessions {
     const maxSimTime = opts.maxSimTime ?? 240;
     const engine = this.deps.createEngine(this.deps.map, scenario, {
       episodeId: `gym-${opts.sessionId}`,
-      maxDecisions: opts.maxDecisions ?? 24,
+      maxDecisions: opts.maxDecisions ?? readPlannerConfig().maxDecisions,
       maxSimTime,
     });
     // Replacing an existing session id resets it (Gym may re-seed the same session).
@@ -290,7 +291,7 @@ export class GymSessions {
     return {
       session_id: s.id,
       state: view,
-      user_prompt: userContent(view),
+      user_prompt: userContent(view, s.harness),
       done: !!outcome,
       outcome,
       sim_time: this.simTime(s),

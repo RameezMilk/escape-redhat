@@ -70,7 +70,7 @@ export function readPlannerConfig(env: Env = process.env): PlannerConfig {
     topP: num(env.PLANNER_TOP_P, 0.95),
     maxTokens: num(env.PLANNER_MAX_TOKENS, 1024),
     deadlineMs: num(env.PLANNER_DEADLINE_MS, 20000),
-    maxDecisions: num(env.PLANNER_MAX_DECISIONS, 24),
+    maxDecisions: num(env.PLANNER_MAX_DECISIONS, 40),
     harness,
   };
 }
