@@ -342,17 +342,17 @@ const TILE = { WALL: 0, FLOOR_1: 1, FLOOR_2: 2, FLOOR_3: 3, FLOOR_4: 4, FLOOR_5:
 // Visual theme per zone: [floor pattern, color]. Tuned by the visual lead; does not affect simulation.
 const ZONE_STYLE: Record<ZoneId, [number, ColorValue]> = {
   rh_room: [TILE.FLOOR_1, { h: 356, s: 55, b: -38, c: -70 }],
-  door_a: [TILE.FLOOR_9, { h: 209, s: 0, b: -16, c: -8 }],
-  door_b: [TILE.FLOOR_9, { h: 209, s: 0, b: -16, c: -8 }],
-  north_corridor: [TILE.FLOOR_9, { h: 209, s: 0, b: -16, c: -8 }],
-  connector: [TILE.FLOOR_9, { h: 209, s: 0, b: -16, c: -8 }],
+  door_a: [TILE.FLOOR_3, { h: 215, s: 12, b: -8, c: -35 }],
+  door_b: [TILE.FLOOR_3, { h: 215, s: 12, b: -8, c: -35 }],
+  north_corridor: [TILE.FLOOR_3, { h: 215, s: 12, b: -8, c: -35 }],
+  connector: [TILE.FLOOR_3, { h: 215, s: 12, b: -8, c: -35 }],
   lobby: [TILE.FLOOR_7, { h: 95, s: 30, b: -40, c: -80 }],
-  south_branch: [TILE.FLOOR_9, { h: 209, s: 0, b: -16, c: -8 }],
-  west_exit: [TILE.FLOOR_9, { h: 120, s: 60, b: -10, c: -20 }],
-  east_exit: [TILE.FLOOR_9, { h: 120, s: 60, b: -10, c: -20 }],
-  west_sidewalk: [TILE.FLOOR_2, { h: 100, s: 40, b: -38, c: -70 }],
-  plaza: [TILE.FLOOR_2, { h: 100, s: 40, b: -38, c: -70 }],
-  assembly: [TILE.FLOOR_9, { h: 48, s: 70, b: -5, c: -30 }],
+  south_branch: [TILE.FLOOR_3, { h: 215, s: 12, b: -8, c: -35 }],
+  west_exit: [TILE.FLOOR_1, { h: 140, s: 60, b: -12, c: -25 }],
+  east_exit: [TILE.FLOOR_1, { h: 140, s: 60, b: -12, c: -25 }],
+  west_sidewalk: [TILE.FLOOR_3, { h: 36, s: 22, b: -22, c: -55 }],
+  plaza: [TILE.FLOOR_3, { h: 36, s: 22, b: -22, c: -55 }],
+  assembly: [TILE.FLOOR_5, { h: 46, s: 75, b: -8, c: -35 }],
 };
 const WALL_COLOR: ColorValue = { h: 214, s: 30, b: -100, c: -55 };
 

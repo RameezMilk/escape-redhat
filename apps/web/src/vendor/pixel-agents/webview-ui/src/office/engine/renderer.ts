@@ -347,6 +347,12 @@ interface ZDrawable {
   draw: (ctx: CanvasRenderingContext2D) => void;
 }
 
+// ESCAPE-PATCH: host-supplied drawables (hazards, signs, flag) z-sorted with walls/furniture/characters.
+export interface ExtraDrawable {
+  zY: number;
+  draw: (ctx: CanvasRenderingContext2D, offsetX: number, offsetY: number, zoom: number) => void;
+}
+
 /** @internal */
 export function renderScene(
   ctx: CanvasRenderingContext2D,
@@ -358,8 +364,14 @@ export function renderScene(
   selectedAgentId: number | null,
   hoveredAgentId: number | null,
   pets: Pet[] = [],
+  extraDrawables: ExtraDrawable[] = [], // ESCAPE-PATCH
 ): void {
   const drawables: ZDrawable[] = [];
+
+  // ESCAPE-PATCH: host drawables join the same z-sort
+  for (const e of extraDrawables) {
+    drawables.push({ zY: e.zY, draw: (c) => e.draw(c, offsetX, offsetY, zoom) });
+  }
 
   // Furniture
   for (const f of furniture) {
@@ -390,7 +402,7 @@ export function renderScene(
   // Characters
   for (const ch of characters) {
     const sprites = getCharacterSprites(ch.palette, ch.hueShift);
-    const spriteData = getCharacterSprite(ch, sprites);
+    const spriteData = ch.spriteOverride ?? getCharacterSprite(ch, sprites); // ESCAPE-PATCH
     const cached = getCachedSprite(spriteData, zoom);
     // Sitting offset: shift character down when seated so they visually sit in the chair
     const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
@@ -903,6 +915,7 @@ export function renderFrame(
   showAreas?: boolean,
   activeAreaLabel?: string | null,
   pets?: Pet[],
+  extraDrawables?: ExtraDrawable[], // ESCAPE-PATCH
 ): { offsetX: number; offsetY: number } {
   // Clear
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -959,6 +972,7 @@ export function renderFrame(
     selectedId,
     hoveredId,
     pets ?? [],
+    extraDrawables ?? [], // ESCAPE-PATCH
   );
 
   // Speech bubbles (always on top of characters)

@@ -1111,7 +1111,8 @@ export class OfficeState {
 
       // Temporarily unblock own seat so character can pathfind to it
       this.withOwnSeatUnblocked(ch, () =>
-        updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles),
+        // ESCAPE-PATCH: no ambient wander targets — the simulation engine owns all movement.
+        updateCharacter(ch, dt, [], this.seats, this.tileMap, this.blockedTiles),
       );
 
       // Tick bubble timer for waiting bubbles

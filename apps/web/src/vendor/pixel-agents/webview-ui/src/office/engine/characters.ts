@@ -99,6 +99,22 @@ export function updateCharacter(
 ): void {
   ch.frameTimer += dt;
 
+  // ESCAPE-PATCH: scripted (engine-authoritative) characters never wander, path or sit on their own.
+  if (ch.scripted) {
+    if (ch.state === CharacterState.IDLE) {
+      ch.frame = 0;
+      ch.frameTimer = 0;
+      return;
+    }
+    const isWalk = ch.state === CharacterState.WALK;
+    const dur = isWalk ? WALK_FRAME_DURATION_SEC : TYPE_FRAME_DURATION_SEC;
+    if (ch.frameTimer >= dur) {
+      ch.frameTimer -= dur;
+      ch.frame = (ch.frame + 1) % (isWalk ? 4 : 2);
+    }
+    return;
+  }
+
   switch (ch.state) {
     case CharacterState.TYPE: {
       if (ch.frameTimer >= TYPE_FRAME_DURATION_SEC) {

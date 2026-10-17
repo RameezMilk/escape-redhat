@@ -252,6 +252,12 @@ export interface Character {
   contextTokens: number;
   /** Window `contextTokens` is measured against. */
   maxContextTokens: number;
+
+  // ESCAPE-PATCH: engine-driven characters (Escape from Red Hat)
+  /** Position/state are set externally every frame; updateCharacter only animates frames. */
+  scripted?: boolean;
+  /** Replaces the palette sprite for this frame (e.g. Daniel's wheelchair sprite). */
+  spriteOverride?: SpriteData | null;
 }
 
 export const PetState = { IDLE: 'idle', WALK: 'walk', FOLLOW: 'follow' } as const;
