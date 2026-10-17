@@ -1,0 +1,27 @@
+{
+  "generated_by": "gym/make_tasks.ts",
+  "source": "data/scenarios/cases.{dev,test}.jsonl (escape-office-scenarios-v1)",
+  "map_hash": "17811f1d2bfededf",
+  "files": {
+    "dev_v1.jsonl": {
+      "rows": 16,
+      "sha256": "4ffd3cc9811cd51584930d495e34fdf64330af561584b3a10b58751d7a471589"
+    },
+    "dev_v2.jsonl": {
+      "rows": 16,
+      "sha256": "707d9b69433bbfa3e0bcd00c4b9564aff8580d29dd66450607769d6cf7c9994b"
+    },
+    "test_v1.jsonl": {
+      "rows": 16,
+      "sha256": "da388cde240ce3abc256f066d24be60d282e962f8223ca000412bbad33dd857f"
+    },
+    "test_v2.jsonl": {
+      "rows": 16,
+      "sha256": "2fd601ea112ba4e7b696bddd90c33a68ecb3658d30021e9b92ebfadb9dfa88a0"
+    },
+    "example.jsonl": {
+      "rows": 3,
+      "sha256": "dba5d40fc624ab32e61fb041d089a508e7aa570cb9805853dcdc956cc10f92de"
+    }
+  }
+}

@@ -1,0 +1,160 @@
+{
+  "case_id": "dev-00-hero",
+  "source": "scripted fixture (not a model)",
+  "expected": {
+    "reward": 1,
+    "outcome": "success"
+  },
+  "calls": [
+    {
+      "name": "notify",
+      "arguments": {
+        "actor_id": "maya",
+        "recipient": "all",
+        "topic": "fire",
+        "evidence_ids": [
+          "E1"
+        ],
+        "message": "Fire in the rh room! Everyone evacuate to the assembly point now.",
+        "reason_summary": "Report the hazard with evidence before anyone moves."
+      }
+    },
+    {
+      "name": "request_assistance",
+      "arguments": {
+        "actor_id": "daniel",
+        "helper_id": "alex",
+        "reason_summary": "Daniel asks for the pre-arranged buddy guidance."
+      }
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "actor_id": "alex",
+        "destination": "daniel",
+        "reason_summary": "Go to Daniel for the buddy arrangement."
+      }
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "actor_id": "maya",
+        "destination": "assembly",
+        "reason_summary": "Evacuate to the assembly point."
+      }
+    },
+    {
+      "name": "consult_plan",
+      "arguments": {
+        "actor_id": "alex",
+        "section": "assistance",
+        "reason_summary": "Warden checks the assistance section while people move."
+      }
+    },
+    {
+      "name": "consult_plan",
+      "arguments": {
+        "actor_id": "alex",
+        "section": "routes",
+        "reason_summary": "Warden checks the routes section while people move."
+      }
+    },
+    {
+      "name": "observe",
+      "arguments": {
+        "actor_id": "alex",
+        "reason_summary": "Monitor while others move."
+      }
+    },
+    {
+      "name": "assist",
+      "arguments": {
+        "actor_id": "alex",
+        "person_id": "daniel",
+        "reason_summary": "Start the agreed escort."
+      }
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "actor_id": "alex",
+        "destination": "assembly",
+        "reason_summary": "Evacuate to the assembly point."
+      }
+    },
+    {
+      "name": "notify",
+      "arguments": {
+        "actor_id": "maya",
+        "recipient": "all",
+        "topic": "route_blocked",
+        "evidence_ids": [
+          "E2"
+        ],
+        "message": "The south branch is blocked — use the other route.",
+        "reason_summary": "Share the new obstruction so routes are re-planned."
+      }
+    },
+    {
+      "name": "plan_route",
+      "arguments": {
+        "actor_id": "alex",
+        "destination": "assembly",
+        "reason_summary": "Previous route failed; plan an alternate."
+      }
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "actor_id": "alex",
+        "destination": "assembly",
+        "route_id": "R1",
+        "expected_revision": 2,
+        "reason_summary": "Follow the re-planned route."
+      }
+    },
+    {
+      "name": "plan_route",
+      "arguments": {
+        "actor_id": "maya",
+        "destination": "assembly",
+        "reason_summary": "Previous route failed; plan an alternate."
+      }
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "actor_id": "maya",
+        "destination": "assembly",
+        "route_id": "R2",
+        "expected_revision": 2,
+        "reason_summary": "Follow the re-planned route."
+      }
+    },
+    {
+      "name": "check_in",
+      "arguments": {
+        "actor_id": "maya"
+      }
+    },
+    {
+      "name": "check_in",
+      "arguments": {
+        "actor_id": "alex"
+      }
+    },
+    {
+      "name": "check_in",
+      "arguments": {
+        "actor_id": "daniel"
+      }
+    },
+    {
+      "name": "verify_roster",
+      "arguments": {
+        "actor_id": "alex",
+        "reason_summary": "Everyone is checked in; warden verifies the roster."
+      }
+    }
+  ]
+}
