@@ -182,7 +182,8 @@ export class Session {
   /** One iteration of the live loop (also driven directly by tests). */
   loop(): void {
     if (this.replay) return this.replayLoop();
-    if (!this.paused && !this.engine.outcome()) {
+    const frozenForPlanner = !!this.d.planner.freezeWhileThinking && this.orch.inFlight;
+    if (!this.paused && !this.engine.outcome() && !frozenForPlanner) {
       this.engine.step();
       this.tick++;
     }

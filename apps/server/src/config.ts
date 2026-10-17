@@ -14,6 +14,8 @@ export interface PlannerConfig {
   thinking: boolean;
   /** Send chat_template_kwargs (vLLM supports it; the hosted NVIDIA API Catalog hangs on it as of 2026-10-17). */
   templateKwargs?: boolean;
+  /** Live mode: hold the sim clock while a decision is in flight (for slow endpoints; sim time then excludes inference wait). */
+  freezeWhileThinking?: boolean;
   temperature: number;
   topP: number;
   maxTokens: number;
@@ -63,6 +65,7 @@ export function readPlannerConfig(env: Env = process.env): PlannerConfig {
     label: (env.PLANNER_LABEL ?? 'Nemotron 3.5 Lightning 30B-A3B').trim(),
     thinking: bool(env.PLANNER_THINKING, false),
     templateKwargs: bool(env.PLANNER_TEMPLATE_KWARGS, endpointKind === 'self-hosted-vllm'),
+    freezeWhileThinking: bool(env.PLANNER_FREEZE_WHILE_THINKING, endpointKind === 'hosted-api'),
     temperature: num(env.PLANNER_TEMPERATURE, 0.6),
     topP: num(env.PLANNER_TOP_P, 0.95),
     maxTokens: num(env.PLANNER_MAX_TOKENS, 1024),

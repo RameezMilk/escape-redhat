@@ -62,7 +62,7 @@ export async function runEpisodeHeadless(
     map,
     scenario: opts.scenario,
     harness: opts.harness,
-    deadlineMs: opts.deadlineMs ?? 60000,
+    deadlineMs: opts.deadlineMs ?? readPlannerConfig().deadlineMs,
     getTick: () => tick,
     isPaused: () => false,
     emitRow: (row) => {
