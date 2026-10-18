@@ -11,6 +11,7 @@ import {
   type EpisodeResult,
   type HazardKind,
   type MapData,
+  type ProviderInfo,
   type ScenarioCase,
   type ServerMessage,
   type Snapshot,
@@ -232,13 +233,20 @@ export class Session {
     return this.replay ? [...this.replay.rows.values()] : this.orch.trace();
   }
 
+  /** During a replay, the model that recorded it (health unknown: a replay never calls a model). */
+  private providerInfo(): ProviderInfo {
+    if (!this.replay) return this.d.provider.info();
+    const p = this.replay.header.provider;
+    return { ...p, healthy: null, mode: this.replay.header.engineOptions.instincts === false ? 'agents' : 'central' };
+  }
+
   welcome(): ServerMessage {
     return {
       type: 'welcome',
       episodeId: this.episodeId,
       snapshot: this.snapshot(),
       trace: this.trace(),
-      provider: this.d.provider.info(),
+      provider: this.providerInfo(),
       mapId: this.d.map.id,
       cases: caseSummaries(this.d.cases),
       runs: this.d.runsDir ? listRuns(this.d.runsDir) : [],

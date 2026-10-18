@@ -116,6 +116,17 @@ Serving flags, latency and tool-calling details: [`docs/tech-stack.md`](docs/tec
 
 ## How to reproduce the demo
 
+Two ways: watch our recorded run (no GPU needed), or run it live against Nemotron.
+
+### Option A: watch the recorded demo
+
+1. Start the app as in [Quick start](#quick-start). The default `.env` is enough, because a replay never calls the model.
+2. Open http://localhost:5173, enter the ground floor, and pick **Recorded demo run** from the **Replay a saved run** menu in the top bar.
+
+It plays back a real run of the five Nemotron agents recorded on our vLLM server (a fire in the cubicles, then a power cut on the reception door). It is identical every time and marked with a REPLAY badge. To check from the terminal that it reproduces exactly: `npm run replay -- runs/demo-hero.jsonl`.
+
+### Option B: run it live with Nemotron
+
 **1. Serve the model** on a Brev GPU VM (we used 1x H100 80GB). The API key is generated on the VM and never committed.
 
 ```bash
@@ -146,15 +157,15 @@ PLANNER_MODE=agents             # one Nemotron call per person
 | `PLANNER_AGENT_FREEZE_WHILE_THINKING` | `true` | Hold the sim clock while anyone thinks; `false` for real-time pressure |
 | `DEMO_CASE` | `demo-hero` | Scenario loaded on start and reset |
 
-**3. Run the hero scenario.**
+**3. Run it.**
 
 1. `npm run dev` and open http://localhost:5173. The server log should report `health: OK` for the model.
-2. Drag **Fire** into the cubicles next to Maya. Maya sees it and decides for herself whether to warn the room, head for a pull station or get out. The other rooms know nothing yet.
-3. Each person makes their own call, shown in the trace with their reasoning. Once someone pulls an alarm, the siren reaches every room.
-4. When someone crosses the hallway toward reception, drag **Electrical Failure** onto the reception door (or run `node scripts/auto-electrical.mjs` beforehand to do it on cue).
-5. Their move stops, the trace says why, and they re-route through the west exit or the reception side door. Everyone crosses to the bus stop and checks in, and Alex verifies the roster.
+2. Drag **Fire** anywhere inside the building. Our recording put it in the cubicles next to Maya.
+3. Watch each person decide from what they know: who notices, who warns the room, who goes for a pull station, which exit they take. Every call and its reasoning appear in the trace.
+4. Optionally drag **Electrical Failure** onto a sliding door on someone's way out, such as the reception door (`node scripts/auto-electrical.mjs` cuts it on cue).
+5. The run ends once every survivor has checked in at the bus stop and Alex has verified the roster.
 
-Backup: `npm run replay -- runs/demo-hero.jsonl` re-applies a recorded live run without calling the model (shown with a REPLAY badge).
+Each person is a separate model call, so routes, timing and who does what differ from run to run. The recorded demo is one such run.
 
 ## Results
 

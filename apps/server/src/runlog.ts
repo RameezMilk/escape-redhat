@@ -145,7 +145,14 @@ export function listRuns(dir: string): RunSummary[] {
       const header = JSON.parse(first) as RunHeader;
       if (header.type !== 'header') continue;
       const m = text.match(/"type":"result".*?"status":"(\w+)"/);
-      out.push({ runId: f.replace(/\.jsonl$/, ''), caseId: header.scenario.caseId, outcome: m?.[1], createdAt: header.createdAt });
+      out.push({
+        runId: f.replace(/\.jsonl$/, ''),
+        caseId: header.scenario.caseId,
+        outcome: m?.[1],
+        createdAt: header.createdAt,
+        mapHash: header.mapHash,
+        scripted: header.provider?.endpointKind === 'scripted',
+      });
     } catch {
       out.push({ runId: f.replace(/\.jsonl$/, ''), caseId: '?', createdAt: statSync(p).mtime.toISOString() });
     }

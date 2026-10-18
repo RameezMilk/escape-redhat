@@ -217,6 +217,19 @@ kbd {
   background: transparent;
   box-shadow: none;
 }
+.replay-select {
+  background: #1b1420;
+  color: var(--text);
+  border: 2px solid var(--edge);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: 13px var(--ui);
+  max-width: 260px;
+}
+.replay-select:disabled {
+  opacity: 0.55;
+}
+
 /* ---------------- Stage (office) ---------------- */
 .stage {
   grid-area: stage;

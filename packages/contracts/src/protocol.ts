@@ -44,6 +44,10 @@ export interface RunSummary {
   caseId: string;
   outcome?: string;
   createdAt: string;
+  /** Map the run was recorded on: only runs on the current map replay faithfully. */
+  mapHash?: string;
+  /** Recorded with the scripted fixture (not a model). */
+  scripted?: boolean;
 }
 
 export type ServerMessage =
