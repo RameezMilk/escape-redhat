@@ -1,3 +1,4 @@
+import { ACTOR_IDS, ACTOR_PROFILES } from '@escape/contracts';
 import { loadMap } from '@escape/engine';
 // Minimal Engine stand-in for orchestrator/session tests (no simulation; records calls).
 import type {
@@ -154,7 +155,7 @@ export const fakeMap = {
   cols: loadMap().cols,
   rows: loadMap().rows,
   zone: loadMap().zone,
-  spawnSpots: { alex: [], maya: [], daniel: [] },
+  spawnSpots: Object.fromEntries(ACTOR_IDS.map((id) => [id, []])),
   components: loadMap().components,
   alarms: loadMap().alarms,
 } as unknown as MapData;
@@ -165,11 +166,7 @@ export const fakeScenario: ScenarioCase = {
   family: 'hero',
   seed: 1,
   mapId: loadMap().id,
-  spawns: {
-    alex: { col: 1, row: 1, dir: 'down', pose: 'stand' },
-    maya: { col: 2, row: 1, dir: 'down', pose: 'stand' },
-    daniel: { col: 3, row: 1, dir: 'down', pose: 'sit' },
-  },
+  spawns: Object.fromEntries(ACTOR_IDS.map((id, i) => [id, { col: i + 1, row: 1, dir: 'down', pose: ACTOR_PROFILES[id].usesWheelchair ? 'sit' : 'stand' }])) as ScenarioCase['spawns'],
   danielPreference: 'buddy',
   events: [],
   labels: { solvable: true, primaryRouteBlocked: false },

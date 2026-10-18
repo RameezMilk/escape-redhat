@@ -148,6 +148,20 @@ export const ACTOR_PROFILES: Record<ActorId, ActorProfile> = {
     buddy: 'alex',
     ambient: ['Nice office — where is the whiteboard?', 'Wi-Fi password, anyone?', 'Taking notes for the team.', 'This chair has great wheels… oh wait.'],
   },
+  rosa: {
+    name: 'Rosa',
+    role: 'Receptionist (employee)',
+    profile: 'Runs the front desk by the main entrance; friendly, organised, and knows who is in the building today.',
+    usesWheelchair: false,
+    ambient: ['Welcome! Please sign the visitor book.', 'Your badge will be ready in a moment.', 'Another courier for the server room…', 'Line two is for you, Alex.'],
+  },
+  kenji: {
+    name: 'Kenji',
+    role: 'IT engineer (employee)',
+    profile: 'Looks after the GPU server room; practical and calm, knows the back corridors and the kitchen exit.',
+    usesWheelchair: false,
+    ambient: ['Rack 4 is running hot again.', 'Who unplugged the GPU node?!', 'Firmware update: 12%… still 12%.', 'More coffee for this deploy.'],
+  },
 };
 
 /** The exercise warden (verifies the roster). */

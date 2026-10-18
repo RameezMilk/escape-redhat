@@ -70,19 +70,23 @@ export interface MapScenarioSpec {
 }
 
 export const SPECS: Record<string, MapScenarioSpec> = {
-  'office-v1': {
-    dataset: 'escape-office-scenarios-v2',
+  // Each split has a big shared space, an occupied meeting/work room and a service room; test rooms never appear in
+  // dev. Trapped cases seal a sealable room with someone inside: the Red Hat room (dev) and the GPU server room (test).
+  'office-v2': {
+    dataset: 'escape-office-scenarios-v3',
     families: {
       dev: [
-        { id: 'rh_room_doorA', zone: 'rh_room' as ZoneId, box: { cols: [5, 12], rows: [0, 8] } }, // within 4 tiles of door A
-        { id: 'lobby', zone: 'lobby' as ZoneId },
+        { id: 'rh_room', zone: 'rh_room' as ZoneId },
+        { id: 'cubicles', zone: 'cubicles' as ZoneId },
+        { id: 'kitchen', zone: 'kitchen' as ZoneId },
       ],
       test: [
-        { id: 'north_corridor', zone: 'north_corridor' as ZoneId, preferVisible: false },
-        { id: 'rh_room_doorB', zone: 'rh_room' as ZoneId, box: { cols: [14, 99], rows: [7, 12] } }, // within 4 tiles of door B
+        { id: 'server_room', zone: 'server_room' as ZoneId },
+        { id: 'hallway', zone: 'hallway' as ZoneId, preferVisible: false },
+        { id: 'reception', zone: 'reception' as ZoneId },
       ],
     },
-    trapped: { dev: 'rh_room_doorA', test: 'rh_room_doorB' },
+    trapped: { dev: 'rh_room', test: 'server_room' },
   },
 };
 

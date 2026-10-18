@@ -87,7 +87,7 @@ def test_invalid_call_is_a_model_visible_error_and_sessions_are_isolated() -> No
     # session b is untouched by a's decision
     ob = b.post("/observe", json={"actor_id": "alex"}).json()
     assert ob["result"]["ok"] is True
-    assert ob["state"]["decisions_remaining"] == 23
+    assert ob["state"]["decisions_remaining"] == 39
     # stopping early is scored honestly
     v = a.post("/verify", json={**row, "response": _fake_response()}).json()
     assert v["reward"] <= 0 and v["success"] == 0.0 and v["ended_by_verify"] is True

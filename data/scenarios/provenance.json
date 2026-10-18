@@ -1,5 +1,5 @@
 {
-  "dataset": "escape-office-scenarios-v2",
+  "dataset": "escape-office-scenarios-v3",
   "ruleset": 2,
   "license": "CC-BY-4.0",
   "synthetic": true,
@@ -7,13 +7,13 @@
   "created_during": "NVIDIA x Red Hat Small Models Hack, Raleigh NC, 2026-10-17/18",
   "generator": {
     "path": "data/scenarios/generator.ts",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "master_seed": 20261017
   },
   "map": {
-    "id": "office-v1",
-    "hash": "b3087dce77c796d6",
-    "source": "data/maps/office-v1.ascii + data/maps/office-v1.spec.ts (data/maps/builder.ts)"
+    "id": "office-v2",
+    "hash": "c6b01aff5926cb6b",
+    "source": "data/maps/office-v2.ascii + data/maps/office-v2.spec.ts (data/maps/builder.ts)"
   },
   "method": "Seeded sampling of spawns (map.spawnSpots), 2×2 fire seeds from fire-location families (dev/test disjoint), second fire seeds (multi_fire), and electrical failures on interior sliding doors chosen against oracle shortest routes; solvability labels from a full-knowledge grid search at placement time (Daniel on wheelchair-clearance tiles). Fire spread happens later in the engine (seeded, stochastic). No real-world measurements are included.",
   "hazard_geometry": {
@@ -30,13 +30,14 @@
   },
   "engine_cross_check": "every placement validated with packages/engine validatePlacement",
   "inputs": {
-    "demo-hero.json": "b240865c71c98d7268d8068458b428887b0014ce7d758554f69ddac918fb2963",
-    "office-v1.json": "a4c6aa3eae0217401d3d81e74fd228151c64d9321f0c1d5a1837ff4e0fba8d75"
+    "demo-hero.json": "8aa97a7c5432c76fb75def7fccce3234e07679f4dda112a5503280657d8d2364",
+    "hero-story.json": "c0fd3dee8732e07921843954d3d7191cac6b6856af66dcc93fbcdabed5fd1a54",
+    "office-v2.json": "2c84c0964501e3bd2ba2394b0172629ee5bacbc3f716e1b8fc898e1cd621cbc2"
   },
   "outputs": {
-    "cases.dev.jsonl": "673523808d5f4b18593243b344727b5bd2bda1548a6d55b3520fc42e2e386d03",
-    "cases.test.jsonl": "9e4210841df05e0f62e1a58aaeace12f78f71952dc35dbb7080fb79e3495646c",
-    "splits.json": "7e22c9b992babfbf960e0d3a4f44a98598c030c93a91401111fcf9c2c3c7a1d7"
+    "cases.dev.jsonl": "7ba9d519eb21b6877129e07422535213ea0d90a8ff3d76ac6508630e522a1d25",
+    "cases.test.jsonl": "7743adc815bb6955f6a39604dd1276043f00ddf8ccb89a51c001e526fcddaacd",
+    "splits.json": "ad46148d803b01720853ca6af4e4aa2ccbfe61ee3653df886c21c0e7eae66016"
   },
   "counts": {
     "dev": 16,

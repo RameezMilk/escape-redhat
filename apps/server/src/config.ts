@@ -88,7 +88,7 @@ export function readPlannerConfig(env: Env = process.env): PlannerConfig {
     deadlineMs: num(env.PLANNER_DEADLINE_MS, 20000),
     // Safety stop only (there is no gameplay timer). Matches the engine default.
     // Everyone deciding for themselves makes roughly one planner's calls per person.
-    maxDecisions: agents ? num(env.PLANNER_AGENT_MAX_DECISIONS, 150) : num(env.PLANNER_MAX_DECISIONS, 60),
+    maxDecisions: agents ? num(env.PLANNER_AGENT_MAX_DECISIONS, 250) : num(env.PLANNER_MAX_DECISIONS, 100),
     harness,
     mode,
   };

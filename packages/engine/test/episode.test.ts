@@ -3,58 +3,60 @@ import { ACTOR_IDS, type ActorId, type ScenarioCase, ZONE_IDS } from '@escape/co
 import { mulberry32, replayRun, tileIndex } from '../src/index.js';
 import { Driver, errCode, hero, map, okData } from './helpers.js';
 
-/** Scripted (fixture, not a model) hero: fire near Maya; her instinctive shout reaches Daniel (same room) but not Alex
- *  in the lobby, so she is sent to the hallway alarm and pulls it on arrival; south door jams mid-evacuation; re-route. */
+/** Scripted (fixture, not a model) hero on the ground floor: a fire at the west end of the cubicles; Maya sees it and
+ *  her instinctive shout reaches Alex (same room) but nobody in the other rooms, so she is sent to the nearest pull
+ *  station and pulls it on arrival; Alex fetches Daniel from the Red Hat room; the reception door jams while they are
+ *  in the hallway; re-route; everyone checks in and Alex verifies the roster. */
 function runHero(): Driver {
   const d = new Driver();
   d.run(20);
   expect(d.engine.needsDecision().needed).toBe(false);
-  expect(d.place('fire', 6, 12).ok).toBe(true);
+  expect(d.place('fire', 10, 17).ok).toBe(true);
   d.run(2);
   expect(d.actor('maya').knows).toEqual(['E1']);
   expect(d.engine.needsDecision()).toMatchObject({ needed: true });
-  // Instinct: Maya shouted "Fire!" — Daniel (same room) heard it, Alex (lobby) did not.
-  expect(d.engine.events.find((e) => e.type === 'instinct')).toMatchObject({ actor: 'maya', data: { kind: 'shout', heard_by: ['daniel'] } });
-  expect(d.actor('daniel').alerted).toBe(true);
-  const tell = okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire in the Red Hat room! Use door B.' }));
-  expect(tell).toMatchObject({ delivered_to: ['daniel'], not_reached: ['alex'] });
-  // Alex has heard nothing: he cannot evacuate yet
-  expect(errCode(d.call('move', { actor_id: 'alex', destination: 'daniel' }))).toBe('NOT_AUTHORIZED');
+  // Instinct: Maya shouted "Fire!" — Alex (same room) heard it, nobody else did.
+  expect(d.engine.events.find((e) => e.type === 'instinct' && e.data.kind === 'shout')).toMatchObject({ actor: 'maya', data: { kind: 'shout', heard_by: ['alex'] } });
+  expect(d.actor('alex').alerted).toBe(true);
+  const tell = okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire at the end of the cubicles! Go out through the side door.' }));
+  expect(tell).toMatchObject({ delivered_to: ['alex'], not_reached: ['daniel', 'rosa', 'kenji'] });
+  // Daniel has heard nothing: he cannot evacuate yet
+  expect(errCode(d.call('move', { actor_id: 'daniel', destination: 'assembly' }))).toBe('NOT_AUTHORIZED');
   okData(d.call('move', { actor_id: 'maya', destination: 'alarm' }));
-  okData(d.call('request_assistance', { actor_id: 'daniel', helper_id: 'alex' }));
   expect(d.until(() => d.idle('maya'))).toBe(true);
   // She pulled it on arrival (the planner sent her there); a second pull is a no-op.
-  expect(d.actor('alex').alerted).toBe(true);
+  for (const id of ['daniel', 'rosa', 'kenji']) expect(d.actor(id).alerted, id).toBe(true);
   expect(okData(d.call('pull_alarm', { actor_id: 'maya' }))).toMatchObject({ already_active: true });
-  okData(d.call('move', { actor_id: 'maya', destination: 'assembly' }));
+  okData(d.call('request_assistance', { actor_id: 'daniel', helper_id: 'alex' }));
+  for (const id of ['maya', 'rosa', 'kenji']) okData(d.call('move', { actor_id: id, destination: 'assembly' }));
   okData(d.call('move', { actor_id: 'alex', destination: 'daniel' }));
   expect(d.until(() => d.idle('alex'))).toBe(true);
   okData(d.call('assist', { actor_id: 'alex', person_id: 'daniel' }));
-  const east = okData(d.call('move', { actor_id: 'alex', destination: 'assembly' }));
-  expect(east.zones).toContain('south_branch');
-  // Presenter jams the south door once Alex+Daniel are in the lobby heading east (retry while Maya is in the doorway)
-  expect(d.until(() => d.actor('alex').zone === 'lobby')).toBe(true);
+  const out = okData(d.call('move', { actor_id: 'alex', destination: 'assembly' }));
+  expect(out.zones).toContain('reception_door');
+  // Presenter jams the reception door once Alex+Daniel are in the hallway (retry while someone is in the doorway)
+  expect(d.until(() => d.actor('alex').zone === 'hallway')).toBe(true);
   let jammed = false;
-  expect(d.until(() => (jammed ||= d.place('electrical', 26, 15).ok), 60)).toBe(true);
+  expect(d.until(() => (jammed ||= d.place('electrical', 31, 12).ok), 60)).toBe(true);
   expect(d.until(() => d.idle('alex'))).toBe(true);
   const interrupted = d.engine.events.filter((e) => e.type === 'move_interrupted' && e.actor === 'alex');
   expect(interrupted).toHaveLength(1);
   expect(interrupted[0].data).toMatchObject({ code: 'ROUTE_UNAVAILABLE', hazard_kind: 'electrical' });
   expect(d.engine.plannerView().new_since_last_decision.join(' ')).toContain('interrupted');
   const e2 = d.actor('alex').knows.find((x) => x !== 'E1')!;
-  okData(d.call('notify', { actor_id: 'alex', recipient: 'all', topic: 'route_blocked', evidence_ids: [e2], message: 'South door jammed — north corridor.' }));
+  d.call('notify', { actor_id: 'alex', recipient: 'all', topic: 'route_blocked', evidence_ids: [e2], message: 'The reception door is dead — another way.' });
   const r = okData(d.call('plan_route', { actor_id: 'alex', destination: 'assembly' }));
-  expect(r.zones).not.toContain('south_branch');
-  expect(r.zones).toContain('west_exit');
+  expect(r.zones).not.toContain('reception_door');
   okData(d.call('move', { actor_id: 'alex', destination: 'assembly', route_id: r.route_id }));
   // Keep everyone heading for assembly, re-planning on any further interruption (the fire keeps spreading).
+  const walkers = ['alex', 'maya', 'rosa', 'kenji'] as const;
   for (let k = 0; k < 12; k++) {
-    expect(d.until(() => d.idle('alex') && d.idle('maya'), 3000)).toBe(true);
-    const pending = (['alex', 'maya'] as const).filter((id) => !d.lost(id) && d.actor(id).zone !== 'assembly');
+    expect(d.until(() => walkers.every((id) => d.idle(id)), 3000)).toBe(true);
+    const pending = walkers.filter((id) => !d.lost(id) && d.actor(id).zone !== 'assembly');
     if (!pending.length) break;
     for (const id of pending) okData(d.call('move', { actor_id: id, destination: 'assembly' }));
   }
-  for (const id of ['maya', 'alex', 'daniel']) okData(d.call('check_in', { actor_id: id }));
+  for (const id of ACTOR_IDS) okData(d.call('check_in', { actor_id: id }));
   const v = okData(d.call('verify_roster', { actor_id: 'alex' }));
   expect(v.complete).toBe(true);
   return d;
@@ -73,7 +75,7 @@ describe('episodes', () => {
       rosterVerified: true,
       replannedAfterInterruption: true,
       alarmBy: 'planner',
-      escaped: 3,
+      escaped: ACTOR_IDS.length,
       lost: 0,
     });
     expect(res.metrics.procedural.alarmLatencySimSec).toBeGreaterThan(0);
@@ -99,14 +101,14 @@ describe('episodes', () => {
   it('a sealed conference room ends unresolved at the decision cap', () => {
     const d = new Driver(hero(), { maxDecisions: 6 });
     d.run(3);
-    expect(d.place('electrical', 8, 4).ok).toBe(true);
-    expect(d.place('electrical', 18, 9).ok).toBe(true);
-    expect(d.place('fire', 6, 12).ok).toBe(true);
+    expect(d.place('electrical', 20, 8).ok).toBe(true); // Red Hat room door
+    expect(d.place('electrical', 28, 3).ok).toBe(true); // pantry door
+    expect(d.place('fire', 16, 1).ok).toBe(true);
     d.run(5);
     for (let i = 0; i < 6; i++) d.note('no_call');
     const out = d.engine.outcome();
     expect(out?.status).toBe('unresolved');
-    expect(out?.reason).toMatch(/Maya|Daniel/);
+    expect(out?.reason).toMatch(/Daniel/);
     const res = d.engine.result()!;
     expect(res.debrief.map((l) => l.id)).toContain('unresolved');
     expect(res.score.reward).toBe(0);
@@ -116,7 +118,7 @@ describe('episodes', () => {
 
   it('decision cap without trapped people ends incomplete', () => {
     const d = new Driver(hero(), { maxDecisions: 3 });
-    d.place('fire', 8, 5);
+    d.place('fire', 26, 1);
     d.run(2);
     d.note('malformed');
     d.note('no_call');
@@ -126,8 +128,8 @@ describe('episodes', () => {
   });
 
   it('an unnoticed fire is smelled after 15 s by the nearest person', () => {
-    const d = new Driver();
-    d.place('fire', 20, 1); // north corridor, behind walls
+    const d = new Driver(undefined, { ambient: false }); // everyone stays at their desk
+    d.place('fire', 36, 10); // east end of the main hallway, behind walls
     d.run(170);
     const obs = d.engine.events.find((e) => e.type === 'observation');
     expect(obs).toBeDefined();

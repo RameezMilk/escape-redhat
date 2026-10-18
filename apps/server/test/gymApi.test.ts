@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
-import { TOOL_DEFS, type CreateEngine } from '@escape/contracts';
+import { ACTOR_IDS, TOOL_DEFS, type CreateEngine } from '@escape/contracts';
 import { createEngine } from '@escape/engine';
 import { loadCases, loadMapFile } from '../src/data.js';
 import { GymError, GymSessions, compactState, registerGymRoutes, type GymStepResponse } from '../src/gymApi.js';
@@ -101,7 +101,7 @@ describe('Gym session API (engine-backed, lockstep)', () => {
     const gym = make();
     const s = gym.create({ sessionId: 'c1', caseId: HERO });
     const c = compactState(s.state);
-    expect(c.actors).toHaveLength(3);
+    expect(c.actors).toHaveLength(ACTOR_IDS.length);
     expect(c.actors.every((a) => a.lost === false)).toBe(true);
     expect(c.alarm).toHaveProperty('active');
     expect(JSON.stringify(c).length).toBeLessThan(JSON.stringify(s.state).length);
@@ -122,7 +122,7 @@ describe('Gym session API (engine-backed, lockstep)', () => {
     });
     expect(t.statusCode).toBe(200);
     expect(t.json().result.ok).toBe(true);
-    expect(t.json().state.actors).toHaveLength(3);
+    expect(t.json().state.actors).toHaveLength(ACTOR_IDS.length);
     expect(t.json().state).not.toHaveProperty('messages');
     const v = await app.inject({ method: 'POST', url: '/api/gym/sessions/h1/verify' });
     expect(v.statusCode).toBe(200);

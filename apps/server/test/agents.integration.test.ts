@@ -12,24 +12,16 @@ import { runEpisodeHeadless } from '../src/headless.js';
 import { ScriptedProvider } from '../src/providers/scripted.js';
 import type { DecideRequest, DecisionProvider, DecisionResult } from '../src/providers/types.js';
 import { Session } from '../src/session.js';
+import { heroStoryCase } from '../../../data/scenarios/heroStory.js';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const cases = loadCases();
 const map = loadMapFile();
 
+/** The scripted hero story (data/scenarios/hero-story.json): fire in the cubicles at t=1, and the reception door loses
+ *  power when anyone enters the main hallway. */
 function heroCase(): ScenarioCase {
-  const base = cases.get('demo-hero') ?? [...cases.values()][0];
-  return {
-    ...base,
-    caseId: 'test-hero-agents',
-    split: 'dev',
-    family: 'hero',
-    events: [
-      { id: 'ev-fire', trigger: { type: 'at_time', simTime: 1 }, action: { type: 'place_hazard', kind: 'fire', col: 5, row: 12 } },
-      { id: 'ev-power', trigger: { type: 'actor_enters_zone', actor: 'any', zone: 'lobby' }, action: { type: 'place_hazard', kind: 'electrical', col: 26, row: 14 } },
-    ],
-    labels: { solvable: true, primaryRouteBlocked: true },
-  };
+  return { ...heroStoryCase(), caseId: 'test-hero-agents' };
 }
 
 describe('per-agent mode (scripted fixture × real engine)', () => {
@@ -48,11 +40,11 @@ describe('per-agent mode (scripted fixture × real engine)', () => {
     const decisions = trace.filter((r) => r.kind === 'decision');
     expect(decisions.length).toBeGreaterThan(3);
     for (const r of decisions) {
-      expect(r.origin).toMatch(/^SCRIPTED fixture → (Alex|Maya|Daniel) \(own decision\)/);
+      expect(r.origin).toMatch(/^SCRIPTED fixture → (Alex|Maya|Daniel|Rosa|Kenji) \(own decision\)/);
       if (r.args) expect(r.args.actor_id).toBe(r.actor);
     }
     // Several people made their own decisions.
-    expect(new Set(decisions.map((r) => r.actor)).size).toBe(3);
+    expect(new Set(decisions.map((r) => r.actor)).size).toBeGreaterThanOrEqual(3);
     expect(trace.some((r) => r.origin.startsWith('Instinct'))).toBe(false);
     expect(runLogLines[0]).toMatchObject({ type: 'header', mode: 'agents', engineOptions: { instincts: false } });
   });
@@ -75,10 +67,10 @@ describe('per-agent mode (scripted fixture × real engine)', () => {
     const episodeId = session.episodeId;
     let powerCut = false;
     for (let i = 0; i < 6000 && !session.currentEngine.outcome(); i++) {
-      if (i === 10) expect(session.place('fire', 5, 12)).toMatchObject({ ok: true });
+      if (i === 10) expect(session.place('fire', 15, 5)).toMatchObject({ ok: true });
       const snap = session.snapshot();
-      if (!powerCut && snap.actors.some((a) => a.zone === 'lobby' && a.task?.kind === 'move' && a.task.destination === 'assembly')) {
-        expect(session.place('electrical', 26, 14)).toMatchObject({ ok: true });
+      if (!powerCut && snap.actors.some((a) => a.zone === 'hallway' && a.task?.kind === 'move' && a.task.destination === 'assembly')) {
+        expect(session.place('electrical', 31, 12)).toMatchObject({ ok: true });
         powerCut = true;
       }
       session.loop();

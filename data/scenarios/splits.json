@@ -1,15 +1,17 @@
 {
-  "dataset": "escape-office-scenarios-v2",
+  "dataset": "escape-office-scenarios-v3",
   "ruleset": 2,
   "structural_holdout": {
     "description": "Dev and test use disjoint fire-location families; test fire placements never appear in dev.",
     "dev_fire_families": [
-      "rh_room_doorA",
-      "lobby"
+      "rh_room",
+      "cubicles",
+      "kitchen"
     ],
     "test_fire_families": [
-      "north_corridor",
-      "rh_room_doorB"
+      "server_room",
+      "hallway",
+      "reception"
     ]
   },
   "splits": {
@@ -19,7 +21,7 @@
         "family": "hero",
         "fireFamily": "hero",
         "doors": [
-          "south_door"
+          "reception_door"
         ],
         "fires": 1,
         "solvable": true,
@@ -27,14 +29,13 @@
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya",
-          "daniel"
+          "maya"
         ]
       },
       {
         "caseId": "dev-01-fire_only",
         "family": "fire_only",
-        "fireFamily": "rh_room_doorA",
+        "fireFamily": "rh_room",
         "doors": [],
         "fires": 1,
         "solvable": true,
@@ -42,14 +43,13 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya",
-          "daniel"
+          "kenji"
         ]
       },
       {
         "caseId": "dev-02-fire_only",
         "family": "fire_only",
-        "fireFamily": "lobby",
+        "fireFamily": "cubicles",
         "doors": [],
         "fires": 1,
         "solvable": true,
@@ -57,13 +57,13 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex"
+          "maya"
         ]
       },
       {
         "caseId": "dev-03-fire_only",
         "family": "fire_only",
-        "fireFamily": "rh_room_doorA",
+        "fireFamily": "kitchen",
         "doors": [],
         "fires": 1,
         "solvable": true,
@@ -71,13 +71,13 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "daniel"
+          "maya"
         ]
       },
       {
         "caseId": "dev-04-fire_only",
         "family": "fire_only",
-        "fireFamily": "lobby",
+        "fireFamily": "rh_room",
         "doors": [],
         "fires": 1,
         "solvable": true,
@@ -85,14 +85,13 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex",
           "daniel"
         ]
       },
       {
         "caseId": "dev-05-multi_fire",
         "family": "multi_fire",
-        "fireFamily": "rh_room_doorA",
+        "fireFamily": "rh_room",
         "doors": [],
         "fires": 2,
         "solvable": true,
@@ -100,14 +99,13 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya",
-          "daniel"
+          "alex"
         ]
       },
       {
         "caseId": "dev-06-multi_fire",
         "family": "multi_fire",
-        "fireFamily": "lobby",
+        "fireFamily": "cubicles",
         "doors": [],
         "fires": 2,
         "solvable": true,
@@ -115,13 +113,14 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex"
+          "alex",
+          "rosa"
         ]
       },
       {
         "caseId": "dev-07-multi_fire",
         "family": "multi_fire",
-        "fireFamily": "rh_room_doorA",
+        "fireFamily": "kitchen",
         "doors": [],
         "fires": 2,
         "solvable": true,
@@ -129,32 +128,15 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya",
-          "daniel"
+          "rosa"
         ]
       },
       {
         "caseId": "dev-08-fire_then_door",
         "family": "fire_then_door",
-        "fireFamily": "rh_room_doorA",
+        "fireFamily": "rh_room",
         "doors": [
-          "south_door"
-        ],
-        "fires": 1,
-        "solvable": true,
-        "expectLosses": false,
-        "primaryRouteBlocked": true,
-        "danielPreference": "buddy",
-        "fireInitiallySeenBy": [
-          "daniel"
-        ]
-      },
-      {
-        "caseId": "dev-09-fire_then_door",
-        "family": "fire_then_door",
-        "fireFamily": "lobby",
-        "doors": [
-          "south_door"
+          "rh_door"
         ],
         "fires": 1,
         "solvable": true,
@@ -166,28 +148,11 @@
         ]
       },
       {
-        "caseId": "dev-10-fire_then_door",
+        "caseId": "dev-09-fire_then_door",
         "family": "fire_then_door",
-        "fireFamily": "rh_room_doorA",
+        "fireFamily": "cubicles",
         "doors": [
-          "south_door"
-        ],
-        "fires": 1,
-        "solvable": true,
-        "expectLosses": false,
-        "primaryRouteBlocked": true,
-        "danielPreference": "buddy",
-        "fireInitiallySeenBy": [
-          "maya",
-          "daniel"
-        ]
-      },
-      {
-        "caseId": "dev-11-fire_then_door",
-        "family": "fire_then_door",
-        "fireFamily": "lobby",
-        "doors": [
-          "door_b"
+          "side_door"
         ],
         "fires": 1,
         "solvable": true,
@@ -196,15 +161,16 @@
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
           "alex",
-          "daniel"
+          "maya",
+          "rosa"
         ]
       },
       {
-        "caseId": "dev-12-fire_then_door",
+        "caseId": "dev-10-fire_then_door",
         "family": "fire_then_door",
-        "fireFamily": "rh_room_doorA",
+        "fireFamily": "kitchen",
         "doors": [
-          "door_b"
+          "rh_door"
         ],
         "fires": 1,
         "solvable": true,
@@ -212,31 +178,55 @@
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya",
-          "daniel"
+          "kenji"
         ]
       },
       {
-        "caseId": "dev-13-independent",
-        "family": "independent",
-        "fireFamily": "rh_room_doorA",
+        "caseId": "dev-11-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "rh_room",
         "doors": [
-          "door_b"
+          "reception_door"
         ],
         "fires": 1,
         "solvable": true,
         "expectLosses": false,
         "primaryRouteBlocked": true,
-        "danielPreference": "independent",
+        "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya",
           "daniel"
         ]
       },
       {
+        "caseId": "dev-12-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "cubicles",
+        "doors": [
+          "kitchen_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": []
+      },
+      {
+        "caseId": "dev-13-independent",
+        "family": "independent",
+        "fireFamily": "rh_room",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "independent",
+        "fireInitiallySeenBy": []
+      },
+      {
         "caseId": "dev-14-independent",
         "family": "independent",
-        "fireFamily": "lobby",
+        "fireFamily": "cubicles",
         "doors": [],
         "fires": 1,
         "solvable": true,
@@ -250,10 +240,10 @@
       {
         "caseId": "dev-15-trapped",
         "family": "trapped",
-        "fireFamily": "rh_room_doorA",
+        "fireFamily": "rh_room",
         "doors": [
-          "door_a",
-          "door_b"
+          "rh_door",
+          "pantry_door"
         ],
         "fires": 1,
         "solvable": false,
@@ -261,7 +251,6 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya",
           "daniel"
         ]
       }
@@ -270,7 +259,7 @@
       {
         "caseId": "test-01-fire_only",
         "family": "fire_only",
-        "fireFamily": "north_corridor",
+        "fireFamily": "server_room",
         "doors": [],
         "fires": 1,
         "solvable": true,
@@ -282,7 +271,7 @@
       {
         "caseId": "test-02-fire_only",
         "family": "fire_only",
-        "fireFamily": "rh_room_doorB",
+        "fireFamily": "hallway",
         "doors": [],
         "fires": 1,
         "solvable": true,
@@ -290,27 +279,13 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex",
-          "maya",
-          "daniel"
+          "rosa"
         ]
       },
       {
         "caseId": "test-03-fire_only",
         "family": "fire_only",
-        "fireFamily": "north_corridor",
-        "doors": [],
-        "fires": 1,
-        "solvable": true,
-        "expectLosses": false,
-        "primaryRouteBlocked": false,
-        "danielPreference": "buddy",
-        "fireInitiallySeenBy": []
-      },
-      {
-        "caseId": "test-04-fire_only",
-        "family": "fire_only",
-        "fireFamily": "rh_room_doorB",
+        "fireFamily": "reception",
         "doors": [],
         "fires": 1,
         "solvable": true,
@@ -319,26 +294,28 @@
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
           "alex",
-          "maya",
-          "daniel"
+          "daniel",
+          "rosa"
+        ]
+      },
+      {
+        "caseId": "test-04-fire_only",
+        "family": "fire_only",
+        "fireFamily": "server_room",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
         ]
       },
       {
         "caseId": "test-05-multi_fire",
         "family": "multi_fire",
-        "fireFamily": "north_corridor",
-        "doors": [],
-        "fires": 2,
-        "solvable": true,
-        "expectLosses": false,
-        "primaryRouteBlocked": false,
-        "danielPreference": "buddy",
-        "fireInitiallySeenBy": []
-      },
-      {
-        "caseId": "test-06-multi_fire",
-        "family": "multi_fire",
-        "fireFamily": "rh_room_doorB",
+        "fireFamily": "server_room",
         "doors": [],
         "fires": 2,
         "solvable": true,
@@ -346,15 +323,13 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex",
-          "maya",
-          "daniel"
+          "kenji"
         ]
       },
       {
-        "caseId": "test-07-multi_fire",
+        "caseId": "test-06-multi_fire",
         "family": "multi_fire",
-        "fireFamily": "north_corridor",
+        "fireFamily": "hallway",
         "doors": [],
         "fires": 2,
         "solvable": true,
@@ -364,11 +339,25 @@
         "fireInitiallySeenBy": []
       },
       {
+        "caseId": "test-07-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "reception",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "rosa"
+        ]
+      },
+      {
         "caseId": "test-08-fire_then_door",
         "family": "fire_then_door",
-        "fireFamily": "north_corridor",
+        "fireFamily": "server_room",
         "doors": [
-          "south_door"
+          "reception_door"
         ],
         "fires": 1,
         "solvable": true,
@@ -380,9 +369,9 @@
       {
         "caseId": "test-09-fire_then_door",
         "family": "fire_then_door",
-        "fireFamily": "rh_room_doorB",
+        "fireFamily": "hallway",
         "doors": [
-          "south_door"
+          "side_door"
         ],
         "fires": 1,
         "solvable": true,
@@ -390,31 +379,15 @@
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex",
-          "maya",
-          "daniel"
+          "kenji"
         ]
       },
       {
         "caseId": "test-10-fire_then_door",
         "family": "fire_then_door",
-        "fireFamily": "north_corridor",
+        "fireFamily": "reception",
         "doors": [
-          "door_b"
-        ],
-        "fires": 1,
-        "solvable": true,
-        "expectLosses": false,
-        "primaryRouteBlocked": true,
-        "danielPreference": "buddy",
-        "fireInitiallySeenBy": []
-      },
-      {
-        "caseId": "test-11-fire_then_door",
-        "family": "fire_then_door",
-        "fireFamily": "rh_room_doorB",
-        "doors": [
-          "door_b"
+          "reception_door"
         ],
         "fires": 1,
         "solvable": true,
@@ -422,16 +395,31 @@
         "primaryRouteBlocked": true,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya",
-          "daniel"
+          "rosa"
+        ]
+      },
+      {
+        "caseId": "test-11-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "server_room",
+        "doors": [
+          "reception_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
         ]
       },
       {
         "caseId": "test-12-fire_then_door",
         "family": "fire_then_door",
-        "fireFamily": "north_corridor",
+        "fireFamily": "hallway",
         "doors": [
-          "door_b"
+          "kitchen_door"
         ],
         "fires": 1,
         "solvable": true,
@@ -443,7 +431,21 @@
       {
         "caseId": "test-13-independent",
         "family": "independent",
-        "fireFamily": "north_corridor",
+        "fireFamily": "server_room",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "independent",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      },
+      {
+        "caseId": "test-14-independent",
+        "family": "independent",
+        "fireFamily": "hallway",
         "doors": [],
         "fires": 1,
         "solvable": true,
@@ -453,30 +455,11 @@
         "fireInitiallySeenBy": []
       },
       {
-        "caseId": "test-14-independent",
-        "family": "independent",
-        "fireFamily": "rh_room_doorB",
-        "doors": [
-          "south_door"
-        ],
-        "fires": 1,
-        "solvable": true,
-        "expectLosses": false,
-        "primaryRouteBlocked": true,
-        "danielPreference": "independent",
-        "fireInitiallySeenBy": [
-          "alex",
-          "maya",
-          "daniel"
-        ]
-      },
-      {
         "caseId": "test-15-trapped",
         "family": "trapped",
-        "fireFamily": "rh_room_doorB",
+        "fireFamily": "server_room",
         "doors": [
-          "door_a",
-          "door_b"
+          "server_door"
         ],
         "fires": 1,
         "solvable": false,
@@ -484,18 +467,15 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "alex",
-          "maya",
-          "daniel"
+          "kenji"
         ]
       },
       {
         "caseId": "test-16-trapped",
         "family": "trapped",
-        "fireFamily": "rh_room_doorB",
+        "fireFamily": "server_room",
         "doors": [
-          "door_a",
-          "door_b"
+          "server_door"
         ],
         "fires": 1,
         "solvable": false,
@@ -503,8 +483,7 @@
         "primaryRouteBlocked": false,
         "danielPreference": "buddy",
         "fireInitiallySeenBy": [
-          "maya",
-          "daniel"
+          "kenji"
         ]
       }
     ]

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { buildMap, loadFurnitureIndex, type MapSpec } from './builder.js';
 
 /** The map the engine, server, web and dataset use. */
-export const CURRENT_MAP_ID = 'office-v1';
+export const CURRENT_MAP_ID = 'office-v2';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');

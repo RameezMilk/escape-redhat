@@ -15,7 +15,7 @@ const gym = new GymSessions({ map: loadMapFile(), cases: loadCases(), createEngi
 const provider = new ScriptedProvider({ latencyMs: [0, 0], seed: 1 });
 let step: GymStepResponse = gym.create({ sessionId: 'rec', caseId, harness: 'v2' });
 const calls: { name: string; arguments: Record<string, unknown> }[] = [];
-for (let i = 0; i < 40 && !step.done; i++) {
+for (let i = 0; i < 80 && !step.done; i++) {
   const d = await provider.decide({ system: '', view: step.state, tools: TOOL_DEFS, signal: new AbortController().signal, deadlineMs: 1000 });
   if (d.kind !== 'tool_call') throw new Error(`fixture produced ${d.kind}`);
   const c = d.calls[0];

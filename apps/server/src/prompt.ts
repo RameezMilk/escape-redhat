@@ -30,17 +30,23 @@ function briefing(map: MapData, scenario: ScenarioCase): string {
   const edges = map.zoneEdges.map(([a, b]) => `${a}–${b}`).join(', ');
   const alarms = (map.alarms ?? []).map((a) => `${a.id} (${a.zone})`).join(', ');
   const doors = (map.components ?? []).map((c) => `${c.id} (${c.zone})`).join(', ');
+  const exits = map.zones.filter((z) => z.kind === 'exit').map((z) => `${z.id} (${z.label})`).join(', ');
+  const outdoors = map.zones.filter((z) => z.kind === 'outdoor').map((z) => z.id).join(', ');
+  const assembly = map.zones.find((z) => z.kind === 'assembly');
+  const stations = map.alarms?.length ?? 0;
   return `PEOPLE
 ${people}
 
 MAP (one ground-level floor; fictional office)
 Zones: ${zones}.
 Connections: ${edges}.
-Exits: west_exit and east_exit, both lead outside to the plaza; exit doors are manual and always open. Assembly point: zone "assembly" in the plaza.
+Exits: ${exits}; exit doors are manual and always open. Outside (${outdoors}, assembly) is one area; the assembly point is zone "assembly" (${assembly?.label ?? 'outside'}).
 Speech: notify is spoken — it reaches only people in the same room (doorways join the two rooms they connect; outside is one area). People in other rooms do not hear it.${
-    alarms ? `\nFire-alarm pull station: ${alarms} — the ONLY way to alert people in other rooms. Use move with destination "alarm" to reach it.` : ''
+    alarms
+      ? `\nFire-alarm pull station${stations > 1 ? 's' : ''}: ${alarms} — the ONLY way to alert people in other rooms. Use move with destination "alarm" to reach ${stations > 1 ? 'the nearest one' : 'it'}.`
+      : ''
   }${doors ? `\nElectric sliding doors (can fail closed in a power outage): ${doors}.` : ''}
-Instincts (automatic — not your actions): a person who sees fire shouts "Fire!" to everyone in their room; people back away from fire that is close to them; anyone who passes the hallway pull station while the alarm is off pulls it.
+Instincts (automatic — not your actions): a person who sees fire shouts "Fire!" to everyone in their room; people back away from fire that is close to them; anyone who passes a pull station while the alarm is off pulls it.
 Fire spreads every second and can burn through walls into the next room. People who are outside cannot go back into the building.`;
 }
 
@@ -51,12 +57,12 @@ Get everyone safely to the assembly point and accounted for. Use the tools. One 
 
 const PROCEDURE_V2 = `PROCEDURE (in order of need)
 1. Life first: anyone near known fire moves away and OUT now. People back away from close fire by instinct, but only you send them to an exit. Choose the exit AWAY from the fire and avoid routes that pass near known fire.
-2. Alert: people shout "Fire!" to their own room automatically. Anyone in another room hears nothing until the hallway fire alarm (north corridor) is pulled — the only building-wide alert. Pick the person whose way out already passes the north hallway (or the nearest person not in danger) and move them to destination "alarm" (they pull it on arrival; or call pull_alarm), then to "assembly". Skip the alarm if everyone is already alerted or outside.
+2. Alert: people shout "Fire!" to their own room automatically. Anyone in another room hears nothing until a fire-alarm pull station is pulled — the only building-wide alert. Pick the person whose way out already passes a pull station (or the nearest person not in danger) and move them to destination "alarm" (the nearest station; they pull it on arrival; or call pull_alarm), then to "assembly". Skip the alarm if everyone is already alerted or outside.
 3. Never send anyone back inside: people who are outside cannot re-enter (rejected).
 4. Recover: dead sliding doors and fire can cut a route. If a move fails (ROUTE_UNAVAILABLE or STALE_STATE), plan_route for that person to "assembly" and move with the returned route_id. Tell people in the same room with notify (topic "route_blocked") if it helps them.
 5. Buddy (optional): ${P} may ask ${B} for help (request_assistance → ${B} next to him → assist; then moving ${B} moves both). Never delay anyone's evacuation for it; nobody is carried.
 6. Account: check_in each person inside the assembly area; when every survivor is checked in, ${W} calls verify_roster — the only way to confirm the drill is complete.
-MESSAGES: plain language — where the danger is and which way to go, e.g. "Fire by door A — leave through the east door, now!" or "The south door is dead — go out through the north hallway and the west exit." Never put evidence ids, zone codes or coordinates in message text (evidence_ids carries those).
+MESSAGES: plain language — where the danger is and which way to go, e.g. "Fire in the Red Hat room — leave through the kitchen and the back exit, now!" or "The reception door is dead — go through the cubicles and the side door to the main entrance." Never put evidence ids, zone codes or coordinates in message text (evidence_ids carries those).
 RULES: send people to destination "assembly" (their route goes through the nearest safe exit) rather than to an exit; one tool call per turn, most urgent person first; the tool list shows only people who can take each action right now; never repeat a rejected call unchanged — read its hint and fix the cause; only cite evidence ids that appear in the state; plan_route/observe/consult_plan are optional look-ups that move nobody.`;
 
 export function buildSystemPrompt(harness: Harness, map: MapData, scenario: ScenarioCase): string {
@@ -167,11 +173,11 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
         return best && best.d <= 6 ? `${a.id} is ${best.d.toFixed(1)} tiles from ${best.st.id}` : null;
       })
       .filter((x): x is string => !!x);
-    alarmLine = `ALARM: not raised (anyone who passes the hallway pull station pulls it automatically).${canPull.length ? ` Next to a pull station now: ${canPull.map((a) => a.id).join(', ')} (can pull_alarm).` : ''}${near.length ? ` Close: ${near.join('; ')}.` : ''}`;
+    alarmLine = `ALARM: not raised (anyone who passes a pull station pulls it automatically).${canPull.length ? ` Next to a pull station now: ${canPull.map((a) => a.id).join(', ')} (can pull_alarm).` : ''}${near.length ? ` Close: ${near.join('; ')}.` : ''}`;
   }
 
   const open: string[] = [];
-  // Who could reach the hallway alarm without going back inside (inside, alerted, alive), nearest first.
+  // Who could reach a pull station without going back inside (inside, alerted, alive), nearest first.
   const runners = actors
     .filter((a) => (a.alerted || a.knows_evidence.length) && !a.checked_in && !isOutside(a))
     .map((a) => ({ a, d: Math.min(...stations.map((st) => dist(a.tile, st.stand)), Infinity) }))
@@ -185,7 +191,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
       const who = runners.length
         ? ` Can reach the alarm without going back inside: ${runners.map((r) => `${r.a.id} (≈${Math.round(r.d)} tiles${reallyBusy(r.a) ? ', moving' : ''})`).join(', ')}.`
         : ' Nobody inside who knows can reach it.';
-      open.push(`Not alerted yet: ${u.id} (in ${u.zone}) — out of earshot of everyone who knows; only the hallway fire alarm reaches them (move someone to "alarm").${who}`);
+      open.push(`Not alerted yet: ${u.id} (in ${u.zone}) — out of earshot of everyone who knows; only a fire alarm reaches them (move someone to "alarm").${who}`);
     }
   }
   for (const a of instinctive) open.push(`${a.id} is backing away from the fire by instinct — give ${a.id} a destination (they can take orders now).`);
@@ -217,7 +223,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
     lines.push(
       `URGENT — near known fire and not moving (closest first): ${atRisk
         .map((a) => `${a.id} (≈${Math.round(fireDist(a).d)} tiles from ${fireDist(a).id}, in ${a.zone}${a.alerted ? '' : ', NOT alerted'})`)
-        .join(', ')}. Fire spreads every second: get them moving to "assembly" before anything else${atRisk.some((a) => !a.alerted) ? ' (alert the un-alerted first: notify if in the same room, otherwise the hallway fire alarm)' : ''}.`,
+        .join(', ')}. Fire spreads every second: get them moving to "assembly" before anything else${atRisk.some((a) => !a.alerted) ? ' (alert the un-alerted first: notify if in the same room, otherwise a fire alarm)' : ''}.`,
     );
   }
   lines.push(

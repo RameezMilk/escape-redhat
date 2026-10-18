@@ -81,6 +81,7 @@ export function validatePlacement(
     const i = tileIndex(map, t.col, t.row);
     const terrain = map.terrain[i];
     if (terrain !== 'floor' && terrain !== 'outdoor') return { ok: false, code: 'NOT_FLOOR', reason: 'Fire must start on open floor, not walls.' };
+    if (terrain === 'outdoor' && !map.walkable[i]) return { ok: false, code: 'NOT_PLACEABLE_ZONE', reason: 'Fire can only be started inside the office.' };
     if (!map.walkable[i]) return { ok: false, code: 'FURNITURE', reason: 'That spot collides with furniture.' };
   }
   const places = placesFor(map);

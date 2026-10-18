@@ -3,20 +3,19 @@
   "split": "demo",
   "family": "hero",
   "seed": 20261017,
-  "mapId": "office-v1",
+  "mapId": "office-v2",
   "spawns": {
-    "alex": { "col": 22, "row": 8, "dir": "up", "pose": "sit" },
-    "maya": { "col": 13, "row": 7, "dir": "up", "pose": "sit" },
-    "daniel": { "col": 15, "row": 12, "dir": "left", "pose": "sit" }
+    "alex": { "col": 20, "row": 15, "dir": "up", "pose": "sit" },
+    "maya": { "col": 4, "row": 15, "dir": "up", "pose": "sit" },
+    "daniel": { "col": 18, "row": 5, "dir": "right", "pose": "sit" },
+    "rosa": { "col": 26, "row": 15, "dir": "down", "pose": "sit" },
+    "kenji": { "col": 11, "row": 6, "dir": "up", "pose": "sit" }
   },
   "danielPreference": "buddy",
-  "events": [
-    { "id": "ev-fire", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "fire", "col": 5, "row": 12 } },
-    { "id": "ev-door", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "electrical", "col": 26, "row": 14 } }
-  ],
+  "events": [],
   "labels": {
     "solvable": true,
-    "primaryRouteBlocked": true,
-    "notes": "Presenter drops the fire just inside door A (Maya sees it; it spreads), someone pulls a fire alarm, then an electrical failure jams the south sliding door (to the east exit) while Alex and Daniel head through the lobby. Alternate route: lobby connector -> north corridor -> west exit -> sidewalk -> assembly."
+    "primaryRouteBlocked": false,
+    "notes": "The live demo: a normal day on the ground floor. Alex (the warden) and Maya work in the cubicles, Daniel is visiting the Red Hat conference room, Rosa is at the front desk and Kenji is in the GPU server room. The presenter places fires and power cuts wherever they like."
   }
 }

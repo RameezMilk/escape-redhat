@@ -52,6 +52,7 @@ import { inBounds, inEarshot, tileDistance, tileIndex, zoneAt } from './map.js';
 import { findPath, lineOfSight, type NavMask } from './nav.js';
 import { anyStationName, atPlace, capitalize, describeHazard, destinationName, doorName, isOutsideZone, joinNames, placeName, stationName, zoneNear } from './places.js';
 import { HAZARD_SPECS, isFlammable, validatePlacement } from './placement.js';
+import { routeBriefing } from './routes.js';
 import { mulberry32 } from './rng.js';
 import { computeResult, type ActionLogEntry, type Interruption } from './scoring.js';
 
@@ -206,7 +207,7 @@ const isActorId = (x: unknown): x is ActorId => typeof x === 'string' && (ACTOR_
 
 export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineOptions): Engine {
   const tickMs = opts.tickMs ?? 100;
-  const maxDecisions = opts.maxDecisions ?? 60;
+  const maxDecisions = opts.maxDecisions ?? 100;
   const stallCeiling = opts.stallCeilingSimSec;
   const spreadP = opts.fireSpreadPerTick ?? FIRE_SPREAD_PER_TICK;
   const ambientOn = opts.ambient ?? true;
@@ -299,7 +300,12 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   const living = () => ACTOR_IDS.filter((id) => !actors[id].lost);
   /** Every tile inside the building (rooms, corridors, doorways, exits): off-limits to people who are outside. */
   const indoorTiles = new Set<number>();
-  for (let i = 0; i < map.zone.length; i++) if (map.zone[i] && !isOutsideZone(map.zone[i])) indoorTiles.add(i);
+  const outdoorTiles = new Set<number>();
+  for (let i = 0; i < map.zone.length; i++) {
+    if (!map.zone[i]) continue;
+    if (isOutsideZone(map.zone[i])) outdoorTiles.add(i);
+    else indoorTiles.add(i);
+  }
 
   const scheduled: PendingScheduled[] = scenario.events
     .filter((e) => e.trigger.type !== 'manual')
@@ -1063,7 +1069,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       const spots = map.activitySpots[id].filter((s) => !sameTile(s, a) && !occupied.has(idx(s)) && !realBlocked.has(idx(s)));
       if (!spots.length) continue;
       const spot = rng.pick(spots);
-      const path = findPath(map, a, [spot], { mask: maskFor(a), blocked: realBlocked });
+      // Office errands stay inside the building (never out of one door and in through another).
+      const path = findPath(map, a, [spot], { mask: maskFor(a), blocked: new Set([...realBlocked, ...outdoorTiles]) });
       if (!path || !path.length) continue;
       startTask(a, { kind: 'ambient', destination: 'activity', target: spot, path, progress: 0, traversed: 0, total: path.length });
     }
@@ -1202,6 +1209,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (instinctsOn && movers.some((id) => actors[id].wentOutside)) for (const i of indoorTiles) blockedKnown.add(i);
     const targets = targetsFor(destination, movers, mask, blockedKnown);
     if (!targets.length) return null;
+    // ...and people inside going somewhere inside stay inside: never out of one exit and back in through another.
+    if (instinctsOn && targets.every((t) => indoorTiles.has(tileIndex(map, t.col, t.row)))) for (const i of outdoorTiles) blockedKnown.add(i);
     const start = { col: leader.col, row: leader.row };
     const path = findPath(map, start, targets, { mask, blocked: blockedKnown, extraCost: fireAdjacentCost(movers, blockedKnown) });
     if (!path) return null;
@@ -1288,9 +1297,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     };
     if (args.section === 'routes') {
       data.route_briefing = {
-        from_rh_room_primary: 'door_b → lobby → south_branch → east_exit → plaza → assembly',
-        from_rh_room_alternate: 'door_a → north_corridor → west_exit → west_sidewalk → plaza → assembly',
-        from_lobby_alternate: 'lobby → connector → north_corridor → west_exit → west_sidewalk → plaza → assembly',
+        ...routeBriefing(map),
         electric_sliding_doors: components.map((c) => c.id),
         note: 'Static plan only. Interior sliding doors can jam in a power failure; exits are manual. Current hazards are known only through observation or reports.',
       };
@@ -1378,7 +1385,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       }
       recipients = [rid];
     }
-    const dupKey = canonicalJson([a.id, args.recipient, args.topic, [...args.evidence_ids].sort(), args.message]);
+    // A repeat counts as a duplicate only when it goes to the same listeners (someone who just walked in still hears it).
+    const dupKey = canonicalJson([a.id, [...recipients].sort(), args.topic, [...args.evidence_ids].sort(), args.message]);
     const recent = lastNotify.find((n) => n.key === dupKey && simTime() - n.at <= DUPLICATE_NOTIFY_WINDOW_SEC);
     if (recent) return { ok: true, actionId, status: 'completed', data: { duplicate: true, note: 'Identical message already delivered moments ago.' } };
     // apply

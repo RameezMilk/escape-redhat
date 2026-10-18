@@ -11,6 +11,7 @@ import { runEpisodeHeadless } from '../src/headless.js';
 import { ScriptedProvider } from '../src/providers/scripted.js';
 import { Session } from '../src/session.js';
 import { idLeakRegex } from './idLeak.js';
+import { heroStoryCase } from '../../../data/scenarios/heroStory.js';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 /** Viewer-facing text must never contain evidence ids, raw zone/door ids, action ids or coordinates. */
@@ -23,23 +24,14 @@ const map = loadMapFile();
 
 /** The hero scenario built in-test (independent of dataset regeneration): fire just inside door A at t=1, and the
  *  south-branch sliding door loses power when anyone enters the lobby. */
+/** The scripted hero story (data/scenarios/hero-story.json): fire in the cubicles at t=1, and the reception door loses
+ *  power when anyone enters the main hallway. */
 function heroCase(): ScenarioCase {
-  const base = cases.get('demo-hero') ?? [...cases.values()][0];
-  return {
-    ...base,
-    caseId: 'test-hero-v2',
-    split: 'dev',
-    family: 'hero',
-    events: [
-      { id: 'ev-fire', trigger: { type: 'at_time', simTime: 1 }, action: { type: 'place_hazard', kind: 'fire', col: 5, row: 12 } },
-      { id: 'ev-power', trigger: { type: 'actor_enters_zone', actor: 'any', zone: 'lobby' }, action: { type: 'place_hazard', kind: 'electrical', col: 26, row: 14 } },
-    ],
-    labels: { solvable: true, primaryRouteBlocked: true },
-  };
+  return { ...heroStoryCase(), caseId: 'test-hero-v2' };
 }
 
 describe('scripted fixture × real engine', () => {
-  it('headless hero (fire, then a dead south door) reaches verified success with an alarm/report, an interruption and a replan', async () => {
+  it('headless hero (fire, then a dead reception door) reaches verified success with an alarm/report, an interruption and a replan', async () => {
     const { result, trace, runLogLines } = await runEpisodeHeadless({
       scenario: heroCase(),
       map,
@@ -48,17 +40,17 @@ describe('scripted fixture × real engine', () => {
     });
     expect(result.outcome.status).toBe('success');
     expect(result.score.success).toBe(true);
-    // Voice only reaches the same room: Alex (lobby) hears the hallway fire alarm (pulled by a decision or by
-    // someone's instinct on their way past) before he is ever moved.
+    // Voice only reaches the same room: the people in the other rooms hear a fire alarm (pulled by a decision or by
+    // someone's instinct on their way past) before they are ever moved.
     expect(result.metrics.procedural.alarmRaised).toBe(true);
     const alarm = alarmAt(trace);
     expect(alarm).toBeDefined();
-    // Alex (alone in the lobby) is warned only by the alarm or IN PERSON by someone in earshot — never across rooms.
-    const alexFirstMove = trace.find((r) => r.kind === 'decision' && r.actor === 'alex' && r.tool === 'move' && r.status !== 'rejected');
+    // Kenji (alone in the server room) is warned only by the alarm or IN PERSON by someone in earshot — never across rooms.
+    const kenjiFirstMove = trace.find((r) => r.kind === 'decision' && r.actor === 'kenji' && r.tool === 'move' && r.status !== 'rejected');
     const toldInPerson = trace.find(
-      (r) => r.kind === 'decision' && r.tool === 'notify' && r.result?.ok && ((r.result.data.delivered_to as string[] | undefined) ?? []).includes('alex'),
+      (r) => r.kind === 'decision' && r.tool === 'notify' && r.result?.ok && ((r.result.data.delivered_to as string[] | undefined) ?? []).includes('kenji'),
     );
-    if (alexFirstMove) expect(alexFirstMove.simTime).toBeGreaterThanOrEqual(Math.min(alarm!, toldInPerson?.simTime ?? Infinity));
+    if (kenjiFirstMove) expect(kenjiFirstMove.simTime).toBeGreaterThanOrEqual(Math.min(alarm!, toldInPerson?.simTime ?? Infinity));
     // Story beats only: no echo rows, no ids on screen.
     const engineRows = trace.filter((r) => r.kind === 'engine');
     expect(engineRows.some((r) => /checked in at the assembly|Roster verified|→ all:|requested assistance|stopped: route/i.test(r.summary))).toBe(false);
@@ -71,7 +63,7 @@ describe('scripted fixture × real engine', () => {
     expect(runLogLines.at(-1)).toMatchObject({ type: 'footer' });
   });
 
-  it('live session: presenter starts a fire then cuts power to the south door; success; replay re-simulates identically', async () => {
+  it('live session: presenter starts a fire then cuts power to the reception door; success; replay re-simulates identically', async () => {
     const runsDir = mkdtempSync(join(tmpdir(), 'escape-runs-'));
     const sent: ServerMessage[] = [];
     const session = new Session({
@@ -89,10 +81,10 @@ describe('scripted fixture × real engine', () => {
     const episodeId = session.episodeId;
     let powerCut = false;
     for (let i = 0; i < 5000 && !session.currentEngine.outcome(); i++) {
-      if (i === 10) expect(session.place('fire', 5, 12)).toMatchObject({ ok: true });
+      if (i === 10) expect(session.place('fire', 15, 5)).toMatchObject({ ok: true });
       const snap = session.snapshot();
-      if (!powerCut && snap.actors.some((a) => a.zone === 'lobby' && a.task?.kind === 'move' && a.task.destination === 'assembly')) {
-        expect(session.place('electrical', 26, 14)).toMatchObject({ ok: true });
+      if (!powerCut && snap.actors.some((a) => a.zone === 'hallway' && a.task?.kind === 'move' && a.task.destination === 'assembly')) {
+        expect(session.place('electrical', 31, 12)).toMatchObject({ ok: true });
         powerCut = true;
       }
       session.loop();
@@ -104,7 +96,7 @@ describe('scripted fixture × real engine', () => {
     expect(end && end.type === 'episode_end' && end.result.outcome.status).toBe('success');
     expect(end && end.type === 'episode_end' && end.result.metrics.procedural.alarmRaised).toBe(true);
     expect(sent.some((m) => m.type === 'bubble' && m.kind === 'message')).toBe(true);
-    expect(sent.some((m) => m.type === 'trace' && m.row.summary === '⚡ Power cut — the south door is stuck shut')).toBe(true);
+    expect(sent.some((m) => m.type === 'trace' && m.row.summary === '⚡ Power cut — the reception door is stuck shut')).toBe(true);
     expect(sent.some((m) => m.type === 'trace' && m.row.summary === '🔥 Fire started in the Red Hat room')).toBe(true);
     for (const m of sent) {
       if (m.type === 'bubble') expect(m.text).not.toMatch(ID_LEAK);

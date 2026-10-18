@@ -48,7 +48,7 @@ TOOL_NAMES = (
 class EscapeResourcesServerConfig(BaseResourcesServerConfig):
     # Base URL of the Escape from Red Hat server (apps/server). Env ESCAPE_API_URL overrides.
     escape_api_url: str = "http://127.0.0.1:8787"
-    max_decisions: int = 24
+    max_decisions: int = 40
     request_timeout_s: float = 60.0
 
 

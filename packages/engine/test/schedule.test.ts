@@ -8,8 +8,8 @@ describe('scheduled presenter events and decision gating', () => {
       ...hero(),
       caseId: 'sched-test',
       events: [
-        { id: 'f', trigger: { type: 'at_time', simTime: 2 }, action: { type: 'place_hazard', kind: 'fire', col: 8, row: 5 } },
-        { id: 'b', trigger: { type: 'actor_enters_zone', actor: 'maya', zone: 'lobby' }, action: { type: 'place_hazard', kind: 'electrical', col: 26, row: 15 } },
+        { id: 'f', trigger: { type: 'at_time', simTime: 2 }, action: { type: 'place_hazard', kind: 'fire', col: 10, row: 17 } },
+        { id: 'b', trigger: { type: 'actor_enters_zone', actor: 'maya', zone: 'reception' }, action: { type: 'place_hazard', kind: 'electrical', col: 31, row: 12 } },
       ],
     };
     const d = new Driver(sc);
@@ -19,11 +19,11 @@ describe('scheduled presenter events and decision gating', () => {
     d.run(3);
     expect(d.engine.snapshot().hazards.map((h) => h.kind)).toEqual(['fire']);
     expect(d.engine.needsDecision().needed).toBe(true);
-    // Maya's shout reaches Daniel (same room) but not Alex in the lobby
+    // Maya's shout reaches Alex (same room: the cubicles) but nobody in the other rooms
     okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire!' }));
-    for (const id of ['maya', 'daniel']) okData(d.call('move', { actor_id: id, destination: 'assembly' }));
-    expect(d.engine.needsDecision()).toEqual({ needed: true, reason: 'not yet alerted: alex' });
+    for (const id of ['maya', 'alex']) okData(d.call('move', { actor_id: id, destination: 'assembly' }));
+    expect(d.engine.needsDecision()).toEqual({ needed: true, reason: 'not yet alerted: daniel, rosa, kenji' });
     expect(d.until(() => d.engine.snapshot().hazards.length === 2, 400)).toBe(true);
-    expect(d.actor('maya').zone).toBe('lobby');
+    expect(d.actor('maya').zone).toBe('reception');
   });
 });

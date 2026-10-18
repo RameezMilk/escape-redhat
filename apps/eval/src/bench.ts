@@ -227,7 +227,7 @@ export function renderMarkdown(s: BenchSummary): string {
   lines.push('');
   lines.push('| Metric | Value |');
   lines.push('|---|---|');
-  lines.push(`| Verified success (all 3 alive, checked in, roster verified) on normal cases | ${a.successOnNormal} |`);
+  lines.push(`| Verified success (all ${ACTOR_IDS.length} alive, checked in, roster verified) on normal cases | ${a.successOnNormal} |`);
   lines.push(`| False success on trapped-by-design cases | ${a.falseSuccessOnTrapped}/${a.trappedCases} |`);
   lines.push(`| Outcome mix | ${Object.entries(a.outcomeMix).filter(([, n]) => n).map(([o, n]) => `${o} ${n}`).join(' · ')} |`);
   lines.push(`| Outcomes matching expectation (success on normal, non-success on trapped) | ${a.labelConsistent} |`);

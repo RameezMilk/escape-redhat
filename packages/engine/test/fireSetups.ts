@@ -16,13 +16,13 @@ export const FIRE_SITES: {
   /** Seeds right against a wall, and the zone on the far side that the fire should reach. */
   walls: { seed: Tile; far: ZoneId }[];
 } = {
-  growth: { col: 10, row: 13 },
-  reach: { seed: { col: 5, row: 12 }, first: 'north_corridor', second: 'lobby' },
-  // Burning floor right against the Red Hat room's north wall/door A (row 5) or east wall/door B (col 17).
-  sealed: { room: 'rh_room', doorTiles: [{ col: 8, row: 4 }, { col: 18, row: 9 }], seed: { col: 10, row: 13 }, touch: (t) => t.row === 5 || t.col === 17 },
+  growth: { col: 16, row: 16 }, // open floor in the cubicles
+  reach: { seed: { col: 15, row: 5 }, first: 'hallway', second: 'kitchen' }, // in the Red Hat room, beside Daniel's seat
+  // Burning floor right against the Red Hat room's south wall/door (row 7) or its east wall/pantry door (col 27).
+  sealed: { room: 'rh_room', doorTiles: [{ col: 20, row: 8 }, { col: 28, row: 3 }], seed: { col: 16, row: 6 }, touch: (t) => t.row === 7 || t.col === 27 },
   walls: [
-    { seed: { col: 16, row: 12 }, far: 'lobby' },
-    { seed: { col: 15, row: 5 }, far: 'north_corridor' },
+    { seed: { col: 26, row: 1 }, far: 'kitchen' }, // against the Red Hat room's east wall
+    { seed: { col: 15, row: 6 }, far: 'hallway' }, // against its south wall
   ],
 };
 

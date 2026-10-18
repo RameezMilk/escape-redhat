@@ -1,8 +1,9 @@
 // ?fixture=1 — a canned, clearly-labelled FIXTURE stream for UI development without the server.
-// It is NOT model output and the UI says so (provider chip "FIXTURE"). Storyline: the fire spreads tile by tile (and up
-// the walls); Maya spots it and shouts (instinct) so Daniel hears; both back away (instinct); Maya heads out through
-// the north hallway and pulls the alarm on her way past (instinct) so Alex hears it; Alex escorts Daniel; a sliding
-// door can lose power (stop + replan). Add &loss=1 to leave Maya behind (faster fire) and see a partial outcome.
+// It is NOT model output and the UI says so (provider chip "FIXTURE"). Storyline, on whatever map is loaded: the fire
+// spreads tile by tile (and up the walls); whoever is nearest spots it and shouts (instinct) so their room hears; the
+// witness heads for the nearest pull station and pulls it on the way (instinct) so everyone hears the siren; the
+// buddy escorts the person who asked for help; everyone else walks to the assembly point; a sliding door can lose
+// power (stop + replan). Add &loss=1 to leave the witness behind (faster fire) and see a partial outcome.
 import type {
   ActorId,
   ActorSnapshot,
@@ -17,14 +18,14 @@ import type {
   Tile,
   TraceRow,
 } from '@escape/contracts';
-import { doorNear } from '@escape/engine';
+import { ACTOR_IDS, ACTOR_PROFILES, ASSISTANCE, WARDEN_ID } from '@escape/contracts';
+import { doorNear, isFlammable, placesFor } from '@escape/engine';
 
 import { store } from '../state/store';
-import { ZONE_NAMES } from '../trace/humanize';
 import { setSenderOverride } from './socket';
 
 const EP = 'fixture-ep-1';
-const NAMES: Record<ActorId, string> = { alex: 'Alex', maya: 'Maya', daniel: 'Daniel' };
+const NAMES = Object.fromEntries(ACTOR_IDS.map((id) => [id, ACTOR_PROFILES[id].name])) as Record<ActorId, string>;
 
 interface Walker {
   path: Tile[];
@@ -60,31 +61,30 @@ export function startFixture(map: MapData): void {
   const SPREAD_P = lossMode ? 0.055 : 0.035;
   const BURN_TICKS = 450;
 
-  const spawns: Record<ActorId, { col: number; row: number; dir: ActorSnapshot['dir'] }> = {
-    alex: { col: 22, row: 8, dir: 'up' },
-    maya: { col: 13, row: 7, dir: 'up' },
-    daniel: { col: 15, row: 12, dir: 'left' },
-  };
-  const actors: ActorSnapshot[] = (Object.keys(spawns) as ActorId[]).map((id) => ({
+  const places = placesFor(map);
+  const spawns = map.spawnSpots;
+  const spawnOf = (id: ActorId) => spawns[id][0];
+  const actors: ActorSnapshot[] = ACTOR_IDS.map((id) => ({
     id,
     name: NAMES[id],
-    role: id === 'alex' ? 'Exercise warden' : id === 'maya' ? 'Employee' : 'Visitor (uses a wheelchair)',
-    col: spawns[id].col,
-    row: spawns[id].row,
-    x: spawns[id].col,
-    y: spawns[id].row,
-    dir: spawns[id].dir,
-    anim: id === 'daniel' ? 'idle' : 'type',
-    zone: map.zone[spawns[id].row * map.cols + spawns[id].col],
+    role: ACTOR_PROFILES[id].role,
+    col: spawnOf(id).col,
+    row: spawnOf(id).row,
+    x: spawnOf(id).col,
+    y: spawnOf(id).row,
+    dir: spawnOf(id).dir,
+    anim: ACTOR_PROFILES[id].usesWheelchair ? 'idle' : 'type',
+    zone: map.zone[spawnOf(id).row * map.cols + spawnOf(id).col],
     status: 'working',
     alerted: false,
     checkedIn: false,
     escort: null,
     task: null,
     knows: [],
-    usesWheelchair: id === 'daniel',
+    usesWheelchair: ACTOR_PROFILES[id].usesWheelchair,
     lost: false,
   }));
+  const { person: PERSON, buddy: BUDDY } = ASSISTANCE;
   const A = (id: ActorId) => actors.find((a) => a.id === id)!;
   const hazards: HazardSnapshot[] = [];
   const fires: FireState[] = [];
@@ -118,10 +118,10 @@ export function startFixture(map: MapData): void {
     mode: 'live',
     actors: actors.map((a) => ({ ...a })),
     hazards: hazards.map((h) => ({ ...h, cells: [...h.cells], charred: [...h.charred], noGo: [...h.noGo] })),
-    roster: { checkedIn: actors.filter((a) => a.checkedIn).map((a) => a.id), verified: !!ended && !A('alex').lost, lost: actors.filter((a) => a.lost).map((a) => a.id) },
-    assistance: { required: false, requested: decisions >= 4, accepted: !!A('alex').escort, fulfilled: A('daniel').checkedIn && !!A('alex').escort },
+    roster: { checkedIn: actors.filter((a) => a.checkedIn).map((a) => a.id), verified: !!ended && !A(WARDEN_ID).lost, lost: actors.filter((a) => a.lost).map((a) => a.id) },
+    assistance: { required: false, requested: decisions >= 4, accepted: !!A(BUDDY).escort, fulfilled: A(PERSON).checkedIn && !!A(BUDDY).escort },
     alarm: { ...alarm },
-    decisions: { used: decisions, max: 60, inFlight: false },
+    decisions: { used: decisions, max: 100, inFlight: false },
     outcome: ended ? ended.outcome : null,
   });
 
@@ -137,7 +137,6 @@ export function startFixture(map: MapData): void {
   const engineRow = (summary: string, actor?: ActorId, evidenceIds?: string[]) =>
     row({ kind: 'engine', origin: 'Engine', status: 'info', summary, actor, evidenceIds, eventSeq: seq });
   const instinctRow = (summary: string, actor: ActorId) => row({ kind: 'engine', origin: 'Instinct (engine)', status: 'info', summary, actor, eventSeq: seq });
-  const DOOR_NAME: Record<string, string> = { door_a: 'door A', door_b: 'door B', connector: 'lobby connector door', south_door: 'south door' };
   const decision = (actor: ActorId, tool: string, args: Record<string, unknown>, summary: string, opts: Partial<TraceRow> = {}) => {
     decisions++;
     return row({
@@ -226,11 +225,8 @@ export function startFixture(map: MapData): void {
     h.noGo = [...h.cells, ...h.charred];
   };
   const flammable = (c: number, r: number, doors: Set<string>) => {
-    if (c < 0 || r < 0 || c >= map.cols || r >= map.rows) return false;
-    const i = idx(c, r);
-    const z = map.zone[i];
-    if (map.terrain[i] === 'wall') return rng() < 0.25; // walls catch slowly, then carry the fire on
-    return map.terrain[i] === 'floor' && z !== 'west_exit' && z !== 'east_exit' && !doors.has(`${c},${r}`);
+    if (!isFlammable(map, c, r) || doors.has(`${c},${r}`)) return false;
+    return map.terrain[idx(c, r)] !== 'wall' || rng() < 0.25; // walls catch slowly, then carry the fire on
   };
 
   const place = (kind: HazardKind, col: number, row: number) => {
@@ -242,7 +238,7 @@ export function startFixture(map: MapData): void {
       }
       const h: HazardSnapshot = { id: `H${++hz}`, kind, col: door.tiles[0].col, row: door.tiles[0].row, cells: [...door.tiles], charred: [], noGo: [...door.tiles], componentId: door.id, placedAtSimTime: simTime() };
       hazards.push(h);
-      engineRow(`Power cut — ${DOOR_NAME[door.id] ?? 'a sliding door'} stuck shut`);
+      engineRow(`Power cut — ${places.doorName(door.id)} stuck shut`);
       doorTrouble = true;
       return;
     }
@@ -258,60 +254,65 @@ export function startFixture(map: MapData): void {
     const h: HazardSnapshot = { id: f.id, kind, col, row, cells: [], charred: [], noGo: [], placedAtSimTime: simTime() };
     refreshHazard(h, f);
     hazards.push(h);
-    engineRow(`Fire started in the ${ZONE_NAMES[map.zone[idx(col, row)] ?? ''] ?? 'office'}`);
+    engineRow(`Fire started ${places.atPlace(map.zone[idx(col, row)])}`);
     if (!storyStarted) startStory();
   };
 
   // --- scripted storyline (FIXTURE, not a model)
+  let witness: ActorId = ACTOR_IDS[0];
   const startStory = () => {
     storyStarted = true;
+    const seed = hazards.find((h) => h.kind === 'fire')!;
+    const d = (a: ActorSnapshot) => Math.hypot(a.col - seed.col, a.row - seed.row);
+    witness = [...actors].sort((a, b) => d(a) - d(b))[0].id;
+    const roommates = () => actors.filter((a) => a.id !== witness && !a.lost && a.zone === A(witness).zone);
     later(0.6, () => {
       phase = 'incident';
       firstSight = simTime();
-      const maya = A('maya');
-      maya.knows.push('E1');
-      maya.alerted = true;
-      maya.anim = 'idle';
-      engineRow('Maya spots fire in the Red Hat room', 'maya', ['E1']);
-      say('maya', '🔥 Fire!', 'observation');
+      const w = A(witness);
+      w.knows.push('E1');
+      w.alerted = true;
+      w.anim = 'idle';
+      engineRow(`${NAMES[witness]} spots fire ${places.atPlace(map.zone[idx(seed.col, seed.row)])}`, witness, ['E1']);
+      say(witness, '🔥 Fire!', 'observation');
     });
     later(1.0, () => {
-      // Instinct: shout to the room (Daniel hears; Alex in the lobby does not).
-      const daniel = A('daniel');
-      daniel.knows.push('E1');
-      daniel.alerted = true;
-      daniel.status = 'alerted';
-      instinctRow('Maya shouts “Fire!” — Daniel hears', 'maya');
-      say('maya', 'Fire! Get out!');
-      say('daniel', '!', 'alert');
+      // Instinct: shout to the room (people elsewhere do not hear).
+      const heard = roommates();
+      for (const a of heard) {
+        a.knows.push('E1');
+        a.alerted = true;
+        a.status = 'alerted';
+        say(a.id, '!', 'alert');
+      }
+      instinctRow(`${NAMES[witness]} shouts “Fire!”${heard.length ? ` — ${heard.map((a) => NAMES[a.id]).join(' and ')} hear${heard.length === 1 ? 's' : ''}` : ''}`, witness);
+      say(witness, 'Fire! Get out!');
     });
     later(1.5, () => {
-      // Instinct: both back away from the flames while waiting for a plan.
-      instinctRow('Maya and Daniel back away from the fire', 'maya');
-      const seed = hazards.find((h) => h.kind === 'fire');
-      const far = (t: Tile) => !seed || Math.hypot(t.col - seed.col, t.row - seed.row) >= 7;
-      walk('daniel', (t) => far(t) && inZone('rh_room')(t), 'away from the fire');
+      // Instinct: the people in the room back away from the flames while waiting for a plan.
+      const far = (t: Tile) => Math.hypot(t.col - seed.col, t.row - seed.row) >= 7;
+      for (const a of roommates()) walk(a.id, (t) => far(t) && inZone(a.zone ?? '')(t), 'away from the fire');
     });
     later(2.2, () => {
-      const st = nearestAlarm(A('maya'));
-      const r = decision('maya', 'move', { destination: 'assembly' }, 'Maya → assembly via the north hallway.', { status: 'running', reasonSummary: 'Get out through the hallway — and raise the alarm on the way.' });
-      walk('maya', (t) => t.col === st.stand.col && t.row === st.stand.row, 'assembly', () => {
-        // Instinct: she passes the pull station and pulls it on her way out.
-        alarm = { active: true, atSimTime: simTime(), by: 'maya', stationId: st.id };
-        instinctRow('Maya pulls the hallway alarm on her way out — everyone hears the siren', 'maya');
+      const st = nearestAlarm(A(witness));
+      const r = decision(witness, 'move', { destination: 'assembly' }, `${NAMES[witness]} → assembly past ${places.stationName(st.id)}.`, { status: 'running', reasonSummary: 'Get out — and raise the alarm on the way.' });
+      walk(witness, (t) => t.col === st.stand.col && t.row === st.stand.row, 'assembly', () => {
+        // Instinct: they pass the pull station and pull it on the way out.
+        alarm = { active: true, atSimTime: simTime(), by: witness, stationId: st.id };
+        instinctRow(`${NAMES[witness]} pulls ${places.stationName(st.id)} on the way out — everyone hears the siren`, witness);
         for (const a of actors) {
           if (a.lost) continue;
           a.alerted = true;
           if (a.anim === 'type') a.anim = 'idle';
           if (a.status === 'working') a.status = 'alerted';
-          if (a.id !== 'maya') say(a.id, '🚨', 'alert');
+          if (a.id !== witness) say(a.id, '🚨', 'alert');
         }
         phase = 'evacuating';
         afterAlarm();
         if (!lossMode) {
-          walk('maya', inZone('assembly'), 'assembly', () => {
-            update(r, { status: 'completed', summary: 'Maya reached the assembly point.' });
-            later(0.6, () => checkIn('maya'));
+          walk(witness, inZone('assembly'), 'assembly', () => {
+            update(r, { status: 'completed', summary: `${NAMES[witness]} reached the assembly point.` });
+            later(0.6, () => checkIn(witness));
           }, r);
         }
       }, r);
@@ -319,34 +320,42 @@ export function startFixture(map: MapData): void {
   };
 
   const afterAlarm = () => {
-    later(1.0, () => {
-      decision('daniel', 'request_assistance', { helper_id: 'alex' }, 'Daniel asked Alex to guide him out.');
-      say('daniel', 'Alex, can you guide me out?');
-    });
-    later(2.0, () => {
-      const r = decision('alex', 'move', { destination: 'daniel' }, 'Alex → Daniel.', { status: 'running' });
-      const d = A('daniel');
-      walk('alex', (t) => Math.abs(t.col - d.col) + Math.abs(t.row - d.row) === 1, 'daniel', () => {
-        update(r, { status: 'completed', summary: 'Arrived next to Daniel.' });
-        later(0.6, () => {
-          decision('alex', 'assist', { person_id: 'daniel' }, 'Escort started: Alex is guiding Daniel.');
-          A('alex').escort = { role: 'leader', partner: 'daniel' };
-          A('daniel').escort = { role: 'follower', partner: 'alex' };
-        });
-        later(1.4, () => evacuate('alex', true));
-      }, r);
-    });
-    if (lossMode) later(3.0, () => engineRow('FIXTURE (&loss=1): Maya is left behind in the hallway — she is never sent to the exit.'));
+    const buddyFlow = witness !== PERSON && witness !== BUDDY;
+    if (buddyFlow) {
+      later(1.0, () => {
+        decision(PERSON, 'request_assistance', { helper_id: BUDDY }, `${NAMES[PERSON]} asked ${NAMES[BUDDY]} to guide them out.`);
+        say(PERSON, `${NAMES[BUDDY]}, can you guide me out?`);
+      });
+      later(2.0, () => {
+        const r = decision(BUDDY, 'move', { destination: PERSON }, `${NAMES[BUDDY]} → ${NAMES[PERSON]}.`, { status: 'running' });
+        const p = A(PERSON);
+        walk(BUDDY, (t) => Math.abs(t.col - p.col) + Math.abs(t.row - p.row) === 1, PERSON, () => {
+          update(r, { status: 'completed', summary: `Arrived next to ${NAMES[PERSON]}.` });
+          later(0.6, () => {
+            decision(BUDDY, 'assist', { person_id: PERSON }, `Escort started: ${NAMES[BUDDY]} is guiding ${NAMES[PERSON]}.`);
+            A(BUDDY).escort = { role: 'leader', partner: PERSON };
+            A(PERSON).escort = { role: 'follower', partner: BUDDY };
+          });
+          later(1.4, () => evacuate(BUDDY, true));
+        }, r);
+      });
+    }
+    // Everyone else walks out on their own, a moment apart.
+    actors
+      .filter((a) => a.id !== witness && !(buddyFlow && (a.id === PERSON || a.id === BUDDY)))
+      .forEach((a, i) => later(1.2 + i * 0.7, () => evacuate(a.id, false)));
+    if (lossMode) later(3.0, () => engineRow(`FIXTURE (&loss=1): ${NAMES[witness]} is left behind — they are never sent to the exit.`));
   };
 
   const evacuate = (id: ActorId, withPartner: boolean) => {
-    const r = decision(id, 'move', { destination: 'assembly' }, `${NAMES[id]}${withPartner ? ' + Daniel' : ''} → assembly.`, { status: 'running' });
+    if (A(id).lost) return;
+    const r = decision(id, 'move', { destination: 'assembly' }, `${NAMES[id]}${withPartner ? ` + ${NAMES[PERSON]}` : ''} → assembly.`, { status: 'running' });
     const onDone = () => {
       update(r, { status: 'completed', summary: `${NAMES[id]} reached the assembly point.` });
       later(0.6, () => checkIn(id));
     };
     walk(id, inZone('assembly'), 'assembly', onDone, r);
-    if (withPartner) walk('daniel', inZone('assembly'), 'assembly', () => later(0.9, () => checkIn('daniel')));
+    if (withPartner) walk(PERSON, inZone('assembly'), 'assembly', () => later(0.9, () => checkIn(PERSON)));
   };
 
   const checkIn = (id: ActorId) => {
@@ -366,12 +375,15 @@ export function startFixture(map: MapData): void {
     a.anim = 'idle';
     a.status = 'waiting';
     a.task = null;
-    if (w.rowRef) update(w.rowRef, { status: 'failed', summary: `${NAMES[id]} stopped: the south door ahead has no power.` });
-    engineRow(`${NAMES[id]} finds the south door dead`, id, ['E2']);
+    const dead = hazards.find((h) => h.kind === 'electrical' && h.cells.some((c) => key(c) === key(ahead)));
+    const doorTxt = places.doorName(dead?.componentId);
+    if (w.rowRef) update(w.rowRef, { status: 'failed', summary: `${NAMES[id]} stopped: ${doorTxt} ahead has no power.` });
+    engineRow(`${NAMES[id]} finds ${doorTxt} dead`, id, ['E2']);
     say(id, "⚡ This door's dead!", 'observation');
     later(0.8, () => {
-      decision(id, 'notify', { recipient: 'all', topic: 'route_blocked', evidence_ids: ['E2'], message: "South door's dead — go round by the north hallway!" }, 'Heard by Daniel.', { recovered: true, result: { ok: true, actionId: 'fx', status: 'completed', data: { delivered_to: ['daniel'] } } });
-      say(id, "South door's dead — go round by the north hallway!");
+      const msg = `${doorTxt[0].toUpperCase()}${doorTxt.slice(1)} is dead — go round another way!`;
+      decision(id, 'notify', { recipient: 'all', topic: 'route_blocked', evidence_ids: ['E2'], message: msg }, 'Told the people nearby.', { recovered: true, result: { ok: true, actionId: 'fx', status: 'completed', data: { delivered_to: [] } } });
+      say(id, msg);
     });
     later(1.8, () => {
       const r = decision(id, 'move', { destination: w.dest }, `${NAMES[id]} re-routes around the stuck door.`, { status: 'running' });
@@ -380,7 +392,7 @@ export function startFixture(map: MapData): void {
         update(r, { status: 'completed', summary: `${NAMES[id]} reached ${w.dest}.` });
         done?.();
       }, r);
-      if (A(id).escort?.role === 'leader') walk('daniel', w.goal, w.dest, () => later(0.9, () => checkIn('daniel')));
+      if (A(id).escort?.role === 'leader') walk(PERSON, w.goal, w.dest, () => later(0.9, () => checkIn(PERSON)));
     });
     return true;
   };
@@ -510,15 +522,15 @@ export function startFixture(map: MapData): void {
     let status: EpisodeResult['outcome']['status'] | null = null;
     if (!alive.length) status = 'failed';
     else if (alive.every((a) => a.checkedIn)) {
-      if (!A('alex').lost) decision('alex', 'verify_roster', {}, `${alive.length}/3 checked in${actors.length - alive.length ? `, ${actors.length - alive.length} lost` : ''} — verified.`);
-      status = alive.length === 3 ? 'success' : 'partial';
+      if (!A(WARDEN_ID).lost) decision(WARDEN_ID, 'verify_roster', {}, `${alive.length}/${actors.length} checked in${actors.length - alive.length ? `, ${actors.length - alive.length} lost` : ''} — verified.`);
+      status = alive.length === actors.length ? 'success' : 'partial';
     }
     if (!status) return;
     phase = 'ended';
     const lost = actors.filter((a) => a.lost).map((a) => NAMES[a.id]);
     const reason =
       status === 'success'
-        ? 'FIXTURE: all three reached the assembly point, checked in, and the warden verified the roster.'
+        ? 'FIXTURE: everyone reached the assembly point, checked in, and the warden verified the roster.'
         : status === 'partial'
           ? `FIXTURE: survivors are accounted for; lost to the fire: ${lost.join(', ')}.`
           : 'FIXTURE: nobody made it out.';
@@ -527,7 +539,7 @@ export function startFixture(map: MapData): void {
         id: 'alarm',
         title: 'Raise the alarm',
         text: alarm.active
-          ? `FIXTURE text: Maya pulled the hallway alarm on her way out, ${alarm.atSimTime !== undefined && firstSight !== null ? `${(alarm.atSimTime - firstSight).toFixed(1)} s` : ''} after seeing the fire; the siren reached Alex in the lobby, who could not hear her shout.`
+          ? `FIXTURE text: ${NAMES[witness]} pulled ${places.stationName(alarm.stationId)} on the way out, ${alarm.atSimTime !== undefined && firstSight !== null ? `${(alarm.atSimTime - firstSight).toFixed(1)} s` : ''} after seeing the fire; the siren reached the people in other rooms, who could not hear the shout.`
           : 'FIXTURE text: nobody reached a pull station, so the building was never alerted — people who could not see the fire kept working.',
         ruleIds: ['ALARM-SYSTEM', 'EAP-REPORT'],
         sources: [{ label: '29 CFR 1910.165 — Employee alarm systems', url: 'https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.165' }],
@@ -580,10 +592,10 @@ export function startFixture(map: MapData): void {
           hazardReported: alarm.active,
           reportLatencySimSec: alarm.atSimTime !== undefined && firstSight !== null ? alarm.atSimTime - firstSight : null,
           assistanceRequired: false,
-          assistanceFulfilled: A('daniel').checkedIn,
+          assistanceFulfilled: A(PERSON).checkedIn,
           assistWithoutConsentAttempts: 0,
           checkedIn: actors.filter((a) => a.checkedIn).length,
-          rosterVerified: !A('alex').lost,
+          rosterVerified: !A(WARDEN_ID).lost,
           prematureVerifyAttempts: 0,
           knownHazardMoveAttempts: 0,
           routeInterruptions: doorTrouble ? 1 : 0,
@@ -600,11 +612,10 @@ export function startFixture(map: MapData): void {
       score: { reward: status === 'success' ? 1 : status === 'failed' ? -1 : 0, success: status === 'success', checks: {} },
     };
     ended = result;
-    engineRow(status === 'success' ? '✓ Everyone made it out' : status === 'partial' ? `Partial — ${alive.length} of 3 escaped` : 'Nobody made it out');
+    engineRow(status === 'success' ? '✓ Everyone made it out' : status === 'partial' ? `Partial — ${alive.length} of ${actors.length} escaped` : 'Nobody made it out');
     emit({ type: 'episode_end', episodeId: EP, result });
   }
 
   // Ambient life before the incident (authored lines — labelled ambient)
-  later(2.5, () => phase === 'idle' && say('alex', 'Badge printer jammed again…', 'ambient'));
-  later(5.5, () => phase === 'idle' && say('maya', 'Slides look good!', 'ambient'));
+  ACTOR_IDS.forEach((id, i) => later(2.5 + i * 3, () => phase === 'idle' && say(id, ACTOR_PROFILES[id].ambient[0], 'ambient')));
 }

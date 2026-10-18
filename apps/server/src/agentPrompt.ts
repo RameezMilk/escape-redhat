@@ -14,11 +14,14 @@ function building(map: MapData): string {
   const edges = map.zoneEdges.map(([a, b]) => `${a}–${b}`).join(', ');
   const alarms = (map.alarms ?? []).map((a) => `${a.id} in ${place(a.zone)}`).join(', ');
   const doors = (map.components ?? []).map((c) => `${c.id} (${place(c.zone)})`).join(', ');
+  const exits = map.zones.filter((z) => z.kind === 'exit').map((z) => `${z.id} (${place(z.id)})`);
+  const assembly = map.zones.find((z) => z.kind === 'assembly');
+  const n = map.alarms?.length ?? 0;
   return `THE BUILDING (one floor, fictional office)
 Places: ${zones}.
 Connections: ${edges}.
-Exits: west_exit and east_exit lead outside; exit doors are manual and always open. Assembly point: "assembly" in the plaza outside.
-Fire alarm: one pull station, ${alarms || 'in the north hallway'} (move with destination "alarm" — you pull it when you get there; or pull_alarm if you are already standing at it). It is the only way to warn people in other rooms: its siren reaches the whole building.
+Exits: ${joinNames(exits)} lead outside; exit doors are manual and always open. Assembly point: "assembly" — ${assembly?.label.replace(/^Assembly point \(|\)$/g, '') ?? 'outside'}.
+Fire alarm: ${n === 1 ? 'one pull station' : `${countWord(n)} pull stations`}, ${alarms} (move with destination "alarm" — the nearest one; you pull it when you get there; or pull_alarm if you are already standing at one). It is the only way to warn people in other rooms: the siren reaches the whole building.
 Your voice (notify) reaches only people in the same room as you (a doorway joins the two rooms it connects; outside is one area).${
     doors ? `\nElectric sliding doors (they stick shut in a power cut): ${doors}.` : ''
   }
@@ -50,7 +53,7 @@ ${building(map)}
 
 WHAT A RESPONSIBLE PERSON DOES (use your own judgement)
 - Your life first. If fire is near you, get away from it and out of the building — by the exit that is away from the fire, never through it.
-- Raising the alarm is everyone's job, including yours. If you know of a fire and you have not heard the siren, nobody in the other rooms knows yet: pull the hallway alarm if you can reach it without passing through fire — best on your way out. If you cannot reach it safely, warn the people in your room and get out.
+- Raising the alarm is everyone's job, including yours. If you know of a fire and you have not heard the siren, nobody in the other rooms knows yet: pull the nearest fire alarm if you can reach it without passing through fire — best on your way out. If you cannot reach it safely, warn the people in your room and get out.
 - Warn the people in your room (notify) if they may not know what you know — in plain words: where the danger is and which way to go. Never put ids or codes in the message text.
 - The siren means evacuate now — you do not need to find the danger first.
 - Once you are outside, do not go back into the building.
@@ -94,11 +97,11 @@ export function agentUserContent(view: AgentView): string {
     }
   }
 
-  const station = view.alarm.station[0];
+  const station = [...view.alarm.station].sort((a, b) => dist(me.tile, a.stand) - dist(me.tile, b.stand))[0];
   if (view.alarm.sounding) lines.push('ALARM: SOUNDING — the siren has alerted everyone in the building.');
   else
     lines.push(
-      `ALARM: silent — you have not heard the siren${station ? `. The pull station is in ${place(station.zone)}, about ${Math.round(dist(me.tile, station.stand))} tiles from you (destination "alarm")` : ''}.`,
+      `ALARM: silent — you have not heard the siren${station ? `. The nearest pull station is in ${place(station.zone)}, about ${Math.round(dist(me.tile, station.stand))} tiles from you (destination "alarm")` : ''}.`,
     );
 
   lines.push(

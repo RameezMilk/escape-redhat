@@ -137,10 +137,10 @@ export class GymSessions {
   create(opts: GymSessionOptions): GymStepResponse & { system_prompt: string; tools: typeof TOOL_DEFS; case_id: string; harness: Harness } {
     const scenario = this.deps.cases.get(opts.caseId);
     if (!scenario) throw new GymError(404, `unknown case_id ${opts.caseId}`);
-    if (scenario.events.some((e) => e.trigger.type === 'manual')) {
+    if (!scenario.events.length || scenario.events.some((e) => e.trigger.type === 'manual')) {
       throw new GymError(
         400,
-        `case ${opts.caseId} has presenter-placed (manual) hazards and cannot run headless; use a dataset case such as dev-00-hero`,
+        `case ${opts.caseId} has presenter-placed hazards (manual or none scheduled) and cannot run headless; use a dataset case such as dev-00-hero`,
       );
     }
     if (!opts.sessionId || opts.sessionId.length > 200) throw new GymError(400, 'session_id required (≤200 chars)');
