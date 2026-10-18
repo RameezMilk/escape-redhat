@@ -45,6 +45,10 @@ A deterministic TypeScript engine owns a fictional office ground floor: six room
 - **Honest by construction.** Rejected calls change nothing and return an error code with a hint. Nobody can declare success; only the warden's verified roster can end a run as one.
 - **Measured.** On 14 held-out scenarios, everyone got out in 12, and no run ever claimed a false success ([summary](results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md)).
 
+## Demo
+
+https://youtu.be/A8X2oErT1Oc
+
 ## Quick start
 
 Requires Node 20 or newer (tested on 24) and npm. A GPU is only needed to self-host the model.
@@ -159,9 +163,9 @@ PLANNER_MODE=agents             # one Nemotron call per person
 **3. Run it.**
 
 1. `npm run dev` and open http://localhost:5173. The server log should report `health: OK` for the model.
-2. Drag **Fire** anywhere inside the building. Our recording put it in the cubicles next to Maya.
-3. Watch each person decide from what they know: who notices, who warns the room, who goes for a pull station, which exit they take. Every call and its reasoning appear in the trace.
-4. Optionally drag **Electrical Failure** onto a sliding door on someone's way out, such as the reception door (`node scripts/auto-electrical.mjs` cuts it on cue).
+2. Optionally drag **Electrical Failure** onto a sliding door on someone's way out, such as the reception door (`node scripts/auto-electrical.mjs` cuts it on cue).
+3. Drag **Fire** anywhere inside the building. Our recording put it in the cubicles next to Maya.
+4. Watch each person decide from what they know: who notices, who warns the room, who goes for a pull station, which exit they take. Every call and its reasoning appear in the trace.
 5. The run ends once every survivor has checked in at the bus stop and Alex has verified the roster.
 
 Each person is a separate model call, so routes, timing and who does what differ from run to run. The recorded demo is one such run.
