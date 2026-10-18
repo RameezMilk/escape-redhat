@@ -174,8 +174,6 @@ Each person is a separate model call, so routes, timing and who does what differ
 | `data/maps/office-v2` | Synthetic, authored | `office-v2.ascii` plus `office-v2.spec.ts`, built by `data/maps/builder.ts`; original procedural pixel art for racks, cubicles, reception, kitchen and bus stop | Navigation truth for the engine and the renderer |
 | `data/knowledge/` | Paraphrased public sources | 29 CFR 1910.36, 1910.37, 1910.38 and 1910.165 (U.S. government works); OSHA and NC DOL guidance, each with a source link. The site plan is fictional | `consult_plan` answers and the debrief |
 
-Real datasets we considered and did not use (LEMTA drills, Juelich bottleneck trajectories, NIST stair egress, Raleigh building footprints) are listed with reasons in the dataset card.
-
 ## Known limitations and next steps
 
 **Limitations**
