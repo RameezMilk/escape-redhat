@@ -31,22 +31,21 @@ The submission deadline is **Sun Oct 18, 11:00 a.m. ET**; that is also code free
 7. Recording: OBS or QuickTime at 1080p30. The mic is tested.
 8. Backup: the latest good run log is in `runs/` (for a labeled replay), and the backup local video file is on the desktop.
 
-## Live core loop (60–90 s), minute by minute (ruleset 2)
+## Live core loop (60–90 s), minute by minute
 
 | t | Action | What to point at |
 |---|---|---|
-| 0:00 | Start screen → click the glowing floor. Calm office: Alex at the warden desk, Maya near door A, Daniel at his desk in the wheelchair | "Three characters. One Nemotron planner decides for all of them through tools." Point out the single red pull station in the hallway and the sliding doors |
-| 0:05 | Drag **Fire** onto the floor just inside **door A**, next to Maya (green ghost = valid) | The placement ghost. The fire starts spreading tile by tile |
-| 0:08 | Maya sees it (engine observation E1) | Trace: engine row "Maya observed fire (E1)" |
-| 0:10 | **Nemotron planner → Maya → notify**(all, fire, [E1]) — heard by Daniel (same room) but not Alex (lobby). Someone heads to the hallway pull station and **pull_alarm** → siren + red strobes, now Alex is alerted | "Voice only carries within a room — the alarm is the only way to reach the lobby. It doesn't say where the fire is; notify does." |
-| 0:15 | People start moving; Daniel may request Alex as his buddy (optional) | "Consent first, no carrying. The fire keeps spreading — speed matters." |
-| 0:30 | Alex (with Daniel) heads through the NVIDIA lobby toward the east exit; Maya evacuates | Movement driven by accepted `move` rows |
-| 0:35 | When they are in the **lobby**, drag **⚡ Electrical failure** onto the **south sliding door** (or run `node scripts/auto-electrical.mjs` beforehand) | The door jams shut with sparks |
-| 0:38 | Move stops safely: **ROUTE_UNAVAILABLE** (E2) | The red failed row, then the "↻ recovered" badge on the next row |
-| 0:40 | notify(route_blocked) → plan_route → move via connector, north corridor, west exit | The alternate route on the map, away from the spreading fire |
+| 0:00 | Start screen → click the glowing floor. Calm office: Alex at the warden desk in the lobby, Maya and Daniel in the Red Hat room | "Three characters. One Nemotron planner decides for all of them through tools." Point out the single red pull station in the hallway and the sliding doors |
+| 0:05 | Drag **Fire** into the Red Hat room near Maya (green ghost = valid) | The fire starts spreading tile by tile |
+| 0:07 | Maya sees it and shouts "Fire!" — Daniel (same room) hears it; both back away from the flames | Trace: "instinct" rows (shout, backs away). "People react on instinct — that's the engine, not the model. Alex in the lobby hears nothing." |
+| 0:10 | Nemotron moves them out; someone's way out passes the hallway pull station, and they pull it (instinct) — or the model sends someone there with `pull_alarm` | Siren and red strobes: "the alarm is the only way to reach the lobby, and it doesn't say where the fire is" |
+| 0:20 | Alex is alerted by the siren; Nemotron routes him out | Tool pills: `move` rows with one-line plain-English summaries |
+| 0:30 | When people head through the **lobby** toward the east exit, drag **⚡ Electrical failure** onto the **south sliding door** (or run `node scripts/auto-electrical.mjs` beforehand) | The door jams shut with sparks |
+| 0:33 | The move stops safely — the trace says why ("the south door is dead") | The failed row, then the "↻ recovered" badge on the next row |
+| 0:35 | Re-plan via the lobby connector, the north hallway and the west exit, away from the fire; nobody goes back inside | The alternate route on the map; the fire climbing the walls behind them |
 | 1:00 | check_in × survivors → Alex **verify_roster** → success (or partial, if someone was lost) | "Only the roster verification can end it — and nobody is assumed safe." |
 | 1:10 | Debrief: source-linked lessons + metrics | Alarm (1910.165 / 1910.38(d)), routes and jammed doors, accountability, with OSHA citations |
-| optional | Reset, drop a fire right next to someone who hasn't been alerted | The disintegration and a `partial` outcome — why early alarm matters |
+| optional | Reset, drop a fire right next to someone in a closed-off room | The disintegration and a `partial` outcome — why early alarm matters |
 
 If the model takes a different valid path, narrate what it actually did. Don't redo takes until it matches a script.
 
@@ -57,7 +56,7 @@ If the model takes a different valid path, narrate what it actually did. Don't r
 | 0:00–0:25 | Team on camera: who we are, the problem |
 | 0:25–0:50 | Pitch: "Most evacuation material tells you the procedure. We let you change an office emergency — a spreading fire, a failed door — and watch how the alarm, route updates, assistance and accountability change the outcome." Then what's real and what's not (the fire is a game model, not fire science) |
 | 0:50–2:15 | Live core loop (above) |
-| 2:15–3:30 | Engineering: architecture diagram (README), tool validator and information boundaries, vLLM config and measured latency (MODEL_MANIFEST), benchmark dev/test table (`results/…/summary.md`), replay (labeled) |
+| 2:15–3:30 | Engineering: architecture diagram (README), tool validator and information boundaries (model proposes, engine decides; instincts labelled), vLLM config and measured latency/throughput ([`tech-stack.md`](../tech-stack.md)), benchmark dev/test table (`results/…/summary.md`), replay (labeled) |
 | 3:30–4:15 | Why it matters, known limitations, next steps (customer floor plans, Gym/RL) |
 
 ## Submission checklist (Airtable form)

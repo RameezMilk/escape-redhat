@@ -2,20 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { Driver, errCode, hero, map, okData } from './helpers.js';
 import { inEarshot, roomsOf } from '../src/index.js';
 
-// Fire in doorway A: Maya (13,7) sees it, Daniel (15,12) and Alex (22,8) do not. Maya's shout reaches Daniel (same
-// room) but not Alex (lobby), so she raises the hallway alarm (via door B → lobby → connector, door A is on fire).
+// Fire in doorway A: Maya (13,7) sees it, Daniel (15,12) and Alex (22,8) do not. Maya's instinctive shout reaches
+// Daniel (same room) but not Alex (lobby), so she is sent to the hallway alarm (via door B → lobby → connector, door A
+// is on fire) and pulls it on arrival.
 function alerted() {
   const d = new Driver();
   d.run(5);
   d.place('fire', 8, 4);
   d.run(2);
+  expect(d.actor('daniel').alerted).toBe(true); // heard Maya shout
   const r = okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire at door A!' }));
   expect(r).toMatchObject({ delivered_to: ['daniel'], not_reached: ['alex'] });
   expect(d.actor('alex').alerted).toBe(false);
   okData(d.call('move', { actor_id: 'maya', destination: 'alarm' }));
   expect(d.until(() => d.idle('maya'), 3000)).toBe(true);
-  okData(d.call('pull_alarm', { actor_id: 'maya' }));
   expect(d.actor('alex').alerted).toBe(true);
+  expect(okData(d.call('pull_alarm', { actor_id: 'maya' }))).toMatchObject({ already_active: true });
   return d;
 }
 
@@ -39,7 +41,7 @@ describe('tool validation never mutates state', () => {
       ['check_in', { actor_id: 'maya' }, 'OUT_OF_RANGE'],
       ['verify_roster', { actor_id: 'maya' }, 'NOT_AUTHORIZED'],
       ['verify_roster', { actor_id: 'alex' }, 'OUT_OF_RANGE'],
-      ['request_assistance', { actor_id: 'daniel', helper_id: 'alex' }, 'NOT_AUTHORIZED'],
+      ['request_assistance', { actor_id: 'alex', helper_id: 'maya' }, 'NOT_AUTHORIZED'],
       ['pull_alarm', { actor_id: 'alex' }, 'NOT_AUTHORIZED'],
       ['pull_alarm', { actor_id: 'maya' }, 'OUT_OF_RANGE'],
     ];
@@ -74,15 +76,18 @@ describe('tool validation never mutates state', () => {
     expect(d.actor('daniel').escort).toEqual({ role: 'follower', partner: 'alex' });
   });
 
-  it('unalerted actors cannot evacuate until notified; plan_route and the view ignore unseen hazards', () => {
+  it('unalerted actors cannot evacuate until told; plan_route and the view ignore unseen hazards', () => {
     const d = new Driver();
     d.run(3);
     d.place('fire', 8, 4);
     d.run(2);
-    expect(errCode(d.call('move', { actor_id: 'daniel', destination: 'assembly' }))).toBe('NOT_AUTHORIZED');
-    okData(d.call('notify', { actor_id: 'maya', recipient: 'daniel', topic: 'fire', evidence_ids: ['E1'], message: 'Fire!' }));
+    // Maya's instinctive shout alerted Daniel (same room); Alex in the lobby heard nothing and may not evacuate yet.
     expect(d.actor('daniel').alerted).toBe(true);
+    expect(d.actor('daniel').knows).toEqual(['E1']);
     expect(d.actor('alex').alerted).toBe(false);
+    const no = d.call('move', { actor_id: 'alex', destination: 'assembly' });
+    expect(errCode(no)).toBe('NOT_AUTHORIZED');
+    expect(no.ok ? '' : no.error.hint).toContain('pull the fire alarm');
     // South door jammed, out of everyone's sight: plan_route must still use it (unknown).
     expect(d.place('electrical', 26, 15).ok).toBe(true);
     const r = okData(d.call('plan_route', { actor_id: 'daniel', destination: 'assembly' }));
@@ -141,17 +146,17 @@ describe('fire alarm', () => {
     const mv = okData(d.call('move', { actor_id: 'maya', destination: 'alarm' }));
     expect(errCode(d.call('pull_alarm', { actor_id: 'maya' }))).toBe('ACTOR_BUSY');
     expect(mv.zones).toBeDefined();
+    // Sent to the alarm by the planner, Maya pulls it as soon as she is within reach of the station (the planner's pull).
+    expect(d.until(() => d.engine.snapshot().alarm.active)).toBe(true);
+    expect(d.actor('maya').zone).toBe('north_corridor');
     expect(d.until(() => d.idle('maya'))).toBe(true);
     expect([d.actor('maya').col, d.actor('maya').row]).toEqual([14, 1]); // the single hallway pull station
-    expect(d.actor('alex').alerted).toBe(false);
-    const r = okData(d.call('pull_alarm', { actor_id: 'maya' }));
-    expect(r).toMatchObject({ alarm: 'active', station: 'alarm_corridor' });
     for (const id of ['alex', 'maya', 'daniel']) expect(d.actor(id).alerted).toBe(true);
     expect(d.actor('alex').knows).toEqual([]);
     expect(d.engine.snapshot().alarm).toMatchObject({ active: true, by: 'maya', stationId: 'alarm_corridor' });
     expect(d.engine.plannerView().alarm).toMatchObject({ active: true, by: 'maya' });
     const ev = d.engine.events.find((e) => e.type === 'alarm_activated')!;
-    expect(ev).toMatchObject({ actor: 'maya', data: { station: 'alarm_corridor' } });
+    expect(ev).toMatchObject({ actor: 'maya', actionId: expect.any(String), data: { station: 'alarm_corridor', via: 'tool', newly_alerted: ['alex'] } });
     expect(okData(d.call('pull_alarm', { actor_id: 'maya' }))).toMatchObject({ already_active: true });
     // Alerted by the alarm alone, Alex may now evacuate
     okData(d.call('move', { actor_id: 'alex', destination: 'assembly' }));
@@ -218,7 +223,8 @@ describe('earshot: spoken alerts reach only the same room', () => {
     const named = d.call('notify', { actor_id: 'maya', recipient: 'alex', topic: 'fire', evidence_ids: ['E1'], message: 'Alex, fire!' });
     expect(errCode(named)).toBe('OUT_OF_RANGE');
     expect(named.ok ? null : named.error.details).toMatchObject({ recipient_zone: 'lobby', speaker_zone: 'rh_room' });
-    expect(named.ok ? '' : named.error.hint).toContain('pull the fire alarm in the north corridor');
+    expect(named.ok ? '' : named.error.hint).toContain('hallway fire alarm');
+    expect(named.ok ? '' : named.error.message).toBe('Alex is in the NVIDIA lobby — out of earshot of Maya in the Red Hat room.');
     expect(d.engine.hash()).toBe(h0);
     const all = okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire!' }));
     expect(all).toMatchObject({ delivered_to: ['daniel'], not_reached: ['alex'] });
@@ -237,7 +243,7 @@ describe('earshot: spoken alerts reach only the same room', () => {
     const h0 = d.engine.hash();
     const r = d.call('notify', { actor_id: 'alex', recipient: 'all', topic: 'route_blocked', evidence_ids: ['E1'], message: 'Door B is dead.' });
     expect(errCode(r)).toBe('OUT_OF_RANGE');
-    expect(r.ok ? '' : r.error.message).toContain('Nobody is within earshot of Alex (lobby)');
+    expect(r.ok ? '' : r.error.message).toBe('Nobody is within earshot of Alex in the NVIDIA lobby.');
     expect(d.engine.hash()).toBe(h0);
   });
 

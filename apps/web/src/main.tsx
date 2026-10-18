@@ -20,6 +20,12 @@ import { store } from './state/store';
 if (import.meta.env.DEV) (window as unknown as { __escape: unknown }).__escape = store;
 
 const params = new URLSearchParams(location.search);
+// ?render=timer: drive animation with timers instead of requestAnimationFrame, so the office keeps rendering in a
+// hidden/background window (screen capture of a non-focused window, automated screenshots). Visual-only.
+if (params.get('render') === 'timer') {
+  window.requestAnimationFrame = ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 33)) as typeof window.requestAnimationFrame;
+  window.cancelAnimationFrame = ((id: number) => window.clearTimeout(id)) as typeof window.cancelAnimationFrame;
+}
 if (params.has('fixture')) startFixture(loadMap());
 else connect();
 

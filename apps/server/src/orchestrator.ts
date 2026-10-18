@@ -17,6 +17,7 @@ import {
 } from '@escape/contracts';
 import type { Harness } from './config.js';
 import { buildSystemPrompt, toolsFor } from './prompt.js';
+import { componentOf, EvidenceBook, humanize, inPlace, theDoor, zoneAtTile } from './places.js';
 import { plannerName, type DecisionProvider, type DecisionResult } from './providers/types.js';
 import type { RunInput } from './runlog.js';
 
@@ -67,90 +68,87 @@ function resultSummary(tool: string, result: ToolResult): string {
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+const names = (ids: unknown): string[] => (Array.isArray(ids) ? ids.filter(isActor).map((a) => ACTOR_PROFILES[a].name) : []);
+const joinNames = (n: string[]) => (n.length <= 1 ? (n[0] ?? '') : `${n.slice(0, -1).join(', ')} and ${n.at(-1)}`);
 
-/** "Pull station — Red Hat room (by door B)" → "Red Hat room pull station". */
-function stationName(map: MapData | undefined, id: string | undefined): string {
-  const st = id ? map?.alarms?.find((a) => a.id === id) : undefined;
-  if (!st) return id ? `${id.replace(/^alarm_/, '').replace(/_/g, ' ')} pull station` : 'a pull station';
-  return `${st.label.replace(/^Pull station\s*[—-]\s*/i, '').replace(/\s*\(.*\)\s*$/, '')} pull station`;
+/** Was this alarm pulled by a planner decision (pull_alarm tool) or by someone's instinct on their way past? */
+export function alarmVia(e: WorldEvent): 'tool' | 'instinct' {
+  const via = (e.data as Record<string, unknown>).via;
+  if (via === 'tool' || via === 'instinct') return via;
+  return e.actionId ? 'tool' : 'instinct';
 }
 
-/** "Sliding door B (Red Hat room east)" → "sliding door B". */
-function doorName(map: MapData | undefined, id: string | undefined): string {
-  const d = id ? map?.components?.find((c) => c.id === id) : undefined;
-  if (!d) return id ? id.replace(/_/g, ' ') : 'a sliding door';
-  const base = d.label.replace(/\s*\(.*\)\s*$/, '');
-  return base.charAt(0).toLowerCase() + base.slice(1);
+export interface DescribeContext {
+  /** People who escaped (checked in) — used for the final story line. */
+  escaped?: number;
+  book?: EvidenceBook;
 }
 
-function zoneName(map: MapData | undefined, col: unknown, row: unknown): string | undefined {
-  if (!map?.zone || typeof col !== 'number' || typeof row !== 'number') return undefined;
-  const z = map.zone[row * map.cols + col];
-  return z ?? undefined;
-}
-
-/** Component id an electrical hazard/door event refers to (defensive about field names). */
-function componentOf(d: Record<string, unknown>): string | undefined {
-  return str(d.componentId) ?? str(d.component) ?? str(d.component_id) ?? str(d.door) ?? str(d.doorId);
-}
-
-export function describeEvent(e: WorldEvent, map?: MapData): string | null {
+/**
+ * Story-beat text for an engine event (plain English: names and places — never evidence ids, zone ids or
+ * coordinates), or null if the event is not a story beat. The orchestrator additionally filters repeats
+ * (only the first sighting per hazard, at most one flee line per person per 10 s, no tool-pulled alarm echo).
+ */
+export function describeEvent(e: WorldEvent, map?: MapData, ctx: DescribeContext = {}): string | null {
   const d = e.data as Record<string, unknown>;
-  const who = e.actor ? ACTOR_PROFILES[e.actor].name : '';
-  const ev = e.evidenceIds?.length ? ` (${e.evidenceIds.join(', ')})` : '';
-  // Types with fixed wording come first (the engine may also attach a generic summary).
+  const who = e.actor ? ACTOR_PROFILES[e.actor].name : isActor(d.actor) ? ACTOR_PROFILES[d.actor].name : 'Someone';
   switch (e.type) {
-    case 'hazard_placed': {
-      if (d.kind === 'electrical') return `Presenter cut power to ${doorName(map, componentOf(d))}`;
-      const zone = zoneName(map, d.col, d.row);
-      return `Presenter started a fire at (${String(d.col)},${String(d.row)})${zone ? ` in ${zone}` : ''}`;
-    }
+    case 'hazard_placed':
+      if (d.kind === 'electrical') return `⚡ Power cut — ${theDoor(componentOf(d))} is stuck shut`;
+      return `🔥 Fire started in ${inPlace(str(d.zone) ?? zoneAtTile(map, d.col, d.row))}`;
     case 'door_disabled':
-      return `Presenter cut power to ${doorName(map, componentOf(d))}`;
-    case 'alarm_activated': {
-      const by = e.actor ?? (isActor(d.by) ? d.by : undefined);
-      const station = str(d.stationId) ?? str(d.station) ?? str(d.station_id);
-      return `Alarm raised by ${by ? ACTOR_PROFILES[by].name : 'someone'} — ${stationName(map, station)}`;
+      return `⚡ Power cut — ${theDoor(componentOf(d))} is stuck shut`;
+    case 'observation':
+      if (d.kind === 'electrical') return `⚡ ${who} finds ${theDoor(componentOf(d))} dead`;
+      if (d.via === 'smoke') return `🔥 ${who} smells smoke — fire in ${inPlace(d.zone)}`;
+      return `🔥 ${who} spots fire in ${inPlace(d.zone)}`;
+    case 'instinct': {
+      const kind = str(d.kind);
+      if (kind === 'shout') {
+        const heard = names(d.heard_by ?? d.heardBy ?? d.to);
+        return `📣 ${who} shouts “Fire!”${heard.length ? ` — ${joinNames(heard)} hear${heard.length === 1 ? 's' : ''}` : ''}`;
+      }
+      if (kind === 'flee') return `🏃 ${who} backs away from the fire`;
+      if (kind === 'alarm') return `🚨 ${who} pulls the hallway alarm on the way out — everyone hears the siren`;
+      return null;
     }
+    case 'alarm_activated':
+      return alarmVia(e) === 'instinct'
+        ? `🚨 ${who} pulls the hallway alarm on the way out — everyone hears the siren`
+        : `🚨 ${who} pulls the hallway alarm — everyone hears the siren`;
     case 'actor_lost':
-      return `${who || 'Someone'} was lost to the fire`;
-    case 'episode_ended':
-      return `Episode ended: ${String(d.status ?? '')}${d.reason ? ` — ${String(d.reason)}` : ''}`;
-  }
-  if (typeof d.summary === 'string') return d.summary;
-  switch (e.type) {
-    case 'observation': {
-      const what = d.kind === 'electrical' ? `a dead sliding door${componentOf(d) ? ` (${doorName(map, componentOf(d))})` : ''}` : String(d.kind ?? 'a hazard');
-      return `${who} sees ${what}${d.zone ? ` in ${String(d.zone)}` : ''}${ev}`;
+      return `✖ ${who} was lost to the fire`;
+    case 'episode_ended': {
+      const status = str(d.status);
+      if (status === 'success') return '🏁 Everyone made it out';
+      if (status === 'failed') return '🏁 Nobody made it out';
+      if (status === 'partial') return `🏁 Partial — ${ctx.escaped ?? '?'} of 3 escaped`;
+      return `🏁 Stopped — ${humanize(str(d.reason) ?? status ?? 'safety stop', ctx.book)}`;
     }
-    case 'message_delivered':
-      return `${who} → ${String(d.recipient ?? d.to ?? 'all')}: "${String(d.message ?? '')}"`;
-    case 'move_completed':
-      return `${who} arrived at ${String(d.destination ?? 'destination')}`;
-    case 'move_interrupted':
-      return `${who} stopped: route unavailable${ev}`;
-    case 'assistance_requested':
-      return `${who} requested assistance from ${nameOf(d.helper ?? d.helper_id)}`;
-    case 'escort_started':
-      return `${who} is escorting ${nameOf(d.person ?? d.person_id)}`;
-    case 'assistance_fulfilled':
-      return 'Assistance arrangement fulfilled';
-    case 'checked_in':
-      return `${who} checked in at the assembly point`;
-    case 'roster_verified':
-      return `Roster verified by ${who || 'warden'}`;
-    case 'phase_changed':
-      return `Phase → ${String(d.phase ?? d.to ?? '')}`;
     default:
       return null;
   }
 }
 
-/** Speech/alert bubbles caused by an engine event (shared by live and replay).
- *  `living` = actors not lost (alarm alerts go to everyone still in the simulation). */
-export function bubblesForEvent(e: WorldEvent, ctx: { living?: ActorId[] } = {}): Omit<BubbleMessage, 'type' | 'episodeId'>[] {
+/** Human reason for an interrupted move (shown on the failed move row). */
+export function interruptionReason(e: WorldEvent): string {
+  const d = e.data as Record<string, unknown>;
+  if (d.code === 'ACTOR_LOST') return 'lost to the fire';
+  if (d.hazard_kind === 'electrical') return `stopped — ${theDoor(componentOf(d))} is dead`;
+  return `stopped — fire ahead in ${inPlace(str(d.hazard_zone) ?? str(d.zone))}`;
+}
+
+export interface BubbleContext {
+  /** Actors not lost (alarm alerts go to everyone still in the simulation). */
+  living?: ActorId[];
+  book?: EvidenceBook;
+}
+
+/** Speech/alert bubbles caused by an engine event (shared by live and replay). No ids, ever. */
+export function bubblesForEvent(e: WorldEvent, ctx: BubbleContext = {}): Omit<BubbleMessage, 'type' | 'episodeId'>[] {
   const d = e.data as Record<string, unknown>;
   const out: Omit<BubbleMessage, 'type' | 'episodeId'>[] = [];
+  const alive = (a: ActorId) => !ctx.living || ctx.living.includes(a);
   if (e.type === 'alarm_activated') {
     const puller = e.actor ?? (isActor(d.by) ? d.by : undefined);
     const living = ctx.living ?? [...ACTOR_IDS];
@@ -158,44 +156,43 @@ export function bubblesForEvent(e: WorldEvent, ctx: { living?: ActorId[] } = {})
     if (puller) out.push({ actor: puller, text: 'Pulling the fire alarm!', kind: 'message', ttlMs: 4500 });
     return out;
   }
-  if (!e.actor) return out;
+  const actor = e.actor ?? (isActor(d.actor) ? d.actor : undefined);
+  if (!actor) return out;
+  if (e.type === 'instinct') {
+    if (d.kind === 'shout') {
+      out.push({ actor, text: 'Fire! Get out!', kind: 'message', ttlMs: 4000 });
+      const heard = Array.isArray(d.heard_by ?? d.heardBy ?? d.to) ? ((d.heard_by ?? d.heardBy ?? d.to) as unknown[]) : [];
+      for (const r of heard) if (isActor(r) && r !== actor && alive(r)) out.push({ actor: r, text: '!', kind: 'alert', ttlMs: 1500 });
+    }
+    // flee: the movement says it; alarm: alarm_activated carries the bubbles.
+    return out;
+  }
   if (e.type === 'message_delivered') {
-    const text = String(d.message ?? '');
-    if (text) out.push({ actor: e.actor, text, kind: 'message', ttlMs: 4500 });
+    const text = humanize(String(d.message ?? ''), ctx.book);
+    if (text) out.push({ actor, text, kind: 'message', ttlMs: 4500 });
     const recips = Array.isArray(d.recipients)
       ? (d.recipients as unknown[])
       : d.recipient === 'all' || d.to === 'all'
-        ? ACTOR_IDS.filter((a) => a !== e.actor)
+        ? ACTOR_IDS.filter((a) => a !== actor)
         : [d.recipient ?? d.to];
-    const living = ctx.living;
-    for (const r of recips) if (isActor(r) && r !== e.actor && (!living || living.includes(r))) out.push({ actor: r, text: '!', kind: 'alert', ttlMs: 1500 });
+    for (const r of recips) if (isActor(r) && r !== actor && alive(r)) out.push({ actor: r, text: '!', kind: 'alert', ttlMs: 1500 });
   } else if (e.type === 'observation') {
-    const icon = d.kind === 'electrical' ? '⚡' : '🔥';
-    out.push({ actor: e.actor, text: `${icon} ${e.evidenceIds?.[0] ?? ''}`.trim(), kind: 'observation', ttlMs: 2500 });
+    const text = d.kind === 'electrical' ? "⚡ This door's dead!" : d.via === 'smoke' ? '🔥 I smell smoke!' : '🔥 Fire!';
+    out.push({ actor, text, kind: 'observation', ttlMs: 2500 });
   } else if (e.type === 'ambient_line') {
     const text = String(d.text ?? d.line ?? d.message ?? '');
-    if (text) out.push({ actor: e.actor, text, kind: 'ambient', ttlMs: 3000 });
+    if (text) out.push({ actor, text, kind: 'ambient', ttlMs: 3000 });
   }
   // actor_lost: no bubble — the renderer plays the disintegration effect.
   return out;
 }
 
-/** Engine event types shown as trace rows (others are covered by decision rows or are noise). */
-const ENGINE_ROW_TYPES = new Set<WorldEvent['type']>([
-  'hazard_placed',
-  'door_disabled',
-  'alarm_activated',
-  'actor_lost',
-  'observation',
-  'message_delivered',
-  'move_interrupted',
-  'assistance_requested',
-  'escort_started',
-  'assistance_fulfilled',
-  'checked_in',
-  'roster_verified',
-  'episode_ended',
-]);
+/** Engine event types that can become story-beat rows (further filtered in the orchestrator). Everything else is
+ *  either covered by a decision row (messages, check-ins, roster, assistance, tool-pulled alarm, interrupted moves)
+ *  or noise (fire spread, charring, phases). */
+const STORY_TYPES = new Set<WorldEvent['type']>(['hazard_placed', 'door_disabled', 'observation', 'instinct', 'alarm_activated', 'actor_lost', 'episode_ended']);
+/** At most one "backs away from the fire" line per person per this many simulated seconds. */
+const FLEE_ROW_GAP_SIM_SEC = 10;
 
 export class Orchestrator {
   inFlight = false;
@@ -207,6 +204,13 @@ export class Orchestrator {
   private consecutiveProviderFailures = 0;
   private failureAt = new Map<ActorId, number>();
   private doorRows = new Set<string>();
+  /** What each evidence id refers to — for turning stray ids into words in viewer-facing text. */
+  readonly book = new EvidenceBook();
+  /** Hazards whose first sighting already has a story line. */
+  private sighted = new Set<string>();
+  /** Last "backs away" story line per person (sim seconds). */
+  private lastFleeRow = new Map<ActorId, number>();
+  private alarmRowDone = false;
   private decisionIndex = 0;
   private lastSeq = 0;
   private lastDecision: { simTime: number; seq: number; productive: boolean } | null = null;
@@ -445,7 +449,7 @@ export class Orchestrator {
       actionId: result.actionId,
       status,
       result,
-      summary: (engineSummary ?? resultSummary(call.name, result)) + (res.malformedArguments ? ' (arguments were not valid JSON)' : ''),
+      summary: humanize(engineSummary ?? resultSummary(call.name, result), this.book) + (res.malformedArguments ? ' (arguments were not valid JSON)' : ''),
       evidenceIds: result.ok ? result.evidenceIds : undefined,
       simTime,
       recovered: recovered || undefined,
@@ -486,6 +490,7 @@ export class Orchestrator {
 
   private ingestEvent(e: WorldEvent) {
     const d = e.data as Record<string, unknown>;
+    this.book.learn(e);
     if ((e.type === 'move_completed' || e.type === 'move_interrupted') && e.actionId) {
       const rowId = this.moveRows.get(e.actionId);
       if (rowId) {
@@ -495,7 +500,7 @@ export class Orchestrator {
           this.emit({
             ...cur,
             status: done ? 'completed' : 'failed',
-            summary: `${cur.summary} → ${describeEvent(e, this.d.map) ?? (done ? 'arrived' : 'interrupted')}`,
+            summary: `${cur.summary} → ${done ? 'arrived' : interruptionReason(e)}`,
             evidenceIds: [...new Set([...(cur.evidenceIds ?? []), ...(e.evidenceIds ?? [])])],
           });
         }
@@ -504,15 +509,9 @@ export class Orchestrator {
       if (e.type === 'move_interrupted' && e.actor) this.failureAt.set(e.actor, this.decisionIndex);
     }
 
-    // A presenter's power cut can surface as both hazard_placed(electrical) and door_disabled: one row per door.
-    let duplicateDoorRow = false;
-    if (e.type === 'door_disabled' || (e.type === 'hazard_placed' && d.kind === 'electrical')) {
-      const key = componentOf(d) ?? `seq${e.seq}`;
-      duplicateDoorRow = this.doorRows.has(key);
-      this.doorRows.add(key);
-    }
-    if (ENGINE_ROW_TYPES.has(e.type) && !duplicateDoorRow) {
-      const summary = describeEvent(e, this.d.map);
+    if (STORY_TYPES.has(e.type) && this.isStoryBeat(e, d)) {
+      const escaped = e.type === 'episode_ended' ? this.d.engine.snapshot().roster.checkedIn.length : undefined;
+      const summary = describeEvent(e, this.d.map, { escaped, book: this.book });
       if (summary) {
         this.emit({
           id: `${this.episodeId}:ev:${e.seq}`,
@@ -521,8 +520,8 @@ export class Orchestrator {
           eventSeq: e.seq,
           decisionId: e.decisionId,
           actionId: e.actionId,
-          origin: 'Engine',
-          actor: e.actor,
+          origin: e.type === 'instinct' || (e.type === 'alarm_activated' && alarmVia(e) === 'instinct') ? 'Instinct (engine — not the model)' : 'Engine',
+          actor: e.actor ?? (isActor(d.actor) ? d.actor : undefined),
           status: 'info',
           summary,
           evidenceIds: e.evidenceIds,
@@ -534,8 +533,59 @@ export class Orchestrator {
 
     // Bubbles
     if (this.d.emitBubble) {
-      const bubbles = bubblesForEvent(e, e.type === 'alarm_activated' || e.type === 'message_delivered' ? { living: this.living() } : {});
-      for (const b of bubbles) this.d.emitBubble(b);
+      const living = e.type === 'alarm_activated' || e.type === 'message_delivered' || e.type === 'instinct' ? this.living() : undefined;
+      for (const b of bubblesForEvent(e, { living, book: this.book })) this.d.emitBubble(b);
+    }
+  }
+
+  /** Story-beat filter: one line per moment that matters, never an echo of a decision row. */
+  private isStoryBeat(e: WorldEvent, d: Record<string, unknown>): boolean {
+    switch (e.type) {
+      case 'hazard_placed':
+      case 'door_disabled': {
+        if (e.type === 'hazard_placed' && d.kind !== 'electrical') return true;
+        // A power cut can surface as both hazard_placed(electrical) and door_disabled: one line per door.
+        const key = componentOf(d) ?? `seq${e.seq}`;
+        if (this.doorRows.has(key)) return false;
+        this.doorRows.add(key);
+        return true;
+      }
+      case 'observation': {
+        // Only the first sighting of each hazard (later sightings are covered by bubbles and instincts).
+        const key = e.evidenceIds?.[0] ?? componentOf(d) ?? `${String(d.kind)}:${String(d.zone)}`;
+        if (this.sighted.has(key)) return false;
+        this.sighted.add(key);
+        return true;
+      }
+      case 'instinct': {
+        if (d.kind === 'alarm') {
+          if (this.alarmRowDone) return false;
+          this.alarmRowDone = true;
+          return true;
+        }
+        if (d.kind === 'flee') {
+          const a = e.actor ?? (isActor(d.actor) ? d.actor : undefined);
+          if (!a) return false;
+          const last = this.lastFleeRow.get(a);
+          if (last !== undefined && e.simTime - last < FLEE_ROW_GAP_SIM_SEC) return false;
+          this.lastFleeRow.set(a, e.simTime);
+          return true;
+        }
+        return d.kind === 'shout';
+      }
+      case 'alarm_activated': {
+        // A pull_alarm decision row already covers a tool pull; but an alarm pulled on ARRIVAL from a planner move
+        // to "alarm" has no pull_alarm row (only the move row), so it still gets a story line.
+        const fromMoveArrival = !!e.actionId && this.moveRows.has(e.actionId);
+        if ((alarmVia(e) === 'tool' && !fromMoveArrival) || this.alarmRowDone) return false;
+        this.alarmRowDone = true;
+        return true;
+      }
+      case 'actor_lost':
+      case 'episode_ended':
+        return true;
+      default:
+        return false;
     }
   }
 

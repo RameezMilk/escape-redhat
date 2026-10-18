@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { ScenarioCase } from '@escape/contracts';
-import { FIRE_BURN_TICKS, NON_FLAMMABLE_ZONES, createEngine, tileIndex } from '../src/index.js';
+import { FIRE_BURN_TICKS, NON_FLAMMABLE_ZONES, WALL_IGNITION_FACTOR, createEngine, lineOfSight, tileIndex } from '../src/index.js';
 import { Driver, errCode, hero, map, outsideSpawns } from './helpers.js';
 
 const zoneOf = (t: { col: number; row: number }) => map.zone[tileIndex(map, t.col, t.row)];
 const outside = (seed = 7): ScenarioCase => ({ ...hero(), seed, spawns: outsideSpawns() });
 const fireCells = (d: Driver) => d.engine.snapshot().hazards.filter((h) => h.kind === 'fire').flatMap((h) => h.noGo);
+const terrainOf = (t: { col: number; row: number }) => map.terrain[tileIndex(map, t.col, t.row)];
+/** Burning/charred FLOOR cells (walls burn too, but the growth bands are about floor). */
+const floorFire = (d: Driver) => fireCells(d).filter((t) => terrainOf(t) === 'floor');
+const med = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
 
 describe('spreading fire', () => {
   it('is deterministic per seed and differs across seeds', () => {
@@ -19,61 +23,124 @@ describe('spreading fire', () => {
     expect(run(3)).not.toBe(run(4));
   });
 
-  it('grows at a moderate pace (median of 9 seeds: ~20–35 cells at 20 s, ~55–90 at 40 s)', () => {
+  it('grows at a moderate pace (median of 9 seeds: ~20–35 floor cells at 20 s, ~55–90 at 40 s)', () => {
     const at20: number[] = [];
     const at40: number[] = [];
     for (let seed = 1; seed <= 9; seed++) {
       const d = new Driver(outside(seed), { ambient: false });
       expect(d.place('fire', 10, 13).ok).toBe(true);
       d.run(200);
-      at20.push(fireCells(d).length);
+      at20.push(floorFire(d).length);
       d.run(200);
-      at40.push(fireCells(d).length);
+      at40.push(floorFire(d).length);
     }
-    const med = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
     expect(med(at20)).toBeGreaterThanOrEqual(20);
     expect(med(at20)).toBeLessThanOrEqual(35);
     expect(med(at40)).toBeGreaterThanOrEqual(55);
     expect(med(at40)).toBeLessThanOrEqual(90);
   });
 
-  it('never ignites outdoors, exits or the assembly area, and burns out into charred debris', () => {
+  it('never ignites outdoors, exits or the assembly area (walls next to them may burn), and burns out into charred debris', () => {
     const d = new Driver(outside(), { ambient: false });
     expect(d.place('fire', 26, 16).ok).toBe(true); // south branch, right by the east exit
     d.run(FIRE_BURN_TICKS[1] + 50);
     const s = d.engine.snapshot().hazards[0];
     for (const t of [...s.cells, ...s.charred]) expect(NON_FLAMMABLE_ZONES).not.toContain(zoneOf(t));
+    d.run(1500); // long enough for the walls around the exit to burn
+    const late = d.engine.snapshot().hazards[0];
+    expect([...late.cells, ...late.charred].some((t) => terrainOf(t) === 'wall')).toBe(true);
+    for (const t of [...late.cells, ...late.charred]) {
+      expect(terrainOf(t), `(${t.col},${t.row})`).not.toBe('outdoor');
+      expect(NON_FLAMMABLE_ZONES).not.toContain(zoneOf(t));
+    }
     for (const t of [{ col: 26, row: 16 }, { col: 27, row: 17 }]) expect(s.charred).toContainEqual(t);
     expect(s.noGo.length).toBe(s.cells.length + s.charred.length);
   });
 
-  it('closed (disabled) sliding doors contain the fire', () => {
+  it('closed (disabled) sliding doors and walls hold the fire back (≥15 s median), then it breaks through', () => {
+    const delays: number[] = [];
+    let escaped = 0;
+    for (let seed = 1; seed <= 15; seed++) {
+      const d = new Driver(outside(seed), { ambient: false });
+      expect(d.place('electrical', 8, 4).ok).toBe(true);
+      expect(d.place('electrical', 18, 9).ok).toBe(true);
+      expect(d.place('fire', 10, 13).ok).toBe(true);
+      // touch: burning floor right against the north wall/door A (row 5) or the east wall/door B (col 17)
+      let touch = -1;
+      let out = -1;
+      for (let t = 1; t <= 3000 && out < 0; t++) {
+        d.run(1);
+        const cells = fireCells(d);
+        if (touch < 0 && cells.some((c) => terrainOf(c) === 'floor' && (c.row === 5 || c.col === 17))) touch = t;
+        if (cells.some((c) => terrainOf(c) === 'floor' && zoneOf(c) !== 'rh_room')) out = t;
+      }
+      if (out > 0) {
+        escaped++;
+        delays.push((out - touch) / 10);
+      }
+    }
+    expect(escaped).toBeGreaterThanOrEqual(12); // it gets out of the sealed room (through walls / burnt doors)
+    expect(med(delays)).toBeGreaterThanOrEqual(15);
+  });
+
+  it(`a wall next to burning floor ignites after ~20–30 s (median; WALL_IGNITION_FACTOR ${WALL_IGNITION_FACTOR}) and the fire reaches the next room`, () => {
+    const firstWall: number[] = [];
+    let nextRoom = 0;
+    for (const [col, row, far] of [
+      [16, 12, 'lobby'], // against the Red Hat room's east wall
+      [15, 5, 'north_corridor'], // against its north wall
+    ] as const) {
+      for (let seed = 1; seed <= 21; seed++) {
+        const d = new Driver(outside(seed), { ambient: false });
+        expect(d.place('fire', col, row).ok).toBe(true);
+        let wall = -1;
+        let reached = false;
+        for (let t = 1; t <= 1200 && !(wall > 0 && reached); t++) {
+          d.run(1);
+          const cells = fireCells(d);
+          if (wall < 0 && cells.some((c) => terrainOf(c) === 'wall')) wall = t;
+          reached ||= cells.some((c) => zoneOf(c) === far);
+        }
+        if (wall > 0) firstWall.push(wall / 10);
+        if (reached) nextRoom++;
+      }
+    }
+    expect(firstWall.length).toBe(42);
+    expect(med(firstWall)).toBeGreaterThanOrEqual(20);
+    expect(med(firstWall)).toBeLessThanOrEqual(30);
+    expect(nextRoom).toBeGreaterThanOrEqual(36); // within 120 s, almost always
+  });
+
+  it('a burning wall is visible from the far side and is never lethal or passable', () => {
     const d = new Driver(outside(), { ambient: false });
-    expect(d.place('electrical', 8, 4).ok).toBe(true);
-    expect(d.place('electrical', 18, 9).ok).toBe(true);
-    expect(d.place('fire', 10, 13).ok).toBe(true);
-    d.run(1500);
-    const cells = fireCells(d);
-    expect(cells.length).toBeGreaterThan(60);
-    expect(new Set(cells.map(zoneOf))).toEqual(new Set(['rh_room']));
+    expect(d.place('fire', 16, 12).ok).toBe(true);
+    expect(d.until(() => fireCells(d).some((c) => terrainOf(c) === 'wall'), 3000)).toBe(true);
+    const wall = fireCells(d).find((c) => terrainOf(c) === 'wall')!;
+    expect(map.walkable[tileIndex(map, wall.col, wall.row)]).toBe(false);
+    expect(lineOfSight(map, { col: wall.col + 1, row: wall.row }, wall)).toBe(true);
+    expect(lineOfSight(map, { col: wall.col - 1, row: wall.row }, wall)).toBe(true);
   });
 
   it('someone the fire reaches is lost and can no longer act', () => {
-    const d = new Driver(); // Maya sits at (13,7)
+    const d = new Driver(); // Maya sits at (13,7), Daniel at (15,12): both back away by instinct, but the room burns
+    expect(d.place('electrical', 8, 4).ok).toBe(true);
+    expect(d.place('electrical', 18, 9).ok).toBe(true);
     expect(d.place('fire', 11, 7).ok).toBe(true);
-    expect(d.until(() => d.lost('maya'), 3000)).toBe(true);
+    expect(d.until(() => d.engine.events.some((e) => e.type === 'actor_lost'), 4000)).toBe(true);
     const lostEv = d.engine.events.find((e) => e.type === 'actor_lost')!;
-    expect(lostEv.actor).toBe('maya');
-    expect(d.actor('maya')).toMatchObject({ status: 'lost', lost: true });
-    expect(d.actor('maya').lostAtSimTime).toBeGreaterThan(0);
-    const r = d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'x' });
+    const who = lostEv.actor!;
+    expect(['maya', 'daniel']).toContain(who);
+    expect(d.actor(who)).toMatchObject({ status: 'lost', lost: true });
+    expect(d.actor(who).lostAtSimTime).toBeGreaterThan(0);
+    const r = d.call('notify', { actor_id: who, recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'x' });
     expect(errCode(r)).toBe('NOT_AUTHORIZED');
     expect(r.ok ? '' : r.error.message).toContain('lost to the fire');
-    expect(d.engine.snapshot().roster.lost).toEqual(['maya']);
-    expect(d.engine.plannerView().actors.find((a) => a.id === 'maya')!.lost).toBe(true);
+    expect(d.engine.snapshot().roster.lost).toContain(who);
+    expect(d.engine.plannerView().actors.find((a) => a.id === who)!.lost).toBe(true);
   });
 
   it('everyone lost → failed (reward −1)', () => {
+    // Everyone in the Red Hat room with both sliding doors dead: instinct buys time, but nobody gets them out.
     const sc: ScenarioCase = {
       ...hero(),
       spawns: {
@@ -83,13 +150,15 @@ describe('spreading fire', () => {
       },
     };
     const d = new Driver(sc);
+    expect(d.place('electrical', 8, 4).ok).toBe(true);
+    expect(d.place('electrical', 18, 9).ok).toBe(true);
     for (const [c, r] of [
       [11, 7],
       [13, 12],
       [14, 9],
     ])
       expect(d.place('fire', c, r).ok).toBe(true);
-    expect(d.until(() => !!d.engine.outcome(), 4000)).toBe(true);
+    expect(d.until(() => !!d.engine.outcome(), 6000)).toBe(true);
     expect(d.engine.outcome()!.status).toBe('failed');
     const res = d.engine.result()!;
     expect(res.score.reward).toBe(-1);

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createEngine } from '@escape/engine';
-import type { ScenarioCase, ServerMessage } from '@escape/contracts';
+import type { ScenarioCase, ServerMessage, TraceRow } from '@escape/contracts';
 import { readPlannerConfig } from '../src/config.js';
 import { loadCases, loadMapFile } from '../src/data.js';
 import { runEpisodeHeadless } from '../src/headless.js';
@@ -12,6 +12,11 @@ import { ScriptedProvider } from '../src/providers/scripted.js';
 import { Session } from '../src/session.js';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+/** Viewer-facing text must never contain evidence ids, raw zone/door ids, action ids or coordinates. */
+const ID_LEAK = /\bE\d+\b|\b(rh_room|door_a|door_b|north_corridor|connector|south_branch|west_exit|east_exit|west_sidewalk|south_door)\b|\b[AD]-\d+\b|\(\d+,\s*\d+\)/;
+/** Sim time of the first alarm in a trace: a completed pull_alarm decision or an instinct alarm story line. */
+const alarmAt = (rows: TraceRow[]) =>
+  rows.find((r) => (r.kind === 'decision' && r.tool === 'pull_alarm' && r.status === 'completed') || (r.kind === 'engine' && r.summary.startsWith('🚨')))?.simTime;
 const cases = loadCases();
 const map = loadMapFile();
 
@@ -25,7 +30,7 @@ function heroCase(): ScenarioCase {
     split: 'dev',
     family: 'hero',
     events: [
-      { id: 'ev-fire', trigger: { type: 'at_time', simTime: 1 }, action: { type: 'place_hazard', kind: 'fire', col: 8, row: 5 } },
+      { id: 'ev-fire', trigger: { type: 'at_time', simTime: 1 }, action: { type: 'place_hazard', kind: 'fire', col: 5, row: 12 } },
       { id: 'ev-power', trigger: { type: 'actor_enters_zone', actor: 'any', zone: 'lobby' }, action: { type: 'place_hazard', kind: 'electrical', col: 26, row: 14 } },
     ],
     labels: { solvable: true, primaryRouteBlocked: true },
@@ -42,9 +47,21 @@ describe('scripted fixture × real engine', () => {
     });
     expect(result.outcome.status).toBe('success');
     expect(result.score.success).toBe(true);
-    // Voice only reaches the same room: Alex (lobby) can only be alerted by the hallway fire alarm.
-    expect(trace.some((r) => r.kind === 'decision' && r.tool === 'pull_alarm' && r.status === 'completed')).toBe(true);
+    // Voice only reaches the same room: Alex (lobby) hears the hallway fire alarm (pulled by a decision or by
+    // someone's instinct on their way past) before he is ever moved.
     expect(result.metrics.procedural.alarmRaised).toBe(true);
+    const alarm = alarmAt(trace);
+    expect(alarm).toBeDefined();
+    // Alex (alone in the lobby) is warned only by the alarm or IN PERSON by someone in earshot — never across rooms.
+    const alexFirstMove = trace.find((r) => r.kind === 'decision' && r.actor === 'alex' && r.tool === 'move' && r.status !== 'rejected');
+    const toldInPerson = trace.find(
+      (r) => r.kind === 'decision' && r.tool === 'notify' && r.result?.ok && ((r.result.data.delivered_to as string[] | undefined) ?? []).includes('alex'),
+    );
+    if (alexFirstMove) expect(alexFirstMove.simTime).toBeGreaterThanOrEqual(Math.min(alarm!, toldInPerson?.simTime ?? Infinity));
+    // Story beats only: no echo rows, no ids on screen.
+    const engineRows = trace.filter((r) => r.kind === 'engine');
+    expect(engineRows.some((r) => /checked in at the assembly|Roster verified|→ all:|requested assistance|stopped: route/i.test(r.summary))).toBe(false);
+    for (const r of engineRows) expect(r.summary).not.toMatch(ID_LEAK);
     expect(trace.some((r) => r.status === 'failed' && r.tool === 'move')).toBe(true); // an interrupted move
     expect(trace.some((r) => (r.tool === 'plan_route' && r.status === 'completed') || (r.tool === 'move' && !!r.args?.route_id))).toBe(true); // recovery
     expect(trace.every((r) => r.kind !== 'decision' || r.origin.startsWith('SCRIPTED fixture'))).toBe(true);
@@ -71,7 +88,7 @@ describe('scripted fixture × real engine', () => {
     const episodeId = session.episodeId;
     let powerCut = false;
     for (let i = 0; i < 5000 && !session.currentEngine.outcome(); i++) {
-      if (i === 10) expect(session.place('fire', 8, 5)).toMatchObject({ ok: true });
+      if (i === 10) expect(session.place('fire', 5, 12)).toMatchObject({ ok: true });
       const snap = session.snapshot();
       if (!powerCut && snap.actors.some((a) => a.zone === 'lobby' && a.task?.kind === 'move' && a.task.destination === 'assembly')) {
         expect(session.place('electrical', 26, 14)).toMatchObject({ ok: true });
@@ -86,7 +103,12 @@ describe('scripted fixture × real engine', () => {
     expect(end && end.type === 'episode_end' && end.result.outcome.status).toBe('success');
     expect(end && end.type === 'episode_end' && end.result.metrics.procedural.alarmRaised).toBe(true);
     expect(sent.some((m) => m.type === 'bubble' && m.kind === 'message')).toBe(true);
-    expect(sent.some((m) => m.type === 'trace' && m.row.summary.startsWith('Presenter cut power to'))).toBe(true);
+    expect(sent.some((m) => m.type === 'trace' && m.row.summary === '⚡ Power cut — the south door is stuck shut')).toBe(true);
+    expect(sent.some((m) => m.type === 'trace' && m.row.summary === '🔥 Fire started in the Red Hat room')).toBe(true);
+    for (const m of sent) {
+      if (m.type === 'bubble') expect(m.text).not.toMatch(ID_LEAK);
+      if (m.type === 'trace' && m.row.kind === 'engine') expect(m.row.summary).not.toMatch(ID_LEAK);
+    }
 
     // Replay the saved run.
     expect(readdirSync(runsDir)).toContain(`${episodeId}.jsonl`);

@@ -1,6 +1,6 @@
 // The pixel office: Pixel Agents canvas renderer (vendored, MIT @3537e14) driven by server snapshots,
 // plus DOM overlays (name chips, speech bubbles, placement tooltip) positioned with the renderer's projection.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ActorId, HazardKind, MapData } from '@escape/contracts';
 
@@ -13,6 +13,7 @@ import { mapOffset, overlayProjection } from '../vendor/pixel-agents/webview-ui/
 import { CharacterState, type Character } from '../vendor/pixel-agents/webview-ui/src/office/types';
 import { placement, usePlacement } from '../state/placement';
 import { store, useStore } from '../state/store';
+import { evidenceNames, humanize, isShoutText } from '../trace/humanize';
 import { ACTOR_ORDER, ACTOR_VIEW } from './actors';
 import { drawDisintegration, TOTAL_SEC } from './effects/disintegrate';
 import {
@@ -37,7 +38,7 @@ function statusLine(a: { status: string; lost?: boolean; checkedIn: boolean; esc
   if (a.lost) return 'lost';
   if (a.checkedIn) return 'checked in ✓';
   if (a.escort) return a.escort.role === 'leader' ? `escorting ${ACTOR_VIEW[a.escort.partner].name}` : `with ${ACTOR_VIEW[a.escort.partner].name}`;
-  if (a.status === 'moving' && a.task) return `→ ${a.task.destination.replace(/_/g, ' ')}`;
+  if (a.status === 'moving' && a.task) return /flee|away/i.test(a.task.destination) ? '↩ backing away' : `→ ${humanize(a.task.destination)}`;
   return a.status.replace(/_/g, ' ');
 }
 
@@ -56,6 +57,8 @@ export function OfficeView({ map }: Props) {
 
   const snapshot = useStore((s) => s.snapshot);
   const bubbles = useStore((s) => s.bubbles);
+  const trace = useStore((s) => s.trace);
+  const evNames = useMemo(() => evidenceNames(trace), [trace]);
   const ghost = usePlacement((s) => s);
 
   useEffect(() => {
@@ -112,7 +115,7 @@ export function OfficeView({ map }: Props) {
         const extras: ExtraDrawable[] = [
           ...statics,
           ...fixtureDrawables(map, hazards, snap?.alarm, now, reduced),
-          ...hazardDrawables(hazards, now, snap?.episodeId ?? ''),
+          ...hazardDrawables(hazards, now, snap?.episodeId ?? '', map),
         ];
         // Losses: lost actors leave the normal character pass and play the disintegration effect instead.
         const lost = lostRef.current;
@@ -360,8 +363,16 @@ export function OfficeView({ map }: Props) {
               {shown ? (
                 <>
                   {shown.kind === 'ambient' ? <span className="bubble-tag">ambient · scripted</span> : null}
-                  {shown.kind === 'message' ? <span className="bubble-tag">says</span> : null}
-                  <span className="bubble-text">{shown.text}</span>
+                  {shown.kind === 'message' ? (
+                    isShoutText(shown.text) ? (
+                      <span className="bubble-tag tag-instinct" title="human instinct — not a model decision">
+                        instinct
+                      </span>
+                    ) : (
+                      <span className="bubble-tag">says</span>
+                    )
+                  ) : null}
+                  <span className="bubble-text">{humanize(shown.text, evNames)}</span>
                 </>
               ) : null}
             </div>

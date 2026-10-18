@@ -2,6 +2,8 @@
 // Pure functions of a TraceRow — nothing here invents data; every line is derived from the row's args/result/summary.
 import type { TraceRow } from '@escape/contracts';
 
+import { humanize, ZONE_NAMES } from './humanize';
+
 export type ToolGroup = 'alert' | 'alarm' | 'move' | 'assist' | 'account' | 'lookup' | 'other';
 
 const TOOL_GROUP: Record<string, ToolGroup> = {
@@ -23,7 +25,7 @@ export function toolGroup(tool?: string): ToolGroup {
 
 const NAMES: Record<string, string> = { alex: 'Alex', maya: 'Maya', daniel: 'Daniel', all: 'everyone in earshot' };
 const nameOf = (id: unknown) => (typeof id === 'string' ? (NAMES[id] ?? id) : '?');
-const pretty = (s: unknown) => (typeof s === 'string' ? s.replace(/_/g, ' ') : String(s ?? ''));
+const pretty = (s: unknown) => (typeof s === 'string' ? (ZONE_NAMES[s] ?? NAMES[s] ?? s.replace(/_/g, ' ')) : String(s ?? ''));
 
 function shorten(s: string, n = 90): string {
   return s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
@@ -41,22 +43,38 @@ function data(row: TraceRow): Record<string, unknown> {
   return row.result && row.result.ok ? row.result.data : {};
 }
 
-/** Short, human one-liner for a decision row. Falls back to the server summary. */
-export function oneLiner(row: TraceRow): string {
+const ERROR_WORDS: Record<string, string> = {
+  ROUTE_UNAVAILABLE: 'no way through',
+  STALE_STATE: 'route out of date',
+  ACTOR_BUSY: 'already busy',
+  OUT_OF_RANGE: 'out of reach',
+  NOT_AUTHORIZED: 'not allowed',
+  ASSISTANCE_NOT_ACCEPTED: 'help not requested',
+  UNKNOWN_EVIDENCE: "hasn't seen that",
+  INVALID_ARGUMENT: 'invalid request',
+  UNKNOWN_ACTOR: 'unknown person',
+  UNKNOWN_TOOL: 'unknown tool',
+  EPISODE_OVER: 'exercise over',
+};
+
+/** Short, human one-liner for a decision row (no ids, no zone codes). Falls back to the server summary. */
+export function oneLiner(row: TraceRow, names?: Map<string, string>): string {
+  const h = (t: string) => humanize(t, names);
   const a = row.args ?? {};
   const d = data(row);
   if (row.status === 'proposed') return 'deciding…';
   if (row.result && !row.result.ok) {
-    const msg = stripName(row.result.error.message, row.actor);
-    return shorten(`${row.result.error.code} — ${msg}`);
+    const msg = h(stripName(row.result.error.message, row.actor));
+    const code = row.result.error.code;
+    return shorten(`${ERROR_WORDS[code] ?? code.toLowerCase().replace(/_/g, ' ')} — ${msg}`);
   }
   if (row.status === 'malformed' || row.status === 'provider_error' || row.status === 'discarded_stale' || row.status === 'ignored') {
-    return shorten(stripName(row.summary, row.actor));
+    return shorten(h(stripName(row.summary, row.actor)));
   }
-  if (row.status === 'failed') return shorten(stripName(row.summary.split('→').pop()?.trim() ?? row.summary, row.actor));
+  if (row.status === 'failed') return shorten(h(stripName(row.summary.split('→').pop()?.trim() ?? row.summary, row.actor)));
   switch (row.tool) {
     case 'notify': {
-      const msg = typeof a.message === 'string' ? `“${shorten(a.message, 60)}”` : pretty(a.topic);
+      const msg = typeof a.message === 'string' ? `“${shorten(h(a.message), 60)}”` : pretty(a.topic);
       const delivered = Array.isArray(d.delivered_to) ? (d.delivered_to as string[]) : null;
       const to = a.recipient === 'all' && delivered ? (delivered.length ? delivered.map(nameOf).join(', ') : 'nobody in earshot') : nameOf(a.recipient);
       return `${msg} → ${to}`;
@@ -70,11 +88,11 @@ export function oneLiner(row: TraceRow): string {
     }
     case 'plan_route': {
       const tiles = typeof d.length_tiles === 'number' ? ` · ${d.length_tiles} tiles` : '';
-      const via = Array.isArray(d.zones) && d.zones.length > 2 ? ` via ${pretty((d.zones as string[]).slice(1, -1).slice(0, 3).join(', '))}` : '';
-      return `route ${String(d.route_id ?? '')} → ${pretty(a.destination)}${tiles}${via}`.replace(/\s+/g, ' ');
+      const via = Array.isArray(d.zones) && d.zones.length > 2 ? ` via ${[...new Set((d.zones as string[]).slice(1, -1).map(pretty))].slice(0, 3).join(', ')}` : '';
+      return `planned a way to ${pretty(a.destination)}${tiles}${via}`.replace(/\s+/g, ' ');
     }
     case 'pull_alarm':
-      return d.already_active ? 'alarm already sounding' : 'pulled the fire alarm — everyone alerted';
+      return d.already_active ? 'alarm already sounding' : 'pulled the hallway fire alarm — everyone hears it';
     case 'check_in':
       return 'checked in at assembly';
     case 'verify_roster': {
@@ -87,11 +105,11 @@ export function oneLiner(row: TraceRow): string {
     case 'assist':
       return `now escorting ${nameOf(a.person_id)}`;
     case 'consult_plan':
-      return `read plan: ${pretty(a.section)}`;
+      return `checked the evacuation plan (${pretty(a.section)})`;
     case 'observe':
-      return shorten(stripName(row.summary, row.actor).replace(/^looked around in /, 'looked around · '));
+      return shorten(h(stripName(row.summary, row.actor).replace(/^looked around in /, 'looked around · ')));
     default:
-      return shorten(stripName(row.summary, row.actor));
+      return shorten(h(stripName(row.summary, row.actor)));
   }
 }
 
@@ -134,11 +152,14 @@ export type EventTone = 'fire' | 'power' | 'alarm' | 'lost' | 'ok' | 'msg' | 'se
 /** Icon + tone for an engine row, inferred from its (server-written) summary text. */
 export function eventIcon(summary: string): { icon: string; tone: EventTone } {
   const s = summary.toLowerCase();
-  if (/\blost\b/.test(s) && !s.startsWith('episode ended')) return { icon: '✖', tone: 'lost' };
-  if (s.startsWith('episode ended')) return { icon: '■', tone: 'end' };
+  if (/made it out|accounted for|^✓/.test(s) && !/\blost to\b/.test(s)) return { icon: '✓', tone: 'end' };
+  if (s.startsWith('episode ended') || /nobody made it|exercise (?:ended|over)|partial/.test(s)) return { icon: '■', tone: 'end' };
+  if (/\blost\b/.test(s)) return { icon: '✖', tone: 'lost' };
+  if (/\bshouts?\b/.test(s)) return { icon: '📣', tone: 'msg' };
+  if (/backs? away|backing away|steps? back/.test(s)) return { icon: '↩', tone: 'seen' };
   if (s.includes('alarm')) return { icon: '🚨', tone: 'alarm' };
-  if (s.includes('cut power') || s.includes('dead sliding door') || s.includes('sliding door')) return { icon: '⚡', tone: 'power' };
-  if (s.includes('started a fire') || (s.includes('fire') && !s.includes('→'))) return { icon: '🔥', tone: 'fire' };
+  if (/power cut|cut power|dead sliding door|sliding door|\bdead\b|stuck shut/.test(s)) return { icon: '⚡', tone: 'power' };
+  if (s.includes('spots fire') || s.includes('started a fire') || s.includes('fire started') || /walls?\b.*\bfire|fire\b.*\bwall/.test(s) || (s.includes('fire') && !s.includes('→'))) return { icon: '🔥', tone: 'fire' };
   if (s.includes('checked in') || s.includes('roster verified') || s.includes('fulfilled')) return { icon: '✓', tone: 'ok' };
   if (s.includes('→') && s.includes('"')) return { icon: '💬', tone: 'msg' };
   if (s.includes(' sees ') || s.includes('smell')) return { icon: '👁', tone: 'seen' };

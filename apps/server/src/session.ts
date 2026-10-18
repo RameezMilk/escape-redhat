@@ -20,6 +20,7 @@ import {
 import type { PlannerConfig } from './config.js';
 import { caseSummaries } from './data.js';
 import { bubblesForEvent, Orchestrator } from './orchestrator.js';
+import { EvidenceBook } from './places.js';
 import type { DecisionProvider } from './providers/types.js';
 import { applyInput, listRuns, readRunLog, replayEngineOptions, RunLog, type RunHeader, type RunInput, type RunLine } from './runlog.js';
 
@@ -74,6 +75,8 @@ interface ReplayState {
   recordedResult?: EpisodeResult;
   done: boolean;
   rows: Map<string, TraceRow>;
+  /** What each evidence id refers to, so replayed bubbles stay id-free. */
+  book: EvidenceBook;
 }
 
 export class Session {
@@ -356,6 +359,7 @@ export class Session {
       recordedResult,
       done: false,
       rows: new Map(),
+      book: new EvidenceBook(),
     };
     this.paused = false;
     this.d.broadcast(this.welcome());
@@ -392,7 +396,8 @@ export class Session {
           .map((a) => a.id);
         for (const e of fresh) {
           seqBefore = e.seq;
-          for (const b of bubblesForEvent(e, { living })) this.d.broadcast({ type: 'bubble', episodeId: st.replayId, ...b });
+          st.book.learn(e);
+          for (const b of bubblesForEvent(e, { living, book: st.book })) this.d.broadcast({ type: 'bubble', episodeId: st.replayId, ...b });
         }
       }
     }

@@ -1,5 +1,30 @@
 // @escape/engine — authoritative, deterministic, browser-safe simulation.
-export { createEngine, SPEED_TILES_PER_SEC, FIRE_SPREAD_PER_TICK, FIRE_BURN_TICKS, FIRE_SIGHT_RADIUS } from './world.js';
+export {
+  createEngine,
+  SPEED_TILES_PER_SEC,
+  FIRE_SPREAD_PER_TICK,
+  FIRE_BURN_TICKS,
+  FIRE_SIGHT_RADIUS,
+  DOOR_IGNITION_FACTOR,
+  WALL_IGNITION_FACTOR,
+  FLEE_RADIUS,
+  SMOKE_RADIUS,
+  FLEE_DESTINATION,
+} from './world.js';
+export {
+  placeName,
+  atPlace,
+  placeNameAt,
+  zoneNear,
+  doorName,
+  destinationName,
+  describeHazard,
+  describeEvidence,
+  joinNames,
+  isOutsideZone,
+  OUTSIDE_ZONES,
+  ALARM_NAME,
+} from './places.js';
 export { loadMap, tileIndex, inBounds, zoneAt, zoneTiles, tileDistance, tileKey, roomsOf, inEarshot, type RoomId } from './map.js';
 export { findPath, planPath, pathCost, lineOfSight, passable, type NavMask, type PathOptions } from './nav.js';
 export { HAZARD_SPECS, NON_FLAMMABLE_ZONES, validatePlacement, doorNear, fireFootprint, isFlammable, type PlacementCode, type PlacementCheck } from './placement.js';

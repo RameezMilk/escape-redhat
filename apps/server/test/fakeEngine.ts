@@ -141,8 +141,12 @@ export const fakeMap = {
   id: 'office-v1',
   hash: 'fake',
   zones: [],
-  // Real office zone graph so earshot (rooms joined by doorways) behaves as in the game.
+  // Real office zone graph so earshot (rooms joined by doorways) behaves as in the game, and the real zone grid so
+  // story-beat texts can name places.
   zoneEdges: loadMap().zoneEdges,
+  cols: loadMap().cols,
+  rows: loadMap().rows,
+  zone: loadMap().zone,
   spawnSpots: { alex: [], maya: [], daniel: [] },
   components: [{ id: 'door_b', kind: 'sliding_door', label: 'Sliding door B (Red Hat room east)', zone: 'door_b', tiles: [], orientation: 'vertical' }],
   alarms: [{ id: 'alarm_corridor', label: 'Pull station — north corridor', zone: 'north_corridor', wall: { col: 14, row: 0 }, stand: { col: 14, row: 1 } }],

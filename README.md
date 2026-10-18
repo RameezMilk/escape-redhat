@@ -8,10 +8,12 @@
   - Maya, an employee;
   - Daniel, a visitor who uses a wheelchair.
 - **What you do.** Drag in one or more **fires** — they spread from tile to tile — and **⚡ electrical failures** that jam an interior sliding door shut.
-- **What you see.** Voice carries only within a room, so the model has whoever sees the fire warn the people around them and gets someone to the **hallway fire-alarm pull station** (siren and strobes alert everyone, in every room), moves people out before the fire reaches them, re-routes around jammed doors, can honour Daniel's buddy arrangement, and verifies everyone at the assembly point. Anyone the fire reaches is **lost** (they disintegrate). Every proposal and result appears in a live trace.
+- **What you see.** Fire spreads tile by tile, climbs walls and works its way through the building. People react like people: whoever sees or smells it shouts "Fire!" to their own room, anyone close backs away from the flames, someone heading out past the **hallway fire-alarm pull station** pulls it (siren and strobes reach every room), and nobody goes back inside once out. These *instincts* are engine rules, labelled as such. **The model** does the planning: it decides who goes where and by which exit, sends someone to the alarm when people elsewhere are still unaware, re-routes around jammed doors, can honour Daniel's buddy arrangement, and verifies everyone at the assembly point. Anyone the fire reaches is **lost** (they disintegrate). A live trace tells the story in plain language, with every model call shown.
 - **What the engine guarantees.** A deterministic, seeded engine owns the world, including the fire. The model can't walk anyone into fire they know about or declare success; only a verified roster can. There is no time limit: the run ends when every survivor is accounted for, or when everyone is lost.
 
 Main track: **Tool-Calling**. Built at the NVIDIA × Red Hat Small Models Hack, Raleigh, Oct 17–18 2026.
+
+**How we use Nemotron Lightning, Brev + vLLM and tool calling, with measured evidence and next steps: [`tech-stack.md`](tech-stack.md).**
 
 - Demo video: _link to be added_ (unlisted YouTube)
 - Screenshot: _to be added_ (`docs/screenshot.png`)
@@ -84,8 +86,9 @@ flowchart LR
 
 **Tools the model can call:** `observe`, `consult_plan`, `notify`, `plan_route`, `move`, `request_assistance`, `assist`, `check_in`, `verify_roster`, `pull_alarm`.
 
-- `notify` is spoken: it reaches only people in the same room (a doorway joins the two rooms it connects; outside is one area). Anyone elsewhere is not reached, and a call with nobody in earshot is rejected with `OUT_OF_RANGE`.
-- `pull_alarm` only works for someone standing at the single pull station in the north corridor (`move` to destination `"alarm"`). It is the only way to alert people in other rooms, but, like a real alarm, says nothing about *where* the fire is; `notify` shares what someone actually saw.
+- `notify` is spoken: it reaches only people in the same room (a doorway joins the two rooms it connects; outside is one area). Anyone elsewhere is not reached, and a call with nobody in earshot is rejected with `OUT_OF_RANGE`. People already shout "Fire!" to their own room by instinct, so the model uses `notify` for route news and for people it meets in person.
+- `pull_alarm` only works for someone standing at the single pull station in the north corridor (`move` to destination `"alarm"`). It is the only way to alert people in other rooms, but, like a real alarm, says nothing about *where* the fire is. People who pass the station on their way out pull it by instinct.
+- Once someone is outside, `move` and `plan_route` back into the building are rejected (`NOT_AUTHORIZED`): nobody goes back into a burning building.
 - Invalid calls return structured errors and never change the world. Codes include `ROUTE_UNAVAILABLE`, `STALE_STATE`, `ACTOR_BUSY`, `OUT_OF_RANGE`, `ASSISTANCE_NOT_ACCEPTED` and `NOT_AUTHORIZED`.
 - The planner sees each character's observations and reports, but never fire cells or jammed doors nobody has seen.
 - Each character can only act on what *they* know. Someone who hasn't been alerted (by the alarm or by a person) can't evacuate yet.
@@ -141,10 +144,10 @@ Development fallback with the same weights: the hosted NVIDIA API Catalog (see e
 
 1. `npm run dev`, then open http://localhost:5173. On the start screen, click the glowing floor of the (pixel-art) tower or press Enter; add `?intro=0` to the URL to skip it. Check that the top bar shows **Nemotron · self-hosted vLLM** and that the model is healthy.
 2. Watch the idle office. No model calls happen before an incident.
-3. Drag **Fire** onto the floor just inside **door A** (top wall of the Red Hat room), next to Maya. It starts spreading.
-4. Maya sees it. Follow the trace: **Nemotron planner → Maya → notify** warns Daniel, who is in the same room — but not Alex, who is in the lobby and out of earshot. Someone goes to the **hallway fire-alarm pull station** and pulls it (siren and red strobes): only then is Alex alerted. People start moving (Daniel may ask Alex to be his buddy).
-5. When Alex and Daniel enter the NVIDIA lobby heading for the east exit, drag **⚡ Electrical failure** onto the **south sliding door** (between the lobby and the east exit).
-6. Their move stops safely with `ROUTE_UNAVAILABLE`. The model reports the jammed door, re-plans through the lobby connector, the north corridor and the west exit, checks everyone in, and Alex runs `verify_roster`.
+3. Drag **Fire** into the Red Hat room near Maya. It starts spreading, and given time it climbs the walls and moves into the next rooms.
+4. Maya sees it and shouts "Fire!" (instinct), so Daniel, in the same room, hears it and both back away from the flames. Alex, in the lobby, hears nothing. Follow the trace: Nemotron moves them out and gets someone to the **hallway fire-alarm pull station** (a person whose way out passes it pulls it on the way). The siren and red strobes are what alert Alex.
+5. When people head through the NVIDIA lobby toward the east exit, drag **⚡ Electrical failure** onto the **south sliding door** (between the lobby and the east exit).
+6. Their move stops safely and the trace shows why ("the south door is dead"). Nemotron re-plans through the lobby connector, the north hallway and the west exit, away from the fire. Nobody goes back inside. Everyone checks in, and Alex runs `verify_roster`.
 7. Read the debrief. Use **Reset** to start again. To see losses, drop a fire right next to someone who hasn't been alerted.
 
 Rehearsal helper: `node scripts/auto-electrical.mjs` drops the electrical failure on cue (step 5) so a solo presenter can run the hero scenario.
@@ -219,8 +222,8 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 
 **Limitations:**
 - One fictional single-level map with three characters, four interior sliding doors and one hallway pull station.
-- The fire is a simple seeded cellular spread over floor tiles (each burning tile occasionally ignites a random neighbour; tiles burn out into impassable debris; closed doors stop it). It is not fire science: no smoke, heat, toxicity, ventilation or injury model — "lost" is a game state.
-- Perception, the smoke-notice rule, earshot (same room only) and the alarm are simple deterministic rules; the alarm reaches everyone instantly.
+- The fire is a simple seeded cellular spread (each burning tile occasionally ignites a random neighbour; doorways and walls slow it, walls burn through after a while; tiles burn out into impassable debris). It is not fire science: no smoke plume, heat, toxicity, ventilation or injury model — "lost" is a game state.
+- Perception, smelling smoke through a nearby wall, earshot (same room only), the alarm and the survival instincts (shout, back away, pull the alarm on the way out, no re-entry) are simple deterministic rules, shown in the trace as instincts rather than model decisions. The alarm reaches everyone instantly.
 - A central planner controls all three characters. These are not independent agents, and we make no claim that a multi-agent setup is better.
 - Benchmark: 32 synthetic cases, a single run per case, temperature > 0, and a seeded stochastic fire. Treat differences of one or two cases as noise. The v2 harness was tuned on dev; it narrows the tool menu each turn (action masking), which is part of what is being measured.
 - Educational value is a hypothesis; no learning outcomes were measured. Not compliance training; no building-code claims.

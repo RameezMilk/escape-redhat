@@ -30,11 +30,11 @@
   },
   "engine_cross_check": "every placement validated with packages/engine validatePlacement",
   "inputs": {
-    "demo-hero.json": "679f153b00c99d5a82885e937036bfd0718cf88b797f648ff8911d8240bfba49",
+    "demo-hero.json": "b240865c71c98d7268d8068458b428887b0014ce7d758554f69ddac918fb2963",
     "office-v1.json": "d0b6de3dcba05424541bc7608285ff32cddae4bf79ceac44aa0aff685acd57ef"
   },
   "outputs": {
-    "cases.dev.jsonl": "ba3f7506715a28e84eb641606082b4d03cfae754ad53a9421650e7a1195b7417",
+    "cases.dev.jsonl": "673523808d5f4b18593243b344727b5bd2bda1548a6d55b3520fc42e2e386d03",
     "cases.test.jsonl": "9e4210841df05e0f62e1a58aaeace12f78f71952dc35dbb7080fb79e3495646c",
     "splits.json": "7e22c9b992babfbf960e0d3a4f44a98598c030c93a91401111fcf9c2c3c7a1d7"
   },

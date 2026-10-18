@@ -6,6 +6,7 @@ import type { ActorId, TraceRow } from '@escape/contracts';
 
 import { ACTOR_ORDER, ACTOR_VIEW } from '../office/actors';
 import { useStore } from '../state/store';
+import { evidenceNames, humanize, instinctKind } from './humanize';
 import { eventIcon, fmtSim, oneLiner, statusGlyph, stripLeadingEmoji, toolGroup } from './summarize';
 
 type Filter = 'all' | ActorId | 'engine';
@@ -17,10 +18,13 @@ function fmtVal(v: unknown): string {
   return String(v);
 }
 
-function Details({ row }: { row: TraceRow }) {
+function Details({ row, names }: { row: TraceRow; names: Map<string, string> }) {
   const [raw, setRaw] = useState(false);
   const err = row.result && !row.result.ok ? row.result.error : null;
-  const args = Object.entries(row.args ?? {}).filter(([k]) => k !== 'reason_summary' && k !== 'actor_id');
+  // Readable view: no evidence ids / zone codes (they remain in the raw JSON below).
+  const args = Object.entries(row.args ?? {})
+    .filter(([k]) => k !== 'reason_summary' && k !== 'actor_id' && k !== 'evidence_ids' && k !== 'expected_revision')
+    .map(([k, v]) => [k, typeof v === 'string' ? humanize(v, names) : v] as const);
   return (
     <div className="tr-details">
       <div className="trd-origin">{row.origin}</div>
@@ -41,11 +45,11 @@ function Details({ row }: { row: TraceRow }) {
       ) : null}
       {err ? (
         <div className="trd-err">
-          <code>{err.code}</code> {err.message}
-          {err.hint ? <div className="trd-hint">hint: {err.hint}</div> : null}
+          <code>{err.code}</code> {humanize(err.message, names)}
+          {err.hint ? <div className="trd-hint">hint: {humanize(err.hint, names)}</div> : null}
         </div>
       ) : (
-        <div className="trd-line trd-result">{row.summary}</div>
+        <div className="trd-line trd-result">{humanize(row.summary, names)}</div>
       )}
       <div className="trd-meta">
         {row.decisionId ? <span>{row.decisionId}</span> : null}
@@ -58,11 +62,6 @@ function Details({ row }: { row: TraceRow }) {
           </span>
         ) : null}
         {row.parseMode === 'content-fallback' ? <span className="warn">parsed from text</span> : null}
-        {row.evidenceIds?.map((e) => (
-          <span key={e} className="trd-ev">
-            {e}
-          </span>
-        ))}
         <button className="trd-raw" onClick={() => setRaw((r) => !r)} aria-expanded={raw}>
           {raw ? 'hide raw' : 'raw JSON'}
         </button>
@@ -86,7 +85,7 @@ function Details({ row }: { row: TraceRow }) {
   );
 }
 
-function DecisionRow({ row, thinkingLabel }: { row: TraceRow; thinkingLabel: string }) {
+function DecisionRow({ row, thinkingLabel, names }: { row: TraceRow; thinkingLabel: string; names: Map<string, string> }) {
   const [open, setOpen] = useState(false);
   const actor = row.actor ? ACTOR_VIEW[row.actor] : null;
   const st = statusGlyph(row);
@@ -101,10 +100,10 @@ function DecisionRow({ row, thinkingLabel }: { row: TraceRow; thinkingLabel: str
       </li>
     );
   }
-  const line = oneLiner(row);
+  const line = oneLiner(row, names);
   return (
     <li className={`tr tr-decision tone-${st.tone} ${open ? 'open' : ''}`} style={actor ? { ['--actor' as string]: actor.color } : undefined}>
-      <button className="tr-main" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={`${row.origin} — ${row.summary}`}>
+      <button className="tr-main" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={`${row.origin} — ${humanize(row.summary, names)}`}>
         <span className="tr-avatar" aria-hidden>
           {actor ? actor.name[0] : '?'}
         </span>
@@ -123,19 +122,24 @@ function DecisionRow({ row, thinkingLabel }: { row: TraceRow; thinkingLabel: str
           <span className="tr-time">{fmtSim(row.simTime)}</span>
         </span>
       </button>
-      {open ? <Details row={row} /> : null}
+      {open ? <Details row={row} names={names} /> : null}
     </li>
   );
 }
 
-function EngineRow({ row }: { row: TraceRow }) {
-  const { icon, tone } = eventIcon(row.summary);
+const INSTINCT_ICON = { shout: '📣', flee: '↩', alarm: '🚨' } as const;
+
+function EngineRow({ row, names }: { row: TraceRow; names: Map<string, string> }) {
+  const text = humanize(stripLeadingEmoji(row.summary), names);
+  const inst = instinctKind(row);
+  const { icon, tone } = eventIcon(text);
   return (
-    <li className={`tr tr-event ev-${tone}`} title={row.summary}>
+    <li className={`tr tr-event ev-${tone} ${inst ? 'ev-instinct' : ''}`} title={inst ? `${text} — human instinct (engine behaviour, not a model decision)` : text}>
       <span className="tr-ev-icon" aria-hidden>
-        {icon}
+        {inst ? INSTINCT_ICON[inst] : icon}
       </span>
-      <span className="tr-ev-text">{stripLeadingEmoji(row.summary)}</span>
+      {inst ? <span className="instinct-pill">instinct</span> : null}
+      <span className="tr-ev-text">{text}</span>
       <span className="tr-time">{fmtSim(row.simTime)}</span>
     </li>
   );
@@ -148,6 +152,7 @@ export function TracePanel() {
   const listRef = useRef<HTMLOListElement>(null);
   const [pinned, setPinned] = useState(true);
 
+  const names = useMemo(() => evidenceNames(trace), [trace]);
   const rows = useMemo(
     () =>
       trace.filter((r) => {
@@ -237,7 +242,9 @@ export function TracePanel() {
             No tool calls yet. The planner is only called after someone notices an incident — drop a <b>Fire</b> to start.
           </li>
         ) : (
-          rows.map((r) => (r.kind === 'engine' ? <EngineRow key={r.id} row={r} /> : <DecisionRow key={r.id} row={r} thinkingLabel={thinkingLabel} />))
+          rows.map((r) =>
+            r.kind === 'engine' ? <EngineRow key={r.id} row={r} names={names} /> : <DecisionRow key={r.id} row={r} thinkingLabel={thinkingLabel} names={names} />,
+          )
         )}
       </ol>
       {!pinned ? (

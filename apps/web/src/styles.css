@@ -832,6 +832,28 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* human instinct (engine behaviour, not a model decision) */
+.instinct-pill {
+  flex: none;
+  font: 600 9.5px/1 var(--ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #e9dfc8;
+  background: rgba(233, 223, 200, 0.08);
+  border: 1px dashed rgba(233, 223, 200, 0.4);
+  padding: 3px 6px;
+  border-radius: 999px;
+}
+.ev-instinct .tr-ev-text {
+  color: #d9cfbd;
+}
+.ev-instinct.ev-alarm .tr-ev-text {
+  color: #ffb3b3;
+}
+.bubble .bubble-tag.tag-instinct {
+  color: #f3d9a0;
+  font-style: italic;
+}
 .ev-lost .tr-ev-text {
   color: #ff9d9d;
   font-weight: 600;

@@ -12,10 +12,12 @@ export const HAZARD_SPECS = {
 /** Zones where fire never ignites (outside, exits, assembly). */
 export const NON_FLAMMABLE_ZONES: readonly ZoneId[] = ['west_exit', 'east_exit', 'west_sidewalk', 'plaza', 'assembly'];
 
-/** Interior floor that can burn (furniture-blocked floor included). Disabled doors are excluded by the caller. */
+/** What can burn: interior floor (furniture-blocked floor included) and the building's walls (interior and
+ *  perimeter; they catch slowly). Exits, outdoor tiles and void never burn. */
 export function isFlammable(map: MapData, col: number, row: number): boolean {
   if (!inBounds(map, col, row)) return false;
   const i = tileIndex(map, col, row);
+  if (map.terrain[i] === 'wall') return true;
   if (map.terrain[i] !== 'floor') return false;
   const z = map.zone[i];
   return !!z && !NON_FLAMMABLE_ZONES.includes(z);

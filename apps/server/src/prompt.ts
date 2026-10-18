@@ -33,7 +33,9 @@ Connections: ${edges}.
 Exits: west_exit and east_exit, both lead outside to the plaza; exit doors are manual and always open. Assembly point: zone "assembly" in the plaza.
 Speech: notify is spoken — it reaches only people in the same room (doorways join the two rooms they connect; outside is one area). People in other rooms do not hear it.${
     alarms ? `\nFire-alarm pull station: ${alarms} — the ONLY way to alert people in other rooms. Use move with destination "alarm" to reach it.` : ''
-  }${doors ? `\nElectric sliding doors (can fail closed in a power outage): ${doors}.` : ''}`;
+  }${doors ? `\nElectric sliding doors (can fail closed in a power outage): ${doors}.` : ''}
+Instincts (automatic — not your actions): a person who sees fire shouts "Fire!" to everyone in their room; people back away from fire that is close to them; anyone who passes the hallway pull station while the alarm is off pulls it.
+Fire spreads every second and can burn through walls into the next room. People who are outside cannot go back into the building.`;
 }
 
 const ROLE = `You are the exercise coordinator AI for a fictional office evacuation drill ("Escape from Red Hat"). You centrally direct three simulated people — Alex, Maya and Daniel — by calling exactly ONE tool per turn; every call names the actor_id who acts. A simulation engine validates each call against the true world state: invalid calls are rejected with an error code and a hint and change nothing. Each turn you receive the current state as JSON: actors (zone, status, alerted, checked_in, busy, lost), evidence (hazards someone has observed or been told about — you only know what the people know), the fire alarm, messages, assistance status, roster, planned routes, recent action results, and what changed since your last decision.`;
@@ -41,19 +43,44 @@ const ROLE = `You are the exercise coordinator AI for a fictional office evacuat
 const GOAL_V1 = `GOAL
 Get everyone safely to the assembly point and accounted for. Use the tools. One tool call per turn.`;
 
-const PROCEDURE_V2 = `PROCEDURE (follow in order of need)
-1. Report and alert: whoever sees fire tells the people IN THE SAME ROOM with notify (recipient "all" reaches only those within earshot — doorways join both sides; anyone in another room does NOT hear it). To alert people in other rooms, someone must pull the fire alarm in the north corridor (move to destination "alarm", then pull_alarm) — or walk to them. The alarm alerts everyone but does not say where the fire is. People who have not been alerted cannot evacuate (NOT_AUTHORIZED). Get the people nearest the fire moving first; send someone who is not in danger to the hallway alarm if anyone elsewhere is still unaware.
-2. Evacuate immediately: move each alerted person to destination "assembly" — do not wait. Fire SPREADS every second and anyone it reaches is lost. Keep away from known fire. Moves take time — you are told when they complete or are interrupted; meanwhile act for other people.
-3. Recover: electric sliding doors can be dead (stuck closed) and fire can cut a route. If a move fails with ROUTE_UNAVAILABLE or STALE_STATE, have the person who saw it notify "all" with topic "route_blocked" and the new evidence id, then plan_route for the traveller to "assembly" and move with the returned route_id.
-4. Buddy (optional, good practice): Daniel may ask Alex for help (request_assistance with helper_id "alex"); Alex then comes next to him and calls assist, after which moving Alex moves both. Never assist without Daniel's request; nobody is carried; do not delay anyone's evacuation for it.
-5. Account: when a person is inside the assembly area and not moving, call check_in for them. When every surviving person is checked in, Alex calls verify_roster — only this confirms the drill is complete. Lost people cannot act and are reported by the roster.
-RULES: each turn the tool list (and each tool's actor_id options) shows only the people who can take that action right now; one tool call per turn; never repeat a rejected call unchanged — read its error hint and fix the cause; only cite evidence ids that appear in the state; keep messages short and calm; reason_summary is optional, one short line.`;
+const PROCEDURE_V2 = `PROCEDURE (in order of need)
+1. Life first: anyone near known fire moves away and OUT now. People back away from close fire by instinct, but only you send them to an exit. Choose the exit AWAY from the fire and avoid routes that pass near known fire.
+2. Alert: people shout "Fire!" to their own room automatically. Anyone in another room hears nothing until the hallway fire alarm (north corridor) is pulled — the only building-wide alert. Pick the person whose way out already passes the north hallway (or the nearest person not in danger) and move them to destination "alarm" (they pull it on arrival; or call pull_alarm), then to "assembly". Skip the alarm if everyone is already alerted or outside.
+3. Never send anyone back inside: people who are outside cannot re-enter (rejected).
+4. Recover: dead sliding doors and fire can cut a route. If a move fails (ROUTE_UNAVAILABLE or STALE_STATE), plan_route for that person to "assembly" and move with the returned route_id. Tell people in the same room with notify (topic "route_blocked") if it helps them.
+5. Buddy (optional): Daniel may ask Alex for help (request_assistance → Alex next to him → assist; then moving Alex moves both). Never delay anyone's evacuation for it; nobody is carried.
+6. Account: check_in each person inside the assembly area; when every survivor is checked in, Alex calls verify_roster — the only way to confirm the drill is complete.
+MESSAGES: plain language — where the danger is and which way to go, e.g. "Fire by door A — leave through the east door, now!" or "The south door is dead — go out through the north hallway and the west exit." Never put evidence ids, zone codes or coordinates in message text (evidence_ids carries those).
+RULES: one tool call per turn, most urgent person first; the tool list shows only people who can take each action right now; never repeat a rejected call unchanged — read its hint and fix the cause; only cite evidence ids that appear in the state; plan_route/observe/consult_plan are optional look-ups that move nobody.`;
 
 export function buildSystemPrompt(harness: Harness, map: MapData, scenario: ScenarioCase): string {
   return [ROLE, briefing(map, scenario), harness === 'v2' ? PROCEDURE_V2 : GOAL_V1].join('\n\n');
 }
 
 type ViewActor = PlannerView['actors'][number];
+
+/** Zones outside the building (no going back in once here). */
+const OUTSIDE_ZONES = new Set(['west_sidewalk', 'plaza', 'assembly']);
+const isOutside = (a: ViewActor) => !!a.zone && OUTSIDE_ZONES.has(a.zone);
+/** A person moving on instinct (backing away from fire) can be given a destination — they are not really busy. */
+const onInstinct = (a: ViewActor) => !!a.busy && /instinct|backing away|flee/i.test(a.busy);
+const reallyBusy = (a: ViewActor) => !!a.busy && !onInstinct(a);
+/** Short place names for the digest (zone ids stay available to the model alongside them). */
+const PLACE: Record<string, string> = {
+  rh_room: 'the Red Hat room',
+  door_a: 'door A',
+  door_b: 'door B',
+  north_corridor: 'the north hallway',
+  connector: 'the lobby connector',
+  lobby: 'the NVIDIA lobby',
+  south_branch: 'the south corridor',
+  west_exit: 'the west exit',
+  east_exit: 'the east exit',
+  west_sidewalk: 'outside',
+  plaza: 'outside',
+  assembly: 'the assembly point',
+};
+const place = (z: string | null | undefined) => (z ? (PLACE[z] ?? z.replace(/_/g, ' ')) : 'an unknown place');
 
 const dist = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
@@ -110,12 +137,14 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
     return { d: best, id };
   };
   const ready = actors
-    .filter((a) => a.alerted && !a.checked_in && !a.busy)
+    .filter((a) => a.alerted && !a.checked_in && !reallyBusy(a))
     .sort((a, b) => fireDist(a).d - fireDist(b).d || sinceOrder(b.id) - sinceOrder(a.id));
   const atRisk = actors
-    .filter((a) => !a.checked_in && !a.busy && a.zone !== 'assembly' && fireDist(a).d <= 8)
+    .filter((a) => !a.checked_in && !reallyBusy(a) && !isOutside(a) && fireDist(a).d <= 8)
     .sort((a, b) => fireDist(a).d - fireDist(b).d);
-  const busy = actors.filter((a) => a.busy && !a.checked_in);
+  const busy = actors.filter((a) => reallyBusy(a) && !a.checked_in);
+  const outside = actors.filter((a) => isOutside(a));
+  const instinctive = actors.filter((a) => onInstinct(a) && !a.checked_in);
   const unalerted = actors.filter((a) => !a.alerted && !a.checked_in);
   const stations = stationsOf(view, map);
   const hears = (a: ViewActor, b: ViewActor) => earshot(map, a.zone, b.zone);
@@ -124,9 +153,9 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
   for (const e of view.evidence ?? []) {
     if (e.kind === 'fire') {
       const zones = e.zones?.length ? e.zones.join(', ') : (e.zone ?? 'unknown area');
-      hazardLines.push(`${e.id} fire: ~${e.cells_known ?? '?'} known burning cells across ${zones}${e.spreading !== false ? ' — spreading' : ''} (known to ${e.known_by.join(', ')})`);
+      hazardLines.push(`${e.id} fire in ${place(e.zone)} (zones: ${zones}): ~${e.cells_known ?? '?'} known burning cells${e.spreading !== false ? ' — spreading' : ''} (known to ${e.known_by.join(', ')})`);
     } else {
-      hazardLines.push(`${e.id} dead sliding door: ${e.component ?? 'unknown door'}${e.zone ? ` (${e.zone})` : ''} — stuck closed, route around it (known to ${e.known_by.join(', ')})`);
+      hazardLines.push(`${e.id} dead sliding door: ${e.component ?? 'unknown door'}${e.zone ? ` in ${place(e.zone)} (${e.zone})` : ''} — stuck closed, route around it (known to ${e.known_by.join(', ')})`);
     }
   }
 
@@ -135,7 +164,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
   if (alarm?.active) {
     alarmLine = `ALARM: sounding${alarm.by ? ` (pulled by ${alarm.by}${alarm.at !== undefined ? ` at ${alarm.at}s` : ''})` : ''} — everyone alive has been alerted.`;
   } else {
-    const canPull = actors.filter((a) => (a.alerted || a.knows_evidence.length) && !a.busy && stations.some((st) => dist(a.tile, st.stand) <= 1.5));
+    const canPull = actors.filter((a) => (a.alerted || a.knows_evidence.length) && !reallyBusy(a) && stations.some((st) => dist(a.tile, st.stand) <= 1.5));
     const near = actors
       .filter((a) => (a.alerted || a.knows_evidence.length) && !a.checked_in && !canPull.includes(a))
       .map((a) => {
@@ -143,18 +172,28 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
         return best && best.d <= 6 ? `${a.id} is ${best.d.toFixed(1)} tiles from ${best.st.id}` : null;
       })
       .filter((x): x is string => !!x);
-    alarmLine = `ALARM: not raised.${canPull.length ? ` Next to a pull station now: ${canPull.map((a) => a.id).join(', ')} (can pull_alarm).` : ''}${near.length ? ` Close: ${near.join('; ')}.` : ''}`;
+    alarmLine = `ALARM: not raised (anyone who passes the hallway pull station pulls it automatically).${canPull.length ? ` Next to a pull station now: ${canPull.map((a) => a.id).join(', ')} (can pull_alarm).` : ''}${near.length ? ` Close: ${near.join('; ')}.` : ''}`;
   }
 
   const open: string[] = [];
+  // Who could reach the hallway alarm without going back inside (inside, alerted, alive), nearest first.
+  const runners = actors
+    .filter((a) => (a.alerted || a.knows_evidence.length) && !a.checked_in && !isOutside(a))
+    .map((a) => ({ a, d: Math.min(...stations.map((st) => dist(a.tile, st.stand)), Infinity) }))
+    .filter((r) => Number.isFinite(r.d))
+    .sort((x, y) => x.d - y.d);
   for (const u of unalerted) {
     const tellers = actors.filter((a) => a.id !== u.id && a.alerted && a.knows_evidence.length && hears(a, u));
-    open.push(
-      tellers.length
-        ? `Not alerted yet: ${u.id} (in ${u.zone}) — ${tellers.map((t) => t.id).join(' or ')} can tell them in person (same room).`
-        : `Not alerted yet: ${u.id} (in ${u.zone}) — out of earshot of everyone who knows; only the fire alarm in the north corridor reaches them (move someone to "alarm", then pull_alarm).`,
-    );
+    if (tellers.length) {
+      open.push(`Not alerted yet: ${u.id} (in ${u.zone}) — ${tellers.map((t) => t.id).join(' or ')} can tell them in person (same room).`);
+    } else if (!alarm?.active) {
+      const who = runners.length
+        ? ` Can reach the alarm without going back inside: ${runners.map((r) => `${r.a.id} (≈${Math.round(r.d)} tiles${reallyBusy(r.a) ? ', moving' : ''})`).join(', ')}.`
+        : ' Nobody inside who knows can reach it.';
+      open.push(`Not alerted yet: ${u.id} (in ${u.zone}) — out of earshot of everyone who knows; only the hallway fire alarm reaches them (move someone to "alarm").${who}`);
+    }
   }
+  for (const a of instinctive) open.push(`${a.id} is backing away from the fire by instinct — give ${a.id} a destination (they can take orders now).`);
   const as = view.assistance;
   const alex = actors.find((a) => a.id === 'alex');
   const daniel = actors.find((a) => a.id === 'daniel');
@@ -170,7 +209,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
     } else open.push('Alex is escorting Daniel; moving Alex moves both.');
   }
   for (const a of actors) {
-    if (a.zone === 'assembly' && !a.checked_in && !a.busy) open.push(`${a.name} is at the assembly point but not checked in.`);
+    if (a.zone === 'assembly' && !a.checked_in && !reallyBusy(a)) open.push(`${a.name} is at the assembly point but not checked in.`);
   }
   if (actors.length && actors.every((a) => a.checked_in) && !view.roster?.verified) {
     open.push(alex ? 'Everyone still alive is checked in; Alex should verify_roster.' : 'Everyone still alive is checked in (the warden was lost, so nobody can verify the roster).');
@@ -199,6 +238,7 @@ export function stateDigest(view: PlannerView, map?: MapData): string {
     `HAZARDS: ${hazardLines.length ? hazardLines.map((h) => `\n- ${h}`).join('') : 'none known yet'}`,
     alarmLine,
   );
+  if (outside.length) lines.push(`OUTSIDE (can't go back in): ${outside.map((a) => `${a.id}${a.checked_in ? ' (checked in)' : ''}`).join(', ')}`);
   if (lost.length) lines.push(`LOST (cannot act): ${lost.map((a) => a.id).join(', ')}`);
   lines.push(`OPEN ITEMS: ${open.length ? open.map((o) => `\n- ${o}`).join('') : 'none'}`);
   lines.push('NOTE: move plans its own route; plan_route/observe/consult_plan are optional look-ups — they do not move anyone.');
@@ -233,7 +273,7 @@ export function toolsFor(harness: Harness, view: PlannerView, map?: MapData): Op
   const as = view.assistance;
   const daniel = actors.find((a) => a.id === 'daniel');
   const alex = actors.find((a) => a.id === 'alex');
-  const free = (a: ViewActor) => a.alerted && !a.checked_in && !a.busy;
+  const free = (a: ViewActor) => a.alerted && !a.checked_in && !reallyBusy(a);
   const stations = stationsOf(view, map);
   const allowed: Record<string, string[]> = {
     observe: actors.filter((a) => !a.checked_in).map((a) => a.id),
@@ -245,15 +285,15 @@ export function toolsFor(harness: Harness, view: PlannerView, map?: MapData): Op
     move: actors.filter(free).map((a) => a.id),
     request_assistance: actors.filter((a) => a.alerted && !a.checked_in && a.uses_wheelchair && !as?.requested).map((a) => a.id),
     assist: [],
-    check_in: actors.filter((a) => a.zone === 'assembly' && !a.checked_in && !a.busy).map((a) => a.id),
+    check_in: actors.filter((a) => a.zone === 'assembly' && !a.checked_in && !reallyBusy(a)).map((a) => a.id),
     verify_roster: alex && alex.checked_in && actors.every((a) => a.checked_in) ? ['alex'] : [],
     pull_alarm: view.alarm?.active
       ? []
       : actors
-          .filter((a) => (a.alerted || a.knows_evidence.length) && !a.busy && stations.some((st) => dist(a.tile, st.stand) <= 1.5))
+          .filter((a) => (a.alerted || a.knows_evidence.length) && !reallyBusy(a) && stations.some((st) => dist(a.tile, st.stand) <= 1.5))
           .map((a) => a.id),
   };
-  if (as?.requested && !as.accepted && daniel && alex && free(alex) && !daniel.busy && dist(alex.tile, daniel.tile) <= 1.5) {
+  if (as?.requested && !as.accepted && daniel && alex && free(alex) && !reallyBusy(daniel) && dist(alex.tile, daniel.tile) <= 1.5) {
     allowed.assist = ['alex'];
   }
   // notify recipients: only people within earshot of an offered speaker (plus 'all' = everyone within earshot).

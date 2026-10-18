@@ -3,8 +3,8 @@ import { ACTOR_IDS, type ActorId, type ScenarioCase, ZONE_IDS } from '@escape/co
 import { mulberry32, replayRun, tileIndex } from '../src/index.js';
 import { Driver, errCode, hero, map, okData } from './helpers.js';
 
-/** Scripted (fixture, not a model) hero: fire near Maya; her shout reaches Daniel (same room) but not Alex in the
- *  lobby, so she raises the hallway alarm; south door jams mid-evacuation; re-route. */
+/** Scripted (fixture, not a model) hero: fire near Maya; her instinctive shout reaches Daniel (same room) but not Alex
+ *  in the lobby, so she is sent to the hallway alarm and pulls it on arrival; south door jams mid-evacuation; re-route. */
 function runHero(): Driver {
   const d = new Driver();
   d.run(20);
@@ -13,15 +13,19 @@ function runHero(): Driver {
   d.run(2);
   expect(d.actor('maya').knows).toEqual(['E1']);
   expect(d.engine.needsDecision()).toMatchObject({ needed: true });
-  const shout = okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire in the Red Hat room! Use door B.' }));
-  expect(shout).toMatchObject({ delivered_to: ['daniel'], not_reached: ['alex'] });
+  // Instinct: Maya shouted "Fire!" — Daniel (same room) heard it, Alex (lobby) did not.
+  expect(d.engine.events.find((e) => e.type === 'instinct')).toMatchObject({ actor: 'maya', data: { kind: 'shout', heard_by: ['daniel'] } });
+  expect(d.actor('daniel').alerted).toBe(true);
+  const tell = okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire in the Red Hat room! Use door B.' }));
+  expect(tell).toMatchObject({ delivered_to: ['daniel'], not_reached: ['alex'] });
   // Alex has heard nothing: he cannot evacuate yet
   expect(errCode(d.call('move', { actor_id: 'alex', destination: 'daniel' }))).toBe('NOT_AUTHORIZED');
   okData(d.call('move', { actor_id: 'maya', destination: 'alarm' }));
   okData(d.call('request_assistance', { actor_id: 'daniel', helper_id: 'alex' }));
   expect(d.until(() => d.idle('maya'))).toBe(true);
-  okData(d.call('pull_alarm', { actor_id: 'maya' }));
+  // She pulled it on arrival (the planner sent her there); a second pull is a no-op.
   expect(d.actor('alex').alerted).toBe(true);
+  expect(okData(d.call('pull_alarm', { actor_id: 'maya' }))).toMatchObject({ already_active: true });
   okData(d.call('move', { actor_id: 'maya', destination: 'assembly' }));
   okData(d.call('move', { actor_id: 'alex', destination: 'daniel' }));
   expect(d.until(() => d.idle('alex'))).toBe(true);
@@ -68,6 +72,7 @@ describe('episodes', () => {
       assistanceFulfilled: true,
       rosterVerified: true,
       replannedAfterInterruption: true,
+      alarmBy: 'planner',
       escaped: 3,
       lost: 0,
     });

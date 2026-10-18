@@ -39,20 +39,20 @@ const VARIANTS: { c: number; w: number; a: number; ph: number }[][] = [
   ],
 ];
 
-function cellFlameHeight(x: number, frame: number, variant: number): number {
+function cellFlameHeight(x: number, frame: number, variant: number, scale = 1): number {
   let h = 2.5; // low bed of flame across the whole tile
   for (const t of VARIANTS[variant]) {
     const lick = Math.sin(frame * (Math.PI / 2) + t.ph) * 2.6;
-    h += (t.a + lick) * Math.exp(-(((x - t.c) / t.w) ** 2));
+    h += (t.a * scale + lick) * Math.exp(-(((x - t.c) / t.w) ** 2));
   }
   return h + Math.sin(x * 1.9 + frame * 1.3 + variant) * 0.8;
 }
 
-function buildCellFlame(frame: number, variant: number): SpriteData {
-  const r = new Raster(CELL_W, CELL_H);
-  const base = CELL_H - 1;
+function buildCellFlame(frame: number, variant: number, height = CELL_H, scale = 1): SpriteData {
+  const r = new Raster(CELL_W, height);
+  const base = height - 1;
   for (let x = 0; x < CELL_W; x++) {
-    const h1 = Math.max(0, cellFlameHeight(x, frame, variant));
+    const h1 = Math.max(0, cellFlameHeight(x, frame, variant, scale));
     if (h1 < 1) continue;
     const h2 = h1 * 0.66 - 0.5;
     const h3 = h1 * 0.36 - 0.5;
@@ -99,8 +99,22 @@ export const CELL_FLAME_HEIGHT = CELL_H;
 export function cellFlameFor(col: number, row: number, timeMs: number): SpriteData {
   const hsh = ((col * 73856093) ^ (row * 19349663)) >>> 0;
   const variant = hsh % 3;
-  const frame = (Math.floor(timeMs / 120) + (hsh >> 4)) % 4;
+  const frame = (Math.floor(timeMs / 120) + (hsh >>> 4)) % 4;
   return getCellFlames()[variant][frame];
+}
+
+// Burning walls: taller tongues (30 px) that climb the 32 px wall sprite (drawn one tile up in ¾ view).
+const WALL_H = 30;
+let wallFrames: SpriteData[][] | null = null;
+export function getWallFlames(): SpriteData[][] {
+  if (!wallFrames) wallFrames = [0, 1, 2].map((v) => [0, 1, 2, 3].map((f) => buildCellFlame(f, v, WALL_H, 1.6)));
+  return wallFrames;
+}
+export const WALL_FLAME_HEIGHT = WALL_H;
+export function wallFlameFor(col: number, row: number, timeMs: number): SpriteData {
+  const hsh = ((col * 83492791) ^ (row * 2971215073)) >>> 0;
+  const frame = (Math.floor(timeMs / 110) + (hsh >>> 5)) % 4;
+  return getWallFlames()[hsh % 3][frame];
 }
 
 // ---------------------------------------------------------------------------

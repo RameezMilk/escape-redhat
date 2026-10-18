@@ -5,7 +5,15 @@ import { inEarshot, loadMap } from '@escape/engine';
 
 /** Static office map: the fixture needs room layout to know who can hear whom. */
 const OFFICE = loadMap();
+import { inPlace, theDoor } from '../places.js';
 import { LatencyStats, type DecideRequest, type DecisionProvider, type DecisionResult } from './types.js';
+
+/** Zones outside the building — people there never go back in. */
+const OUTSIDE = new Set(['west_sidewalk', 'plaza', 'assembly']);
+const outside = (a: { zone: string | null }) => !!a.zone && OUTSIDE.has(a.zone);
+/** Moving on instinct (backing away from fire) — the planner may redirect them. */
+const onInstinct = (a: { busy: string | null }) => !!a.busy && /instinct|backing away|flee/i.test(a.busy);
+const busy = (a: { busy: string | null }) => !!a.busy && !onInstinct(a);
 
 function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -120,10 +128,11 @@ export class ScriptedProvider implements DecisionProvider {
     //  a) Standing at the pull station during a known fire (or while someone is still unaware) → pull it.
     const fireKnown = view.evidence.some((e) => e.kind === 'fire');
     if (!alarmActive && (unaware.length || fireKnown)) {
-      const atStation = alive.find((a) => (a.alerted || a.knows_evidence.length) && !a.busy && nearestStation(a) <= 1.5);
+      const atStation = alive.find((a) => (a.alerted || a.knows_evidence.length) && !busy(a) && nearestStation(a) <= 1.5);
       if (atStation) return mk('pull_alarm', { actor_id: atStation.id, reason_summary: 'Raise the building alarm so people in other rooms hear it.' });
     }
-    //  b) Tell people in the same room what you know (fire first, then dead doors).
+    //  b) Tell people in the same room what you know that they don't (people shout "Fire!" by instinct, so this is
+    //     mostly dead doors and late arrivals).
     const evidence = [...view.evidence].sort((x, y) => (x.kind === y.kind ? 0 : x.kind === 'fire' ? -1 : 1));
     for (const e of evidence) {
       for (const sid of e.known_by) {
@@ -131,14 +140,13 @@ export class ScriptedProvider implements DecisionProvider {
         if (!speaker || speaker.lost || !speaker.alerted) continue;
         const listeners = alive.filter((b) => b.id !== speaker.id && hears(speaker, b) && !e.known_by.includes(b.id));
         if (!listeners.length) continue;
-        const where = e.zone === 'rh_room' ? 'Red Hat room' : e.zone ? e.zone.replace(/_/g, ' ') : 'nearby';
         return e.kind === 'fire'
           ? mk('notify', {
               actor_id: speaker.id,
               recipient: 'all',
               topic: 'fire',
               evidence_ids: [e.id],
-              message: `Fire in the ${where}! Get out to the assembly point now and keep away from it.`,
+              message: `Fire in ${inPlace(e.zone)} — get out to the assembly point now and keep away from it!`,
               reason_summary: 'Alert everyone in this room (voice only carries this far).',
             })
           : mk('notify', {
@@ -146,19 +154,19 @@ export class ScriptedProvider implements DecisionProvider {
               recipient: 'all',
               topic: 'route_blocked',
               evidence_ids: [e.id],
-              message: `The ${e.component ? e.component.replace(/_/g, ' ') : 'sliding door'} is dead — use another route.`,
+              message: `${theDoor(e.component).replace(/^the /, 'The ').replace(/^door/, 'Door')} is dead — use another way out.`,
               reason_summary: 'Share the dead door with people in this room.',
             });
       }
     }
-    //  c) Someone is unaware and out of earshot of everyone who knows → send the nearest idle alerted person to the
-    //     hallway pull station (pulled on arrival by step a).
+    //  c) Someone is unaware and out of earshot of everyone who knows → send the nearest alerted person who is still
+    //     inside (never back in from outside) to the hallway pull station; they pull it on arrival.
     const knowers = alive.filter((a) => a.alerted);
     const unreachable = unaware.filter((u) => !knowers.some((k) => k.knows_evidence.length && hears(k, u)));
     if (!alarmActive && unreachable.length && stations.length) {
-      const enRoute = knowers.some((k) => k.busy !== null && this.mem.lastMoveDest[k.id] === 'alarm');
+      const enRoute = knowers.some((k) => busy(k) && this.mem.lastMoveDest[k.id] === 'alarm');
       const runner = knowers
-        .filter((k) => !k.busy && !k.checked_in && k.status !== 'escorted')
+        .filter((k) => !busy(k) && !k.checked_in && !outside(k) && k.status !== 'escorted')
         .sort((a, b) => nearestStation(a) - nearestStation(b))[0];
       if (!enRoute && runner && this.mem.lastMoveDest[runner.id] !== 'alarm') {
         return mk('move', { actor_id: runner.id, destination: 'alarm', reason_summary: `Go pull the hallway fire alarm — ${unreachable.map((u) => u.id).join(', ')} cannot hear us.` });
@@ -170,7 +178,7 @@ export class ScriptedProvider implements DecisionProvider {
     if (alive.length && alive.every((a) => a.checked_in) && !view.roster.verified && alex) {
       return mk('verify_roster', { actor_id: 'alex', reason_summary: 'Everyone still alive is checked in; warden verifies the roster.' });
     }
-    const toCheck = alive.find((a) => a.zone === 'assembly' && !a.checked_in && !a.busy);
+    const toCheck = alive.find((a) => a.zone === 'assembly' && !a.checked_in && !busy(a));
     if (toCheck) return mk('check_in', { actor_id: toCheck.id });
 
     // 3. Optional buddy arrangement: only when Daniel prefers it AND Alex is close; otherwise Daniel goes on his own.
@@ -186,22 +194,23 @@ export class ScriptedProvider implements DecisionProvider {
       !daniel.checked_in &&
       daniel.zone !== 'assembly' &&
       (escortActive || view.assistance.requested || buddyClose);
-    if (buddy && daniel?.alerted && !daniel.busy && !view.assistance.requested) {
+    if (buddy && daniel?.alerted && !busy(daniel) && !view.assistance.requested) {
       return mk('request_assistance', { actor_id: 'daniel', helper_id: 'alex', reason_summary: 'Daniel asks for the pre-arranged buddy guidance.' });
     }
     if (buddy && view.assistance.requested && !view.assistance.accepted && !escortActive && alex && daniel) {
       const d = dist(alex.tile, daniel.tile);
-      if (d <= 1.5 && !alex.busy && !daniel.busy) {
+      if (d <= 1.5 && !busy(alex) && !busy(daniel)) {
         return mk('assist', { actor_id: 'alex', person_id: 'daniel', reason_summary: 'Start the agreed escort.' });
       }
-      if (!alex.busy && this.mem.lastMoveDest.alex !== 'daniel') {
+      if (!busy(alex) && this.mem.lastMoveDest.alex !== 'daniel') {
         return mk('move', { actor_id: 'alex', destination: 'daniel', reason_summary: 'Go to Daniel for the buddy arrangement.' });
       }
     }
 
-    // 4. Evacuate everyone alive, alerted, idle and not yet at assembly — immediately (fire spreads).
+    // 4. Evacuate everyone alive, alerted, idle (or only backing away on instinct) and not yet at assembly —
+    //    immediately (fire spreads). The engine routes away from known fire.
     for (const a of alive) {
-      if (!a.alerted || a.checked_in || a.busy || a.zone === 'assembly') continue;
+      if (!a.alerted || a.checked_in || busy(a) || a.zone === 'assembly') continue;
       if (a.status === 'escorted') continue; // follower moves with the leader
       if (buddy && !escortActive && (a.id === 'daniel' || a.id === 'alex') && view.assistance.requested) continue; // handled above
       const route = [...view.routes]

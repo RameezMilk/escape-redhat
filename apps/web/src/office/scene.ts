@@ -17,7 +17,7 @@ import { CharacterState, Direction } from '../vendor/pixel-agents/webview-ui/src
 import { ACTOR_VIEW } from './actors';
 import { getDecorSprites } from './sprites/decor';
 import { getAlarmSprites, getDoorSprites } from './sprites/fixtures';
-import { CELL_FLAME_HEIGHT, cellFlameFor, getBoltSprite, getCharTiles, getFireFrames, getMiniBolt } from './sprites/hazards';
+import { CELL_FLAME_HEIGHT, cellFlameFor, getBoltSprite, getCharTiles, getFireFrames, getMiniBolt, wallFlameFor } from './sprites/hazards';
 import { Raster, type SpriteData } from './sprites/raster';
 import { getWheelchairSprites } from './sprites/wheelchair';
 
@@ -212,8 +212,9 @@ export function staticDrawables(map: MapData): ExtraDrawable[] {
 const firstSeen = new Map<string, number>();
 let seenEpisode = '';
 
-/** Fire cells (flames, ember glow, heat margin) and charred floor. Electrical hazards are drawn by fixtureDrawables. */
-export function hazardDrawables(hazards: HazardSnapshot[], timeMs: number, episodeId = ''): ExtraDrawable[] {
+/** Fire cells (flames, ember glow, heat margin) and charred floor; burning/charred WALL tiles get flames climbing the
+ *  wall face (drawn above the wall sprite) or a soot overlay. Electrical hazards are drawn by fixtureDrawables. */
+export function hazardDrawables(hazards: HazardSnapshot[], timeMs: number, episodeId = '', map?: MapData): ExtraDrawable[] {
   if (episodeId !== seenEpisode) {
     firstSeen.clear();
     seenEpisode = episodeId;
@@ -222,11 +223,21 @@ export function hazardDrawables(hazards: HazardSnapshot[], timeMs: number, episo
   const chars = getCharTiles();
   const burning = new Set<string>();
   const charred = new Set<string>();
+  const isWall = (col: number, row: number) => !!map && map.terrain[row * map.cols + col] === 'wall';
+  const wallBurning: [number, number][] = [];
+  const wallCharred: [number, number][] = [];
   for (const h of hazards) {
     if (h.kind !== 'fire') continue;
-    for (const t of h.cells) burning.add(`${t.col},${t.row}`);
-    for (const t of h.charred) charred.add(`${t.col},${t.row}`);
+    for (const t of h.cells) {
+      if (isWall(t.col, t.row)) wallBurning.push([t.col, t.row]);
+      else burning.add(`${t.col},${t.row}`);
+    }
+    for (const t of h.charred) {
+      if (isWall(t.col, t.row)) wallCharred.push([t.col, t.row]);
+      else charred.add(`${t.col},${t.row}`);
+    }
   }
+  out.push(...wallFireDrawables(wallBurning, wallCharred, timeMs));
   if (!burning.size && !charred.size) return out;
 
   // Ground layer: charred floor, ember glow under burning cells, faint heat margin around the fire front.
@@ -297,6 +308,56 @@ export function hazardDrawables(hazards: HazardSnapshot[], timeMs: number, episo
           c.drawImage(img, Math.round(x), Math.round(bottom - h), img.width, h);
           c.restore();
         }
+      },
+    });
+  }
+  return out;
+}
+
+/** Walls on fire: the wall sprite occupies [(row-1)*T, (row+1)*T) and sorts at (row+1)*T, so these draw just above it.
+ *  Charred walls get a soot overlay with the odd glowing ember; burning walls glow and carry tall licking flames. */
+function wallFireDrawables(burning: [number, number][], charred: [number, number][], timeMs: number): ExtraDrawable[] {
+  const out: ExtraDrawable[] = [];
+  for (const [col, row] of charred) {
+    out.push({
+      zY: (row + 1) * T + 0.3,
+      draw: (c, ox, oy, z) => {
+        const x = ox + col * T * z;
+        const top = oy + (row - 1) * T * z;
+        c.save();
+        c.fillStyle = 'rgba(22, 15, 12, 0.62)';
+        c.fillRect(x, top, T * z, 2 * T * z);
+        c.fillStyle = 'rgba(0, 0, 0, 0.25)';
+        for (let i = 0; i < 4; i++) c.fillRect(x + ((col * 5 + i * 4) % 14) * z, top + ((row * 7 + i * 9) % 30) * z, 2 * z, z);
+        if ((Math.floor(timeMs / 420) + col * 3 + row) % 6 === 0) {
+          c.fillStyle = 'rgba(255, 110, 40, 0.9)';
+          c.fillRect(x + ((col * 7) % 12 + 2) * z, top + (18 + ((row * 5) % 10)) * z, z, z);
+        }
+        c.restore();
+      },
+    });
+  }
+  for (const [col, row] of burning) {
+    const key = `w${col},${row}`;
+    if (!firstSeen.has(key)) firstSeen.set(key, timeMs);
+    const grow = Math.min(1, (timeMs - (firstSeen.get(key) ?? timeMs)) / 400);
+    out.push({
+      zY: (row + 1) * T + 0.35,
+      draw: (c, ox, oy, z) => {
+        const x = ox + col * T * z;
+        const bottom = oy + (row + 1) * T * z;
+        c.save();
+        // heated, scorched wall face
+        const pulse = 0.22 + 0.08 * Math.sin(timeMs / 210 + col);
+        c.fillStyle = `rgba(255, 110, 30, ${pulse.toFixed(3)})`;
+        c.fillRect(x, bottom - 2 * T * z, T * z, 2 * T * z);
+        c.fillStyle = 'rgba(40, 18, 10, 0.35)';
+        c.fillRect(x, bottom - 2 * T * z, T * z, 6 * z);
+        const img = getCachedSprite(wallFlameFor(col, row, timeMs), z);
+        c.globalAlpha = 0.4 + 0.6 * grow;
+        const h = img.height * (0.45 + 0.55 * grow);
+        c.drawImage(img, Math.round(x), Math.round(bottom - h), img.width, h);
+        c.restore();
       },
     });
   }

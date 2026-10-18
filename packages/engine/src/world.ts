@@ -46,6 +46,7 @@ import { hashValue, canonicalJson } from './hash.js';
 import { SITE_PLAN, ruleSources, type PlanSectionId } from './knowledge.js';
 import { inBounds, inEarshot, tileDistance, tileIndex, zoneAt } from './map.js';
 import { findPath, lineOfSight, type NavMask } from './nav.js';
+import { ALARM_NAME, atPlace, describeHazard, destinationName, doorName, isOutsideZone, joinNames, placeName, zoneNear } from './places.js';
 import { HAZARD_SPECS, isFlammable, validatePlacement } from './placement.js';
 import { mulberry32 } from './rng.js';
 import { computeResult, type ActionLogEntry, type Interruption } from './scoring.js';
@@ -55,6 +56,19 @@ export const SPEED_TILES_PER_SEC = 3;
 export const FIRE_SPREAD_PER_TICK = 0.018;
 /** Probability that a spread attempt onto a doorway tile succeeds (doorways slow fire). */
 export const DOOR_IGNITION_FACTOR = 0.3;
+/** Probability that a spread attempt onto a wall tile or a dead (closed) sliding door succeeds: walls hold for
+ *  roughly 20–30 s next to burning floor, then the fire breaks through to the far side. */
+export const WALL_IGNITION_FACTOR = 0.12;
+/** People back away by instinct from known fire within this many tiles. */
+export const FLEE_RADIUS = 3.5;
+/** People within this many tiles of a burning cell smell it, even through a wall. */
+export const SMOKE_RADIUS = 3;
+/** Destination label of an instinct (flee) task, as shown in snapshots. */
+export const FLEE_DESTINATION = 'away from the fire';
+const FLEE_MAX_PATH = 12;
+const FLEE_RECHECK_TICKS = 20;
+const FLEE_EVENT_GAP_TICKS = 50;
+const ALARM_REACH = 1.5;
 /** Each cell burns for a seeded duration in this tick range, then becomes charred debris. */
 export const FIRE_BURN_TICKS: readonly [number, number] = [400, 600];
 /** People see burning/charred cells within this many tiles (with line of sight). */
@@ -115,7 +129,8 @@ interface Evidence {
 }
 
 interface Task {
-  kind: 'move' | 'ambient';
+  /** move = planner order; instinct = backing away from fire (engine, replaceable); ambient = idle wandering. */
+  kind: 'move' | 'instinct' | 'ambient';
   actionId?: string;
   decisionId?: string;
   destination: string;
@@ -149,6 +164,11 @@ interface ActorState {
   zone: ZoneId | null;
   lost: boolean;
   lostAt: number | null;
+  /** Reached outside (sidewalk / plaza / assembly) after the incident began: never goes back in. */
+  wentOutside: boolean;
+  /** Instinct: next tick at which backing away from fire is re-evaluated, and the last flee event tick. */
+  nextFleeTick: number;
+  lastFleeEventTick: number | null;
 }
 
 interface Route {
@@ -226,7 +246,10 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   const actionIdsUsed = new Set<string>();
   const counters = { knownHazardMoveAttempts: 0, prematureVerifyAttempts: 0, assistWithoutConsentAttempts: 0, scheduledFailures: 0 };
   const lastNotify: { key: string; at: number }[] = [];
-  const alarm: { active: boolean; at?: number; by?: ActorId; stationId?: string } = { active: false };
+  const alarm: { active: boolean; at?: number; by?: ActorId; stationId?: string; via?: 'tool' | 'instinct' } = { active: false };
+  /** Instinct shouts already made (`actor:evidence`), and how many times people backed away from fire. */
+  const shouted = new Set<string>();
+  let instinctFlees = 0;
 
   // Real (ground-truth) cell state
   const burningOwner = new Map<number, Hazard>();
@@ -264,9 +287,15 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       zone: zoneAt(map, s.col, s.row),
       lost: false,
       lostAt: null,
+      wentOutside: false,
+      nextFleeTick: 0,
+      lastFleeEventTick: null,
     };
   }
   const living = () => ACTOR_IDS.filter((id) => !actors[id].lost);
+  /** Every tile inside the building (rooms, corridors, doorways, exits): off-limits to people who are outside. */
+  const indoorTiles = new Set<number>();
+  for (let i = 0; i < map.zone.length; i++) if (map.zone[i] && !isOutsideZone(map.zone[i])) indoorTiles.add(i);
 
   const scheduled: PendingScheduled[] = scenario.events
     .filter((e) => e.trigger.type !== 'manual')
@@ -315,6 +344,19 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   };
   const leaderOf = (a: ActorState): ActorState => (a.escort?.role === 'follower' ? actors[a.escort.partner] : a);
   const followerOf = (a: ActorState): ActorState | null => (a.escort?.role === 'leader' ? actors[a.escort.partner] : null);
+  /** The planner order this person (or their escort leader) is carrying out. Instinct and ambient walks don't count:
+   *  a new order replaces them. */
+  const orderOf = (a: ActorState): Task | null => {
+    const t = leaderOf(a).task;
+    return t && t.kind === 'move' ? t : null;
+  };
+  /** Drop an instinct/ambient walk so a planner order (or escort / check-in) can take over. */
+  const dropSoftTask = (a: ActorState) => {
+    if (a.task && a.task.kind !== 'move') {
+      a.task.progress = 0;
+      a.task = null;
+    }
+  };
   const occupiedBy = (exclude: ActorId[]) => {
     const s = new Set<number>();
     for (const id of ACTOR_IDS) {
@@ -334,10 +376,22 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     }
     return out;
   };
-  const describeTile = (t: Tile) => `${zoneAt(map, t.col, t.row) ?? 'outside'} (${t.col},${t.row})`;
+  /** "in the Red Hat room" — walls take the zone next to them; never coordinates or zone ids. */
+  const describeTile = (t: Tile) => atPlace(zoneNear(map, t.col, t.row));
   const hazardCells = (h: Hazard): number[] => (h.kind === 'fire' ? [...h.burning.keys(), ...h.charred] : h.doorIdx);
-  const componentLabel = (id?: string) => components.find((c) => c.id === id)?.label ?? 'a sliding door';
   const zoneOfIdx = (i: number) => map.zone[i];
+  /** Human description of what someone knows as evidence e: "the fire in the Red Hat room", "the dead south door". */
+  const describeEv = (e: Evidence) => describeHazard({ kind: e.kind, zone: e.zone, component: e.componentId });
+  const dist2 = (t: Tile, i: number) => {
+    const dc = (i % map.cols) - t.col;
+    const dr = Math.floor(i / map.cols) - t.row;
+    return dc * dc + dr * dr;
+  };
+  const minDist2 = (t: Tile, cells: readonly number[]) => {
+    let best = Infinity;
+    for (const i of cells) best = Math.min(best, dist2(t, i));
+    return best;
+  };
   const nearestStation = (t: Tile) => {
     let best: { s: AlarmStation; d: number } | null = null;
     for (const s of stations) {
@@ -366,9 +420,17 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   function setPhase(p: Phase) {
     if (phase === p || phase === 'ended') return;
     const from = phase;
-    if (from === 'idle' && incidentAt === null) incidentAt = simTime();
+    if (from === 'idle' && incidentAt === null) {
+      incidentAt = simTime();
+      for (const id of living()) noteOutside(actors[id]);
+    }
     phase = p;
     emit('phase_changed', { from, to: p });
+  }
+
+  /** Once someone is outside during an incident, they stay outside. */
+  function noteOutside(a: ActorState) {
+    if (!a.wentOutside && incidentAt !== null && isOutsideZone(zoneAt(map, a.col, a.row))) a.wentOutside = true;
   }
 
   function alert(a: ActorState) {
@@ -432,7 +494,29 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     );
     if (h.kind === 'fire') alert(a);
     if (phase === 'idle') setPhase('incident');
+    if (h.kind === 'fire') shout(a, e);
     return e;
+  }
+
+  /** Instinct: on first noticing a fire, a person shouts "Fire!" — everyone in the same room learns of it and is
+   *  alerted. Other rooms hear nothing (only the hallway alarm reaches them). Emitted only if someone heard it. */
+  function shout(a: ActorState, e: Evidence) {
+    const key = `${a.id}:${e.id}`;
+    if (shouted.has(key)) return;
+    shouted.add(key);
+    const z = zoneAt(map, a.col, a.row);
+    const heard: ActorId[] = [];
+    for (const id of living()) {
+      if (id === a.id) continue;
+      const r = actors[id];
+      if (!inEarshot(map, z, zoneAt(map, r.col, r.row))) continue;
+      learn(r, e);
+      addKnown(r, e.id, a.known.get(e.id) ?? []);
+      alert(r);
+      heard.push(id);
+    }
+    // A shout nobody hears changes nothing, so it is not a story beat.
+    if (heard.length) emit('instinct', { kind: 'shout', heard_by: heard, evidence: e.id, zone: z }, { actor: a.id, evidenceIds: [e.id] });
   }
 
   function endEpisode(status: OutcomeStatus, reason: string) {
@@ -573,19 +657,23 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       if (!isFlammable(map, c + dc, r + dr)) continue;
       const j = tileIndex(map, c + dc, r + dr);
       list.push(j);
-      if (!map.walkable[j]) list.push(j); // furniture counts double (fuel)
+      if (!map.walkable[j] && map.terrain[j] === 'floor') list.push(j); // furniture counts double (fuel)
     }
     staticNeighbours.set(i, list);
     return list;
   }
-  /** Diagonal spread may not cut a corner where both orthogonal intermediates are walls/closed doors. */
+  /** Diagonal spread may not cut a corner: at least one orthogonal intermediate must be open floor (not a wall and
+   *  not a closed door). Fire gets through walls by burning them, not by slipping past their corners. */
   function cornerOpen(from: number, to: number): boolean {
     const fc = from % map.cols;
     const fr = Math.floor(from / map.cols);
     const tc = to % map.cols;
     const tr = Math.floor(to / map.cols);
     if (fc === tc || fr === tr) return true;
-    const passes = (c: number, r: number) => isFlammable(map, c, r) && !disabledDoor.has(tileIndex(map, c, r));
+    const passes = (c: number, r: number) => {
+      const k = tileIndex(map, c, r);
+      return map.terrain[k] === 'floor' && isFlammable(map, c, r) && !disabledDoor.has(k);
+    };
     return passes(tc, fr) || passes(fc, tr);
   }
 
@@ -604,9 +692,12 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
         const cand = spreadCandidates(i);
         if (!cand.length) continue;
         const j = cand[Math.floor(spreadRng.next() * cand.length)];
-        if (realBlocked.has(j) || !cornerOpen(i, j)) continue;
-        // Doorways slow the spread (frames/thresholds): ignition onto a door tile succeeds 30% of the time.
-        if (doorTiles.has(j) && spreadRng.next() >= DOOR_IGNITION_FACTOR) continue;
+        if (burningOwner.has(j) || charredOwner.has(j) || !cornerOpen(i, j)) continue;
+        // Walls and dead (closed) sliding doors hold for a while before they catch; open doorways slow the spread
+        // a little (frames/thresholds).
+        if (map.terrain[j] === 'wall' || disabledDoor.has(j)) {
+          if (spreadRng.next() >= WALL_IGNITION_FACTOR) continue;
+        } else if (doorTiles.has(j) && spreadRng.next() >= DOOR_IGNITION_FACTOR) continue;
         ignite(h, j);
       }
     }
@@ -660,7 +751,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     const t = a.task!;
     t.progress = 0;
     a.task = null;
-    if (t.kind === 'ambient') return;
+    if (t.kind === 'instinct') a.nextFleeTick = 0; // re-think the escape next tick, now knowing what blocked it
+    if (t.kind !== 'move') return;
     const e = h.evidenceId ? evidenceById(h.evidenceId) : undefined;
     const data = {
       code: 'ROUTE_UNAVAILABLE',
@@ -706,15 +798,46 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       const z = zoneAt(map, m.col, m.row);
       if (z !== m.zone) {
         m.zone = z;
+        noteOutside(m);
         onZoneEnter(m.id, z);
       }
     }
+    for (const m of f && !f.lost ? [a, f] : [a]) maybePullAlarm(m);
+  }
+
+  /** Instinct: an alerted person who reaches (or passes) the hallway pull station while the alarm is silent pulls it.
+   *  Arriving there on a planner order to go to the alarm counts as the planner's pull (via 'tool'). */
+  function maybePullAlarm(a: ActorState) {
+    if (alarm.active || outcome || a.lost || !a.alerted || a.checkedIn) return;
+    const st = nearestStation(a);
+    if (!st || st.d > ALARM_REACH) return;
+    const order = orderOf(a);
+    const sent = order && isAlarmDest(order.destination) ? order : null;
+    activateAlarm(a, st.s, sent ? 'tool' : 'instinct', sent ? { actionId: sent.actionId, decisionId: sent.decisionId } : {});
+  }
+
+  /** Sound the building alarm: every living person is alerted. Returns who was newly alerted. */
+  function activateAlarm(a: ActorState, st: AlarmStation, via: 'tool' | 'instinct', extra: Partial<WorldEvent> = {}): ActorId[] {
+    alarm.active = true;
+    alarm.at = simTime();
+    alarm.by = a.id;
+    alarm.stationId = st.id;
+    alarm.via = via;
+    const newlyAlerted: ActorId[] = [];
+    for (const id of living()) {
+      if (!actors[id].alerted) newlyAlerted.push(id);
+      alert(actors[id]);
+    }
+    emit('alarm_activated', { station: st.id, label: st.label, zone: st.zone, by: a.id, via, newly_alerted: newlyAlerted }, { actor: a.id, ...extra });
+    if (phase === 'idle') setPhase('incident');
+    return newlyAlerted;
   }
 
   function completeTask(a: ActorState) {
     const t = a.task!;
     a.task = null;
     t.progress = 0;
+    if (t.kind === 'instinct') return;
     if (t.kind === 'ambient') {
       const spot = map.spawnSpots[a.id].find((s) => s.col === a.col && s.row === a.row);
       a.pose = spot?.pose ?? 'stand';
@@ -791,6 +914,17 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
         else observeHazard(a, h, 'sight', cells);
       }
     }
+    // Smoke through walls: anyone within SMOKE_RADIUS tiles of a burning cell notices it, walls or not.
+    const smokeR2 = SMOKE_RADIUS * SMOKE_RADIUS;
+    for (const h of hazards) {
+      if (h.kind !== 'fire' || !h.burning.size) continue;
+      for (const id of ACTOR_IDS) {
+        const a = actors[id];
+        if (a.lost || (h.evidenceId && a.knows.includes(h.evidenceId))) continue;
+        const near = [...h.burning.keys()].filter((i) => dist2(a, i) <= smokeR2);
+        if (near.length) observeHazard(a, h, 'smoke', near);
+      }
+    }
     // Smoke: a fire nobody has noticed for 15 s is smelled by the nearest person (by path).
     for (const h of hazards) {
       if (h.kind !== 'fire' || h.evidenceId) continue;
@@ -830,6 +964,82 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
         }
       }
       for (const z of fresh) emit('fire_spread', { evidence: e.id, zone: z, cells_known: u.size }, { evidenceIds: [e.id] });
+    }
+  }
+
+  // ------------------------------------------------------------------ instincts (engine behaviour, never the model)
+  /** Currently burning cells of the fires these people know about. */
+  function knownBurning(ids: ActorId[]): number[] {
+    const out = new Set<number>();
+    for (const id of ids) {
+      for (const [eid, cells] of actors[id].known) {
+        if (evidenceById(eid)?.kind !== 'fire') continue;
+        for (const i of cells) if (burningOwner.has(i)) out.add(i);
+      }
+    }
+    return [...out].sort((x, y) => x - y);
+  }
+
+  /** Path (≤ FLEE_MAX_PATH tiles, 4-connected, avoiding known hazards) to the reachable tile farthest from the known
+   *  fire; null if nowhere is better than here. Sharing a tile is fine; people outside stay outside. */
+  function fleePath(leader: ActorState, movers: ActorId[], fire: readonly number[]): Tile[] | null {
+    const accessibleOnly = movers.length > 1 || ACTOR_PROFILES[leader.id].usesWheelchair;
+    const blocked = knownNoGo(...movers);
+    const stayOutside = movers.some((id) => actors[id].wentOutside);
+    const start = idx(leader);
+    const prev = new Map<number, number>([[start, -1]]);
+    let best = { i: start, score: minDist2(leader, fire) };
+    let frontier = [start];
+    for (let depth = 0; depth < FLEE_MAX_PATH && frontier.length; depth++) {
+      const next: number[] = [];
+      for (const u of frontier) {
+        const uc = u % map.cols;
+        const ur = Math.floor(u / map.cols);
+        for (const [dc, dr] of [
+          [0, -1],
+          [0, 1],
+          [-1, 0],
+          [1, 0],
+        ]) {
+          if (!inBounds(map, uc + dc, ur + dr)) continue;
+          const v = tileIndex(map, uc + dc, ur + dr);
+          if (prev.has(v) || blocked.has(v) || !(accessibleOnly ? map.accessible[v] : map.walkable[v])) continue;
+          if (stayOutside && indoorTiles.has(v)) continue;
+          prev.set(v, u);
+          next.push(v);
+          const score = minDist2(tileOf(v), fire);
+          if (score > best.score) best = { i: v, score };
+        }
+      }
+      frontier = next;
+    }
+    if (best.i === start) return null;
+    const path: Tile[] = [];
+    for (let v = best.i; v !== start; v = prev.get(v)!) path.push(tileOf(v));
+    return path.reverse();
+  }
+
+  /** Back away from nearby known fire (anyone idle or between orders), and pull the alarm when standing at it. */
+  function stepInstinct() {
+    for (const id of ACTOR_IDS) {
+      const a = actors[id];
+      if (a.lost || a.checkedIn) continue;
+      maybePullAlarm(a);
+      if (a.escort?.role === 'follower' || isMoving(a) || tick < a.nextFleeTick) continue;
+      const f = followerOf(a);
+      const movers = f && !f.lost ? [a.id, f.id] : [a.id];
+      const fire = knownBurning(movers);
+      if (!fire.length || !movers.some((m) => minDist2(actors[m], fire) <= FLEE_RADIUS * FLEE_RADIUS)) continue;
+      a.nextFleeTick = tick + FLEE_RECHECK_TICKS;
+      const path = fleePath(a, movers, fire);
+      if (!path) continue;
+      const to = path[path.length - 1];
+      startTask(a, { kind: 'instinct', destination: FLEE_DESTINATION, target: to, path, progress: 0, traversed: 0, total: path.length, follower: movers[1] });
+      instinctFlees++;
+      if (a.lastFleeEventTick === null || tick - a.lastFleeEventTick >= FLEE_EVENT_GAP_TICKS) {
+        a.lastFleeEventTick = tick;
+        emit('instinct', { kind: 'flee', from: [a.col, a.row], to: [to.col, to.row], zone: zoneAt(map, to.col, to.row), with: movers[1] ?? null }, { actor: a.id });
+      }
     }
   }
 
@@ -885,6 +1095,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     stepFire();
     checkLosses();
     stepPerception();
+    stepInstinct();
     stepMovement();
     checkLosses();
     stepAmbient();
@@ -971,6 +1182,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     const movers = follower && !follower.lost ? [leader.id, follower.id] : [leader.id];
     const mask: NavMask = movers.length > 1 || ACTOR_PROFILES[leader.id].usesWheelchair ? 'accessible' : 'walkable';
     const blockedKnown = knownNoGo(...movers);
+    // People who are outside route around the building, never through it.
+    if (movers.some((id) => actors[id].wentOutside)) for (const i of indoorTiles) blockedKnown.add(i);
     const targets = targetsFor(destination, movers, mask, blockedKnown);
     if (!targets.length) return null;
     const start = { col: leader.col, row: leader.row };
@@ -980,6 +1193,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     return { path, mask, blockedKnown, movers, start };
   }
 
+  /** Readable list of the hazards these people know about, e.g. "fire in the Red Hat room and door A [E1]; the dead
+   *  south door [E2]". Planner-facing (details/data), so the evidence id is kept in brackets for citing. */
   function knownHazardSummary(ids: ActorId[]): string {
     const known = new Set<string>();
     for (const id of ids) for (const e of actors[id].knows) known.add(e);
@@ -988,12 +1203,17 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       .map((eid) => {
         const e = evidenceById(eid);
         if (!e) return eid;
-        if (e.kind === 'electrical') return `${eid} (${componentLabel(e.componentId)} stuck closed)`;
-        const zones = new Set<string>();
-        for (const id of ids) for (const i of actors[id].known.get(eid) ?? []) zones.add(zoneOfIdx(i) ?? '?');
-        return `${eid} (fire in ${[...zones].join(', ') || e.zone})`;
+        if (e.kind === 'electrical') return `${describeEv(e)} [${eid}]`;
+        const places: string[] = [];
+        for (const id of ids) {
+          for (const i of actors[id].known.get(eid) ?? []) {
+            const p = placeName(zoneNear(map, i % map.cols, Math.floor(i / map.cols)));
+            if (!places.includes(p)) places.push(p);
+          }
+        }
+        return `fire in ${joinNames(places.length ? places : [placeName(e.zone)])} [${eid}]`;
       })
-      .join(', ');
+      .join('; ');
   }
 
   function toolObserve(actionId: string, args: ToolArgs['observe']): ToolResult {
@@ -1069,18 +1289,41 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (args.recipient === a.id) return fail(actionId, 'INVALID_ARGUMENT', `${name(a.id)} cannot notify themselves.`, "Use recipient 'all' or another character id.");
     for (const eid of args.evidence_ids) {
       const e = evidenceById(eid);
-      if (!e) return fail(actionId, 'UNKNOWN_EVIDENCE', `Evidence ${eid} does not exist.`, `Known evidence: ${evidence.map((x) => x.id).join(', ') || 'none yet'}.`);
+      if (!e) {
+        return fail(actionId, 'UNKNOWN_EVIDENCE', 'That hazard report does not exist.', 'Cite only evidence ids from the evidence list.', {
+          evidence_id: eid,
+          known_evidence: evidence.map((x) => x.id),
+        });
+      }
       if (!a.knows.includes(eid)) {
-        return fail(actionId, 'UNKNOWN_EVIDENCE', `${name(a.id)} does not know ${eid}.`, `${eid} is known by ${e.knownBy.map(name).join(', ')}; have one of them speak, or share it with ${name(a.id)} first.`);
+        return fail(
+          actionId,
+          'UNKNOWN_EVIDENCE',
+          `${name(a.id)} doesn't know about ${describeEv(e)}.`,
+          `${joinNames(e.knownBy.map(name))} ${e.knownBy.length === 1 ? 'knows' : 'know'} about it — have one of them speak, or tell ${name(a.id)} first.`,
+          { evidence_id: eid, known_by: [...e.knownBy] },
+        );
       }
     }
     const cited = args.evidence_ids.map((eid) => evidenceById(eid)!);
     if (args.topic === 'fire' && !cited.some((e) => e.kind === 'fire')) {
       const fireKnown = a.knows.filter((eid) => evidenceById(eid)?.kind === 'fire');
-      return fail(actionId, 'INVALID_ARGUMENT', "topic 'fire' must cite fire evidence the speaker knows.", fireKnown.length ? `Cite ${fireKnown.join(', ')}.` : `${name(a.id)} has not seen or been told about a fire.`);
+      return fail(
+        actionId,
+        'INVALID_ARGUMENT',
+        "topic 'fire' must cite a fire the speaker knows about.",
+        fireKnown.length ? `Cite ${describeEv(evidenceById(fireKnown[0])!)} (its evidence id is in details).` : `${name(a.id)} has not seen or been told about a fire.`,
+        { cite: fireKnown },
+      );
     }
     if (args.topic === 'route_blocked' && !cited.length) {
-      return fail(actionId, 'INVALID_ARGUMENT', "topic 'route_blocked' must cite at least one evidence id.", `${name(a.id)} knows: ${a.knows.join(', ') || 'nothing yet'}.`);
+      return fail(
+        actionId,
+        'INVALID_ARGUMENT',
+        "topic 'route_blocked' must cite at least one hazard the speaker knows about.",
+        a.knows.length ? `${name(a.id)} knows about ${joinNames(a.knows.map((eid) => describeEv(evidenceById(eid)!)))} (evidence ids in details).` : `${name(a.id)} doesn't know about any hazard yet.`,
+        { speaker_knows: [...a.knows] },
+      );
     }
     if (args.topic === 'evacuate' && !a.alerted) {
       return fail(actionId, 'NOT_AUTHORIZED', `${name(a.id)} is not aware of any emergency yet.`, 'Someone who saw the hazard must report it first (or pull the alarm).');
@@ -1093,14 +1336,16 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       return inEarshot(map, speakerZone, zoneAt(map, r.col, r.row));
     };
     const others = living().filter((id) => id !== a.id);
-    const alarmHint = `pull the fire alarm in the north corridor (move ${a.id} to destination "alarm", then pull_alarm), or go to them`;
+    const alarmHint = a.wentOutside
+      ? 'only the hallway fire alarm reaches other rooms — someone still inside must pull it'
+      : `use the hallway fire alarm (move ${a.id} to destination "alarm" — they pull it on arrival), or go to them`;
     let recipients: ActorId[];
     let notReached: ActorId[] = [];
     if (args.recipient === 'all') {
       recipients = others.filter(canHear);
       notReached = others.filter((id) => !canHear(id));
       if (!recipients.length) {
-        return fail(actionId, 'OUT_OF_RANGE', `Nobody is within earshot of ${name(a.id)} (${speakerZone ?? 'unknown zone'}).`, `Spoken alerts only reach the same room — ${alarmHint}.`, {
+        return fail(actionId, 'OUT_OF_RANGE', `Nobody is within earshot of ${name(a.id)} ${atPlace(speakerZone)}.`, `Spoken alerts only reach the same room — ${alarmHint}.`, {
           speaker_zone: speakerZone,
           out_of_earshot: notReached.map((id) => ({ id, zone: zoneAt(map, actors[id].col, actors[id].row) })),
         });
@@ -1110,7 +1355,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       if (actors[rid].lost) return fail(actionId, 'NOT_AUTHORIZED', `${name(rid)} was lost to the fire.`, 'Speak to someone who is still in the building.');
       if (!canHear(rid)) {
         const rz = zoneAt(map, actors[rid].col, actors[rid].row);
-        return fail(actionId, 'OUT_OF_RANGE', `${name(rid)} is in ${rz ?? 'another area'} — out of earshot of ${name(a.id)} (${speakerZone ?? 'unknown zone'}).`, `Spoken alerts only reach the same room — ${alarmHint}.`, {
+        return fail(actionId, 'OUT_OF_RANGE', `${name(rid)} is ${atPlace(rz)} — out of earshot of ${name(a.id)} ${atPlace(speakerZone)}.`, `Spoken alerts only reach the same room — ${alarmHint}.`, {
           speaker_zone: speakerZone,
           recipient_zone: rz,
         });
@@ -1150,7 +1395,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
         not_reached: notReached,
         newly_alerted: newlyAlerted,
         evidence_shared: learned,
-        ...(notReached.length ? { note: `Out of earshot (other rooms): ${notReached.join(', ')} — only the fire alarm reaches them.` } : {}),
+        ...(notReached.length ? { note: `Out of earshot (other rooms): ${joinNames(notReached.map(name))} — only the fire alarm reaches them.` } : {}),
       },
       evidenceIds: args.evidence_ids,
     };
@@ -1161,7 +1406,30 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (isActorId(destination) && actors[destination].lost) {
       return fail(actionId, 'INVALID_ARGUMENT', `${name(destination)} was lost to the fire.`, 'Choose a zone, "alarm", or a surviving person.');
     }
-    return null;
+    return reentryError(actionId, a, destination);
+  }
+
+  /** No re-entry: someone who has made it outside is never sent back into the building (alarm or other people
+   *  inside included). */
+  function reentryError(actionId: string, a: ActorState, destination: string): Fail | null {
+    const leader = leaderOf(a);
+    const f = followerOf(leader);
+    const movers = f && !f.lost ? [leader, f] : [leader];
+    const out = movers.find((m) => m.wentOutside);
+    if (!out) return null;
+    const indoor = isAlarmDest(destination)
+      ? true
+      : isActorId(destination)
+        ? !isOutsideZone(zoneAt(map, actors[destination].col, actors[destination].row))
+        : !isOutsideZone(destination as ZoneId);
+    if (!indoor) return null;
+    return fail(
+      actionId,
+      'NOT_AUTHORIZED',
+      `${name(out.id)} is already outside — people don't go back into a burning building.`,
+      `Send ${name(out.id)} to the assembly point (move ${out.id} to "assembly", then check_in). Someone still inside must raise the alarm or reach the others.`,
+      { outside: movers.filter((m) => m.wentOutside).map((m) => m.id), destination },
+    );
   }
 
   function toolPlanRoute(actionId: string, args: ToolArgs['plan_route']): ToolResult | Fail {
@@ -1176,8 +1444,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       return fail(
         actionId,
         'ROUTE_UNAVAILABLE',
-        `No ${partner || ACTOR_PROFILES[a.id].usesWheelchair ? 'wheelchair-accessible ' : ''}route to ${args.destination} that avoids known hazards.`,
-        'Try a different destination (e.g. the other exit or assembly via another corridor), or observe for updated information.',
+        `No ${partner || ACTOR_PROFILES[a.id].usesWheelchair ? 'wheelchair-accessible ' : ''}route to ${destinationName(args.destination)} that avoids known hazards.`,
+        'Try a different destination (e.g. the other exit, or assembly through another corridor), or observe for updated information.',
         { known_hazards: knownHazardSummary(movers) },
       );
     }
@@ -1222,15 +1490,16 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       );
     }
     if (a.checkedIn) return fail(actionId, 'NOT_AUTHORIZED', `${name(a.id)} is already checked in at the assembly point.`, 'Checked-in people stay at assembly for the roster check.');
-    if (isMoving(a)) {
-      const t = leaderOf(a).task!;
+    const order = orderOf(a);
+    if (order) {
+      const t = order;
       const waiting = living()
-        .filter((id) => id !== a.id && actors[id].alerted && !actors[id].checkedIn && !isMoving(actors[id]))
+        .filter((id) => id !== a.id && actors[id].alerted && !actors[id].checkedIn && !orderOf(actors[id]))
         .map((id) => name(id));
       return fail(
         actionId,
         'ACTOR_BUSY',
-        `${name(a.id)} is already moving to ${t.destination} (${t.path.length} tiles left). Do not repeat this call.`,
+        `${name(a.id)} is already moving to ${destinationName(t.destination)} (${t.path.length} tiles left). Do not repeat this call.`,
         waiting.length ? `Give an order to someone who is waiting instead: ${waiting.join(', ')}.` : 'Everyone alerted is busy or checked in; the next update arrives when a move finishes.',
         { tiles_remaining: t.path.length, waiting_for_orders: waiting },
       );
@@ -1247,8 +1516,19 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     const movers = follower ? [leader.id, follower.id] : [leader.id];
     if (isAlarmDest(args.destination)) {
       const st = nearestStation(leader);
-      if (st && st.d <= 1.5) {
-        return { ok: true, actionId, status: 'completed', data: { destination: 'alarm', already_there: true, at: [leader.col, leader.row], station: st.s.id, next: `Already at the ${st.s.label} — call pull_alarm for ${leader.id}.` } };
+      if (st && st.d <= ALARM_REACH) {
+        return {
+          ok: true,
+          actionId,
+          status: 'completed',
+          data: {
+            destination: 'alarm',
+            already_there: true,
+            at: [leader.col, leader.row],
+            station: st.s.id,
+            next: alarm.active ? 'the alarm is already sounding; head for the assembly point.' : `call pull_alarm for ${leader.id}.`,
+          },
+        };
       }
     } else if (zoneAt(map, leader.col, leader.row) === args.destination && (!follower || zoneAt(map, follower.col, follower.row) === args.destination)) {
       return {
@@ -1259,7 +1539,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
           destination: args.destination,
           already_there: true,
           at: [leader.col, leader.row],
-          next: args.destination === 'assembly' ? `Already at assembly — call check_in for ${movers.join(' and ')}.` : 'Already there.',
+          next: args.destination === 'assembly' ? `call check_in for ${movers.join(' and ')}.` : null,
         },
       };
     }
@@ -1267,27 +1547,51 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     let routeId: string | undefined;
     if (args.route_id) {
       const route = routes.find((r) => r.id === args.route_id);
-      if (!route) return fail(actionId, 'INVALID_ARGUMENT', `Unknown route_id ${args.route_id}.`, 'Call plan_route first, or omit route_id to auto-plan.');
-      if (!movers.includes(route.actor)) return fail(actionId, 'INVALID_ARGUMENT', `Route ${route.id} was planned for ${name(route.actor)}.`, `Omit route_id to auto-plan for ${name(a.id)}.`);
-      if (route.destination !== args.destination) return fail(actionId, 'INVALID_ARGUMENT', `Route ${route.id} goes to ${route.destination}, not ${args.destination}.`, 'Omit route_id to auto-plan.');
-      if (!sameTile(route.start, leader)) return fail(actionId, 'STALE_STATE', `Route ${route.id} starts at (${route.start.col},${route.start.row}) but ${name(leader.id)} is now at (${leader.col},${leader.row}).`, 'plan_route again, or omit route_id to auto-plan.');
-      if (follower && !route.accessible) return fail(actionId, 'STALE_STATE', `Route ${route.id} is not wheelchair-accessible but ${name(leader.id)} is escorting ${name(follower.id)}.`, 'plan_route again (it will use accessible tiles), or omit route_id.');
+      if (!route) return fail(actionId, 'INVALID_ARGUMENT', 'That route does not exist.', 'Call plan_route first, or omit route_id to auto-plan.', { route_id: args.route_id });
+      if (!movers.includes(route.actor)) {
+        return fail(actionId, 'INVALID_ARGUMENT', `That route was planned for ${name(route.actor)}.`, `Omit route_id to auto-plan for ${name(a.id)}.`, { route_id: route.id });
+      }
+      if (route.destination !== args.destination) {
+        return fail(actionId, 'INVALID_ARGUMENT', `That route goes to ${destinationName(route.destination)}, not ${destinationName(args.destination)}.`, 'Omit route_id to auto-plan.', {
+          route_id: route.id,
+          route_destination: route.destination,
+        });
+      }
+      if (!sameTile(route.start, leader)) {
+        return fail(actionId, 'STALE_STATE', `That route starts where ${name(leader.id)} was earlier; ${name(leader.id)} has moved since.`, 'plan_route again, or omit route_id to auto-plan.', {
+          route_id: route.id,
+          route_start: [route.start.col, route.start.row],
+          now_at: [leader.col, leader.row],
+        });
+      }
+      if (follower && !route.accessible) {
+        return fail(actionId, 'STALE_STATE', `That route is not wheelchair-accessible, but ${name(leader.id)} is escorting ${name(follower.id)}.`, 'plan_route again (it will use accessible tiles), or omit route_id.', { route_id: route.id });
+      }
       const known = knownNoGo(...movers);
       const crossing = route.path.find((t) => known.has(idx(t)));
       if (crossing) {
         counters.knownHazardMoveAttempts++;
-        return fail(actionId, 'STALE_STATE', `Route ${route.id} crosses a hazard ${name(a.id)} now knows about (near ${describeTile(crossing)}).`, 'plan_route again — it will avoid known hazards (or omit route_id).', {
-          known_hazards: knownHazardSummary(movers),
-          route_revision: route.revision,
-          current_revision: a.revision,
-        });
+        const hit = movers.flatMap((id) => [...actors[id].known]).find(([, cells]) => cells.has(idx(crossing)));
+        const e = hit ? evidenceById(hit[0]) : undefined;
+        return fail(
+          actionId,
+          'STALE_STATE',
+          `That route crosses ${e ? describeEv(e) : 'a hazard'} that ${name(a.id)} now knows about (${describeTile(crossing)}).`,
+          'plan_route again — it will avoid known hazards (or omit route_id).',
+          {
+            route_id: route.id,
+            known_hazards: knownHazardSummary(movers),
+            route_revision: route.revision,
+            current_revision: a.revision,
+          },
+        );
       }
       path = route.path.map((t) => ({ ...t }));
       routeId = route.id;
     } else {
       const plan = planFor(a, args.destination);
       if (!plan) {
-        return fail(actionId, 'ROUTE_UNAVAILABLE', `No ${follower || ACTOR_PROFILES[leader.id].usesWheelchair ? 'wheelchair-accessible ' : ''}route to ${args.destination} that avoids known hazards.`, 'Choose another destination (the other exit, or assembly via another corridor) or observe for updated information.', {
+        return fail(actionId, 'ROUTE_UNAVAILABLE', `No ${follower || ACTOR_PROFILES[leader.id].usesWheelchair ? 'wheelchair-accessible ' : ''}route to ${destinationName(args.destination)} that avoids known hazards.`, 'Choose another destination (the other exit, or assembly through another corridor) or observe for updated information.', {
           known_hazards: knownHazardSummary(movers),
         });
       }
@@ -1297,12 +1601,13 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       const next = isActorId(args.destination)
         ? args.destination === 'daniel' && leader.id === 'alex'
           ? requests.some((r) => r.person === 'daniel' && r.helper === 'alex')
-            ? 'Alex is already next to Daniel and Daniel has asked for help: call assist (alex → daniel).'
-            : 'Alex is already next to Daniel. Daniel has not asked for help yet: Daniel calls request_assistance with helper_id "alex".'
-          : `Already next to ${name(args.destination)}.`
-        : 'Already there.';
+            ? 'Daniel has asked for help: call assist (alex → daniel).'
+            : 'Daniel has not asked for help yet: Daniel calls request_assistance with helper_id "alex".'
+          : null
+        : null;
       return { ok: true, actionId, status: 'completed', data: { destination: args.destination, already_there: true, at: [leader.col, leader.row], next } };
     }
+    dropSoftTask(leader); // a planner order replaces any instinct (or idle) walk
     startTask(leader, {
       kind: 'move',
       actionId,
@@ -1378,7 +1683,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
           : `${name(person.id)} must request_assistance(helper_id='${helper.id}') first (consent).`;
       return fail(actionId, 'ASSISTANCE_NOT_ACCEPTED', `${name(person.id)} has not requested assistance from ${name(helper.id)}.`, hint);
     }
-    if (isMoving(helper) || isMoving(person)) return fail(actionId, 'ACTOR_BUSY', 'Both people must be stationary to start an escort.', 'Wait for the current move to finish.');
+    if (orderOf(helper) || orderOf(person)) return fail(actionId, 'ACTOR_BUSY', 'Both people must be stationary to start an escort.', 'Wait for the current move to finish.');
     const d = tileDistance(helper, person);
     if (d > 1.5) {
       return fail(actionId, 'OUT_OF_RANGE', `${name(helper.id)} is ${round2(d)} tiles from ${name(person.id)}; must be adjacent (≤1.5).`, `move ${helper.id} to '${person.id}' first.`, {
@@ -1387,6 +1692,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
         person_at: [person.col, person.row],
       });
     }
+    dropSoftTask(helper);
+    dropSoftTask(person);
     helper.escort = { role: 'leader', partner: person.id };
     person.escort = { role: 'follower', partner: helper.id };
     escorts.push({ leader: helper.id, follower: person.id, at: simTime(), fulfilled: false });
@@ -1405,10 +1712,11 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
 
   function toolCheckIn(actionId: string, args: ToolArgs['check_in']): ToolResult | Fail {
     const a = actors[args.actor_id];
-    if (isMoving(a)) return fail(actionId, 'ACTOR_BUSY', `${name(a.id)} is still moving.`, 'Check in after arriving.');
+    if (orderOf(a)) return fail(actionId, 'ACTOR_BUSY', `${name(a.id)} is still moving.`, 'Check in after arriving.');
     const z = zoneAt(map, a.col, a.row);
-    if (z !== 'assembly') return fail(actionId, 'OUT_OF_RANGE', `${name(a.id)} is in ${z ?? 'unknown'}, not at the assembly point.`, `move ${a.id} to 'assembly' first.`, { zone: z, at: [a.col, a.row] });
+    if (z !== 'assembly') return fail(actionId, 'OUT_OF_RANGE', `${name(a.id)} is ${atPlace(z)}, not at the assembly point.`, `move ${a.id} to 'assembly' first.`, { zone: z, at: [a.col, a.row] });
     if (a.checkedIn) return { ok: true, actionId, status: 'completed', data: { duplicate: true, checked_in: rosterState().checkedIn } };
+    dropSoftTask(a);
     a.checkedIn = true;
     emit('checked_in', { at: [a.col, a.row] }, { actor: a.id, actionId });
     for (const e of escorts) {
@@ -1462,68 +1770,87 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (!a.alerted && !a.knows.length) {
       return fail(actionId, 'NOT_AUTHORIZED', `${name(a.id)} is not aware of any emergency.`, 'Someone must see a hazard (observe) or be told (notify) before pulling the alarm.');
     }
-    if (isMoving(a)) return fail(actionId, 'ACTOR_BUSY', `${name(a.id)} is still moving.`, 'Pull the alarm after arriving at the station.');
+    if (orderOf(a)) return fail(actionId, 'ACTOR_BUSY', `${name(a.id)} is still moving.`, 'Pull the alarm after arriving at the station.');
     const st = nearestStation(a);
-    if (!st || st.d > 1.5) {
-      return fail(actionId, 'OUT_OF_RANGE', `${name(a.id)} is not at a fire-alarm pull station.`, `move ${a.id} to destination "alarm" first.`, {
-        nearest_station: st?.s.id ?? null,
-        distance: st ? round2(st.d) : null,
-      });
+    if (alarm.active) return { ok: true, actionId, status: 'completed', data: { already_active: true, station: alarm.stationId, by: alarm.by, via: alarm.via } };
+    if (!st || st.d > ALARM_REACH) {
+      return fail(
+        actionId,
+        'OUT_OF_RANGE',
+        `${name(a.id)} is not at ${ALARM_NAME}.`,
+        a.wentOutside ? `${name(a.id)} is outside and cannot go back in — someone still inside must pull it.` : `move ${a.id} to destination "alarm" — they pull it on arrival.`,
+        { nearest_station: st?.s.id ?? null, distance: st ? round2(st.d) : null },
+      );
     }
-    if (alarm.active) return { ok: true, actionId, status: 'completed', data: { already_active: true, station: alarm.stationId, by: alarm.by } };
-    alarm.active = true;
-    alarm.at = simTime();
-    alarm.by = a.id;
-    alarm.stationId = st.s.id;
-    const newlyAlerted: ActorId[] = [];
-    for (const id of living()) {
-      if (!actors[id].alerted) newlyAlerted.push(id);
-      alert(actors[id]);
-    }
-    emit('alarm_activated', { station: st.s.id, label: st.s.label, zone: st.s.zone, by: a.id, newly_alerted: newlyAlerted }, { actor: a.id, actionId });
-    if (phase === 'idle') setPhase('incident');
+    const newlyAlerted = activateAlarm(a, st.s, 'tool', { actionId });
     return { ok: true, actionId, status: 'completed', data: { alarm: 'active', station: st.s.id, newly_alerted: newlyAlerted, note: 'Everyone is alerted to evacuate; the alarm does not say where the hazard is.' } };
   }
 
+  /** One readable line per tool call (trace + debrief): names and places only — never evidence/zone/route ids. */
   function summarize(call: { name: string; args: Record<string, unknown> }, r: ToolResult): string {
-    const who = isActorId(call.args.actor_id) ? name(call.args.actor_id) : '?';
+    const who = isActorId(call.args.actor_id) ? name(call.args.actor_id) : 'Someone';
     if (!r.ok) return `${call.name} rejected: ${r.error.code} — ${r.error.message}`;
     const d = r.data;
+    const names = (ids: unknown) => joinNames(((ids as string[]) ?? []).filter(isActorId).map(name));
+    const dest = (x: unknown) => destinationName(String(x));
     switch (call.name) {
       case 'observe': {
-        const v = (d.visible_hazards as { evidence_id: string; kind: string }[]) ?? [];
-        return `${who} looked around in ${d.zone}: ${v.length ? v.map((x) => `${x.kind} ${x.evidence_id}`).join(', ') : 'no hazard in sight'}`;
+        const seen = ((d.visible_hazards as { evidence_id: string | null }[]) ?? [])
+          .map((v) => (v.evidence_id ? evidenceById(v.evidence_id) : undefined))
+          .filter((e): e is Evidence => !!e)
+          .map(describeEv);
+        return `${who} looked around ${atPlace(d.zone as ZoneId | null)}: ${seen.length ? `sees ${joinNames(seen)}` : 'no hazard in sight'}`;
       }
       case 'consult_plan':
         return `${who} read the plan: ${d.section}`;
-      case 'notify':
-        if (d.duplicate) return `${who}'s repeated message ignored (duplicate)`;
-        return `${who} → ${call.args.recipient}: ${call.args.topic} (heard by ${((d.delivered_to as string[]) ?? []).map((x) => name(x as ActorId)).join(', ')})${
-          ((d.not_reached as string[]) ?? []).length ? `; out of earshot: ${(d.not_reached as string[]).map((x) => name(x as ActorId)).join(', ')} — only the fire alarm reaches them` : ''
-        }`;
-      case 'plan_route':
-        return `${who} route ${d.route_id} to ${d.destination}: ${(d.zones as string[]).join(' → ')} (${d.length_tiles} tiles)`;
-      case 'move':
-        return d.already_there ? `${who} already at ${d.destination} — no movement. ${d.next ?? ''}`.trim() : `${who}${d.moving_together_with ? ` + ${name(d.moving_together_with as ActorId)}` : ''} moving to ${d.destination} (${d.length_tiles} tiles, ~${d.eta_s}s)`;
+      case 'notify': {
+        if (d.duplicate) return `${who}'s repeated message ignored (said moments ago)`;
+        const to = call.args.recipient === 'all' ? 'everyone nearby' : isActorId(call.args.recipient) ? name(call.args.recipient) : 'someone';
+        const what =
+          call.args.topic === 'fire'
+            ? `warned ${to} about the fire`
+            : call.args.topic === 'route_blocked'
+              ? `told ${to} a way out is blocked`
+              : call.args.topic === 'evacuate'
+                ? `told ${to} to get out`
+                : call.args.topic === 'assistance'
+                  ? `spoke to ${to} about help`
+                  : `updated ${to}`;
+        const heard = names(d.delivered_to);
+        const missed = names(d.not_reached);
+        return `${who} ${what}${call.args.recipient === 'all' && heard ? ` (heard by ${heard})` : ''}${missed ? `; ${missed} ${((d.not_reached as string[]) ?? []).length > 1 ? 'are' : 'is'} out of earshot — only the fire alarm reaches them` : ''}`;
+      }
+      case 'plan_route': {
+        const places: string[] = [];
+        for (const z of (d.zones as ZoneId[]) ?? []) {
+          const p = placeName(z);
+          if (places[places.length - 1] !== p) places.push(p);
+        }
+        return `${who}'s route to ${dest(d.destination)}: ${places.join(' → ')} (${d.length_tiles} tiles)`;
+      }
+      case 'move': {
+        if (d.already_there) return `${who} is already ${isActorId(d.destination) ? 'next to' : 'at'} ${dest(d.destination)}${d.next ? ` — ${d.next}` : ''}`;
+        const pair = d.moving_together_with ? ` and ${name(d.moving_together_with as ActorId)}` : '';
+        return `${who}${pair} heading to ${dest(d.destination)} (${d.length_tiles} tiles, ~${Math.round(Number(d.eta_s))} s)`;
+      }
       case 'request_assistance':
-        return `${who} asked ${name(call.args.helper_id as ActorId)} for assistance`;
+        return `${who} asked ${name(call.args.helper_id as ActorId)} for help`;
       case 'assist':
         return `${who} is now escorting ${name(call.args.person_id as ActorId)}`;
       case 'check_in':
-        return `${who} checked in at assembly`;
+        return d.duplicate ? `${who} is already checked in` : `${who} checked in at the assembly point`;
       case 'verify_roster':
         return d.complete
-          ? ((d.lost as string[]) ?? []).length
-            ? `Roster verified: survivors accounted for; lost ${(d.lost as string[]).map((x) => name(x as ActorId)).join(', ')}`
+          ? names(d.lost)
+            ? `Roster verified: survivors accounted for; lost ${names(d.lost)}`
             : 'Roster verified: everyone accounted for'
-          : `Roster incomplete: outstanding ${((d.outstanding as string[]) ?? []).join(', ')}`;
+          : `Roster incomplete: still missing ${names(d.outstanding)}`;
       case 'pull_alarm':
-        return d.already_active ? `${who} pulled the alarm (already sounding)` : `${who} pulled the fire alarm at ${componentOrStation(String(d.station))} — everyone alerted`;
+        return d.already_active ? `${who} went for the alarm — it is already sounding` : `${who} pulled ${ALARM_NAME} — everyone is alerted`;
       default:
         return `${call.name} ok`;
     }
   }
-  const componentOrStation = (id: string) => stations.find((s) => s.id === id)?.label ?? id;
 
   function sanitizeArgs(args: unknown): Record<string, unknown> {
     if (!args || typeof args !== 'object' || Array.isArray(args)) return {};
@@ -1676,24 +2003,32 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   function describeEvent(e: WorldEvent): string | null {
     const who = e.actor ? name(e.actor) : 'Someone';
     const d = e.data;
+    const zid = (z: unknown) => (typeof z === 'string' ? ` [${z}]` : '');
     switch (e.type) {
       case 'observation':
-        if (d.kind === 'electrical') return `${who} saw that ${componentLabel(d.component as string | undefined)} is stuck closed — power failure (${e.evidenceIds?.[0]})${d.firstReport ? '' : ' (already reported)'}.`;
-        return `${who} ${d.via === 'smoke' ? 'smelled smoke and found' : 'saw'} a fire (${e.evidenceIds?.[0]}) in ${d.zone}${d.firstReport ? '' : ' (already reported)'}.`;
+        if (d.kind === 'electrical') return `${who} saw that ${doorName(d.component as string | undefined)} is stuck closed — power failure (${e.evidenceIds?.[0]})${d.firstReport ? '' : ' (already reported)'}.`;
+        return `${who} ${d.via === 'smoke' ? 'smelled smoke and found' : 'saw'} a fire (${e.evidenceIds?.[0]}) ${atPlace(d.zone as ZoneId | null)}${zid(d.zone)}${d.firstReport ? '' : ' (already reported)'}.`;
+      case 'instinct':
+        if (d.kind === 'shout') {
+          const heard = ((d.heard_by as ActorId[]) ?? []).map(name);
+          return `${who} shouted "Fire!" by instinct — ${joinNames(heard)} heard it (alerted; now ${heard.length > 1 ? 'know' : 'knows'} ${d.evidence}).`;
+        }
+        if (d.kind === 'flee') return `${who}${d.with ? ` and ${name(d.with as ActorId)}` : ''} backed away from the fire by instinct, toward ${placeName(d.zone as ZoneId | null)}${zid(d.zone)} — give a destination.`;
+        return null;
       case 'fire_spread':
-        return `Fire ${d.evidence} has spread into ${d.zone} (${d.cells_known} burning/burnt tiles known).`;
-      case 'alarm_activated': {
-        const st = stations.find((s) => s.id === d.station);
-        return `Alarm raised by ${who} at the ${st?.label ?? d.station} — everyone is alerted to evacuate.`;
-      }
+        return `Fire ${d.evidence} has spread into ${placeName(d.zone as ZoneId | null)}${zid(d.zone)} (${d.cells_known} burning/burnt tiles known).`;
+      case 'alarm_activated':
+        return d.via === 'instinct'
+          ? `${who} pulled ${ALARM_NAME} on the way past (instinct) — everyone is alerted to evacuate.`
+          : `${who} pulled ${ALARM_NAME} — everyone is alerted to evacuate.`;
       case 'actor_lost':
-        return `${who} was lost to the fire in ${d.zone ?? 'the building'}.`;
+        return `${who} was lost to the fire ${atPlace(d.zone as ZoneId | null)}.`;
       case 'move_completed':
-        return `${who}${d.with ? ` and ${name(d.with as ActorId)}` : ''} arrived at ${d.destination} (${e.actionId}) — now in ${d.zone}.${d.zone === 'assembly' ? ' Not checked in yet: call check_in.' : ''}`;
+        return `${who}${d.with ? ` and ${name(d.with as ActorId)}` : ''} arrived at ${destinationName(String(d.destination))} (${e.actionId}) — now ${atPlace(d.zone as ZoneId | null)}${zid(d.zone)}.${d.zone === 'assembly' ? ' Not checked in yet: call check_in.' : ''}`;
       case 'move_interrupted': {
         if (d.code === 'ACTOR_LOST') return null;
-        const what = d.hazard_kind === 'electrical' ? `${componentLabel(d.component as string | undefined)} stuck closed ${d.evidence ?? ''}` : `fire ${d.evidence ?? ''} ahead`;
-        return `${who}'s move to ${d.destination} (${e.actionId}) was interrupted: ROUTE_UNAVAILABLE — ${what}; stopped at ${d.zone} (${(d.stopped_at as number[]).join(',')}) after ${d.partial_tiles}/${d.total_tiles} tiles.`;
+        const what = d.hazard_kind === 'electrical' ? `${doorName(d.component as string | undefined)} stuck closed (${d.evidence ?? '?'})` : `fire (${d.evidence ?? '?'}) ahead`;
+        return `${who}'s move to ${destinationName(String(d.destination))} (${e.actionId}) was interrupted: ROUTE_UNAVAILABLE — ${what}; stopped ${atPlace(d.zone as ZoneId | null)}${zid(d.zone)} after ${d.partial_tiles}/${d.total_tiles} tiles.`;
       }
       case 'assistance_fulfilled':
         return `${name(d.helper as ActorId)} completed the buddy escort for ${name(d.person as ActorId)}.`;
@@ -1728,7 +2063,9 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
         const leader = leaderOf(a);
         const t = leader.task;
         let busy: string | null = null;
-        if (a.task) busy = `moving to ${a.task.destination}${a.task.actionId ? ` (${a.task.actionId})` : ''}, ${a.task.path.length} tiles left`;
+        if (t?.kind === 'instinct' && (a.task || a.escort?.role === 'follower')) {
+          busy = `backing away from the fire by instinct (${t.path.length} tiles left) — free to take an order`;
+        } else if (a.task) busy = `moving to ${a.task.destination}${a.task.actionId ? ` (${a.task.actionId})` : ''}, ${a.task.path.length} tiles left`;
         else if (a.escort?.role === 'follower' && t) busy = `moving with ${name(leader.id)} to ${t.destination}, ${t.path.length} tiles left`;
         return {
           id,
@@ -1812,7 +2149,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     const fresh = events.slice(lastViewedSeq).filter((e) => RELEVANT.includes(e.type) && (e.type !== 'observation' || e.data.firstReport === true) && !(e.type === 'move_interrupted' && e.data.code === 'ACTOR_LOST'));
     if (fresh.length) return { needed: true, reason: `new events: ${[...new Set(fresh.map((e) => e.type))].join(', ')}` };
     const alive = living();
-    const ready = alive.filter((id) => actors[id].alerted && !actors[id].checkedIn && !isMoving(actors[id]));
+    // Backing away on instinct does not count as busy: the planner should give them a real destination.
+    const ready = alive.filter((id) => actors[id].alerted && !actors[id].checkedIn && !orderOf(actors[id]));
     if (ready.length) return { needed: true, reason: `ready for instructions: ${ready.join(', ')}` };
     // People who were never told still need the planner (e.g. the reporter evacuated without notifying anyone).
     const unalerted = alive.filter((id) => !actors[id].alerted && !actors[id].checkedIn);
@@ -1829,7 +2167,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       const moving = isMoving(a);
       if (moving) return a.escort.role === 'leader' ? 'escorting' : 'escorted';
     }
-    if (a.task?.kind === 'move') return 'moving';
+    if (a.task?.kind === 'move' || a.task?.kind === 'instinct') return 'moving';
     if (a.alerted) return a.commanded ? 'waiting' : 'alerted';
     return a.pose === 'sit' && !a.task ? 'working' : 'idle';
   }
@@ -1882,7 +2220,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
           alerted: a.alerted,
           checkedIn: a.checkedIn,
           escort: a.escort,
-          task: t ? { kind: t.kind, destination: t.destination, ...(t.actionId ? { actionId: t.actionId } : {}), tilesRemaining: t.path.length } : null,
+          // Instinct walks show as moves with no actionId and the destination "away from the fire".
+          task: t ? { kind: t.kind === 'ambient' ? 'ambient' : 'move', destination: t.destination, ...(t.actionId ? { actionId: t.actionId } : {}), tilesRemaining: t.path.length } : null,
           knows: [...a.knows],
           usesWheelchair: ACTOR_PROFILES[id].usesWheelchair,
           lost: a.lost,
@@ -1912,6 +2251,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       rng: rng.state(),
       spreadRng: spreadRng.state(),
       alarm,
+      shouted: [...shouted].sort(),
+      instinctFlees,
       actors: ACTOR_IDS.map((id) => {
         const a = actors[id];
         return {
@@ -1928,6 +2269,9 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
           checkedIn: a.checkedIn,
           escort: a.escort,
           lost: a.lost,
+          wentOutside: a.wentOutside,
+          nextFleeTick: a.nextFleeTick,
+          lastFleeEventTick: a.lastFleeEventTick,
           ambientNextTick: a.ambientNextTick,
           task: a.task ? { kind: a.task.kind, destination: a.task.destination, path: a.task.path, progress: round2(a.task.progress), follower: a.task.follower ?? null } : null,
         };
@@ -1969,8 +2313,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       wallTimeMs: endedAtWall ?? 0,
       danielPreference: scenario.danielPreference,
       lost: ACTOR_IDS.filter((id) => actors[id].lost).map((id) => ({ actor: id, simTime: actors[id].lostAt ?? 0, alertedAt: actors[id].alertedAt })),
-      alarm: { active: alarm.active, at: alarm.at ?? null, by: alarm.by ?? null, stationId: alarm.stationId ?? null, stationLabel: stations.find((s) => s.id === alarm.stationId)?.label ?? null },
-      componentLabels: Object.fromEntries(components.map((c) => [c.id, c.label])),
+      alarm: { active: alarm.active, at: alarm.at ?? null, by: alarm.by ?? null, via: alarm.via ?? null, stationId: alarm.stationId ?? null },
+      instinctFlees,
     });
   }
 

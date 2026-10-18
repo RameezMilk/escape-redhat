@@ -11,7 +11,7 @@
   },
   "danielPreference": "buddy",
   "events": [
-    { "id": "ev-fire", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "fire", "col": 8, "row": 5 } },
+    { "id": "ev-fire", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "fire", "col": 5, "row": 12 } },
     { "id": "ev-door", "trigger": { "type": "manual" }, "action": { "type": "place_hazard", "kind": "electrical", "col": 26, "row": 14 } }
   ],
   "labels": {

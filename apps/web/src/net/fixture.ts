@@ -1,7 +1,8 @@
 // ?fixture=1 — a canned, clearly-labelled FIXTURE stream for UI development without the server.
-// It is NOT model output and the UI says so (provider chip "FIXTURE"). v2 storyline: the fire spreads tile by tile,
-// Maya walks to the nearest pull station and raises the alarm, Alex escorts Daniel, a sliding door can lose power
-// (stop + replan). Add &loss=1 to leave Maya behind (faster fire) and see the disintegration + a partial outcome.
+// It is NOT model output and the UI says so (provider chip "FIXTURE"). Storyline: the fire spreads tile by tile (and up
+// the walls); Maya spots it and shouts (instinct) so Daniel hears; both back away (instinct); Maya heads out through
+// the north hallway and pulls the alarm on her way past (instinct) so Alex hears it; Alex escorts Daniel; a sliding
+// door can lose power (stop + replan). Add &loss=1 to leave Maya behind (faster fire) and see a partial outcome.
 import type {
   ActorId,
   ActorSnapshot,
@@ -19,6 +20,7 @@ import type {
 import { doorNear } from '@escape/engine';
 
 import { store } from '../state/store';
+import { ZONE_NAMES } from '../trace/humanize';
 import { setSenderOverride } from './socket';
 
 const EP = 'fixture-ep-1';
@@ -134,6 +136,8 @@ export function startFixture(map: MapData): void {
   };
   const engineRow = (summary: string, actor?: ActorId, evidenceIds?: string[]) =>
     row({ kind: 'engine', origin: 'Engine', status: 'info', summary, actor, evidenceIds, eventSeq: seq });
+  const instinctRow = (summary: string, actor: ActorId) => row({ kind: 'engine', origin: 'Instinct (engine)', status: 'info', summary, actor, eventSeq: seq });
+  const DOOR_NAME: Record<string, string> = { door_a: 'door A', door_b: 'door B', connector: 'lobby connector door', south_door: 'south door' };
   const decision = (actor: ActorId, tool: string, args: Record<string, unknown>, summary: string, opts: Partial<TraceRow> = {}) => {
     decisions++;
     return row({
@@ -225,6 +229,7 @@ export function startFixture(map: MapData): void {
     if (c < 0 || r < 0 || c >= map.cols || r >= map.rows) return false;
     const i = idx(c, r);
     const z = map.zone[i];
+    if (map.terrain[i] === 'wall') return rng() < 0.25; // walls catch slowly, then carry the fire on
     return map.terrain[i] === 'floor' && z !== 'west_exit' && z !== 'east_exit' && !doors.has(`${c},${r}`);
   };
 
@@ -237,7 +242,7 @@ export function startFixture(map: MapData): void {
       }
       const h: HazardSnapshot = { id: `H${++hz}`, kind, col: door.tiles[0].col, row: door.tiles[0].row, cells: [...door.tiles], charred: [], noGo: [...door.tiles], componentId: door.id, placedAtSimTime: simTime() };
       hazards.push(h);
-      engineRow(`Presenter cut power to ${door.label} — it is stuck shut.`);
+      engineRow(`Power cut — ${DOOR_NAME[door.id] ?? 'a sliding door'} stuck shut`);
       doorTrouble = true;
       return;
     }
@@ -253,7 +258,7 @@ export function startFixture(map: MapData): void {
     const h: HazardSnapshot = { id: f.id, kind, col, row, cells: [], charred: [], noGo: [], placedAtSimTime: simTime() };
     refreshHazard(h, f);
     hazards.push(h);
-    engineRow(`Presenter started a fire at (${col},${row}).`);
+    engineRow(`Fire started in the ${ZONE_NAMES[map.zone[idx(col, row)] ?? ''] ?? 'office'}`);
     if (!storyStarted) startStory();
   };
 
@@ -267,35 +272,55 @@ export function startFixture(map: MapData): void {
       maya.knows.push('E1');
       maya.alerted = true;
       maya.anim = 'idle';
-      engineRow('Maya sees fire in the Red Hat room (evidence E1).', 'maya', ['E1']);
-      say('maya', '🔥 E1', 'observation');
+      engineRow('Maya spots fire in the Red Hat room', 'maya', ['E1']);
+      say('maya', '🔥 Fire!', 'observation');
     });
-    later(1.6, () => {
+    later(1.0, () => {
+      // Instinct: shout to the room (Daniel hears; Alex in the lobby does not).
+      const daniel = A('daniel');
+      daniel.knows.push('E1');
+      daniel.alerted = true;
+      daniel.status = 'alerted';
+      instinctRow('Maya shouts “Fire!” — Daniel hears', 'maya');
+      say('maya', 'Fire! Get out!');
+      say('daniel', '!', 'alert');
+    });
+    later(1.5, () => {
+      // Instinct: both back away from the flames while waiting for a plan.
+      instinctRow('Maya and Daniel back away from the fire', 'maya');
+      const seed = hazards.find((h) => h.kind === 'fire');
+      const far = (t: Tile) => !seed || Math.hypot(t.col - seed.col, t.row - seed.row) >= 7;
+      walk('daniel', (t) => far(t) && inZone('rh_room')(t), 'away from the fire');
+    });
+    later(2.2, () => {
       const st = nearestAlarm(A('maya'));
-      const r = decision('maya', 'move', { destination: 'alarm' }, `Maya → nearest pull station (${st.label}).`, { status: 'running', reasonSummary: 'Raise the building alarm so everyone is alerted.' });
-      walk('maya', (t) => t.col === st.stand.col && t.row === st.stand.row, 'alarm', () => {
-        update(r, { status: 'completed', summary: 'Maya reached the pull station.' });
-        later(0.5, () => {
-          decision('maya', 'pull_alarm', {}, 'Fire alarm activated — siren and strobes; everyone alerted.');
-          alarm = { active: true, atSimTime: simTime(), by: 'maya', stationId: st.id };
-          engineRow(`🚨 Fire alarm activated by Maya at ${st.label}.`, 'maya');
-          for (const a of actors) {
-            if (a.lost) continue;
-            a.alerted = true;
-            if (a.anim === 'type') a.anim = 'idle';
-            if (a.status === 'working') a.status = 'alerted';
-            say(a.id, '🚨', 'alert');
-          }
-          phase = 'evacuating';
-          afterAlarm();
-        });
+      const r = decision('maya', 'move', { destination: 'assembly' }, 'Maya → assembly via the north hallway.', { status: 'running', reasonSummary: 'Get out through the hallway — and raise the alarm on the way.' });
+      walk('maya', (t) => t.col === st.stand.col && t.row === st.stand.row, 'assembly', () => {
+        // Instinct: she passes the pull station and pulls it on her way out.
+        alarm = { active: true, atSimTime: simTime(), by: 'maya', stationId: st.id };
+        instinctRow('Maya pulls the hallway alarm on her way out — everyone hears the siren', 'maya');
+        for (const a of actors) {
+          if (a.lost) continue;
+          a.alerted = true;
+          if (a.anim === 'type') a.anim = 'idle';
+          if (a.status === 'working') a.status = 'alerted';
+          if (a.id !== 'maya') say(a.id, '🚨', 'alert');
+        }
+        phase = 'evacuating';
+        afterAlarm();
+        if (!lossMode) {
+          walk('maya', inZone('assembly'), 'assembly', () => {
+            update(r, { status: 'completed', summary: 'Maya reached the assembly point.' });
+            later(0.6, () => checkIn('maya'));
+          }, r);
+        }
       }, r);
     });
   };
 
   const afterAlarm = () => {
     later(1.0, () => {
-      decision('daniel', 'request_assistance', { helper_id: 'alex' }, 'Daniel asked Alex for the agreed buddy support.');
+      decision('daniel', 'request_assistance', { helper_id: 'alex' }, 'Daniel asked Alex to guide him out.');
       say('daniel', 'Alex, can you guide me out?');
     });
     later(2.0, () => {
@@ -311,8 +336,7 @@ export function startFixture(map: MapData): void {
         later(1.4, () => evacuate('alex', true));
       }, r);
     });
-    if (!lossMode) later(3.0, () => evacuate('maya', false));
-    else later(3.0, () => engineRow('FIXTURE (&loss=1): the planner leaves Maya waiting — she is never sent to the exit.'));
+    if (lossMode) later(3.0, () => engineRow('FIXTURE (&loss=1): Maya is left behind in the hallway — she is never sent to the exit.'));
   };
 
   const evacuate = (id: ActorId, withPartner: boolean) => {
@@ -342,12 +366,12 @@ export function startFixture(map: MapData): void {
     a.anim = 'idle';
     a.status = 'waiting';
     a.task = null;
-    if (w.rowRef) update(w.rowRef, { status: 'failed', summary: `${NAMES[id]} stopped: the sliding door ahead has no power (ROUTE_UNAVAILABLE).` });
-    engineRow(`${NAMES[id]} sees a stuck sliding door (evidence E2).`, id, ['E2']);
-    say(id, '⚡ E2', 'observation');
+    if (w.rowRef) update(w.rowRef, { status: 'failed', summary: `${NAMES[id]} stopped: the south door ahead has no power.` });
+    engineRow(`${NAMES[id]} finds the south door dead`, id, ['E2']);
+    say(id, "⚡ This door's dead!", 'observation');
     later(0.8, () => {
-      decision(id, 'notify', { recipient: 'all', topic: 'route_blocked', evidence_ids: ['E2'], message: 'Door has no power — use the other way!' }, 'Delivered to everyone.', { recovered: true });
-      say(id, 'Door has no power — use the other way!');
+      decision(id, 'notify', { recipient: 'all', topic: 'route_blocked', evidence_ids: ['E2'], message: "South door's dead — go round by the north hallway!" }, 'Heard by Daniel.', { recovered: true, result: { ok: true, actionId: 'fx', status: 'completed', data: { delivered_to: ['daniel'] } } });
+      say(id, "South door's dead — go round by the north hallway!");
     });
     later(1.8, () => {
       const r = decision(id, 'move', { destination: w.dest }, `${NAMES[id]} re-routes around the stuck door.`, { status: 'running' });
@@ -438,7 +462,7 @@ export function startFixture(map: MapData): void {
         a.task = null;
         a.escort = null;
         walkers.delete(a.id);
-        engineRow(`${NAMES[a.id]} was caught by the spreading fire and lost.`, a.id);
+        engineRow(`${NAMES[a.id]} was lost to the fire`, a.id);
       }
     }
     // Movement
@@ -503,7 +527,7 @@ export function startFixture(map: MapData): void {
         id: 'alarm',
         title: 'Raise the alarm',
         text: alarm.active
-          ? `FIXTURE text: Maya walked to the nearest pull station and raised the alarm ${alarm.atSimTime !== undefined && firstSight !== null ? `${(alarm.atSimTime - firstSight).toFixed(1)} s` : ''} after seeing the fire; the siren alerted everyone at once.`
+          ? `FIXTURE text: Maya pulled the hallway alarm on her way out, ${alarm.atSimTime !== undefined && firstSight !== null ? `${(alarm.atSimTime - firstSight).toFixed(1)} s` : ''} after seeing the fire; the siren reached Alex in the lobby, who could not hear her shout.`
           : 'FIXTURE text: nobody reached a pull station, so the building was never alerted — people who could not see the fire kept working.',
         ruleIds: ['ALARM-SYSTEM', 'EAP-REPORT'],
         sources: [{ label: '29 CFR 1910.165 — Employee alarm systems', url: 'https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.165' }],
@@ -568,12 +592,15 @@ export function startFixture(map: MapData): void {
           alarmLatencySimSec: alarm.atSimTime !== undefined && firstSight !== null ? alarm.atSimTime - firstSight : null,
           escaped: actors.filter((a) => a.checkedIn && !a.lost).length,
           lost: lost.length,
+          alarmBy: alarm.active ? 'instinct' : null,
+          instinctFlees: 1,
         },
       },
       debrief: lessons,
       score: { reward: status === 'success' ? 1 : status === 'failed' ? -1 : 0, success: status === 'success', checks: {} },
     };
     ended = result;
+    engineRow(status === 'success' ? '✓ Everyone made it out' : status === 'partial' ? `Partial — ${alive.length} of 3 escaped` : 'Nobody made it out');
     emit({ type: 'episode_end', episodeId: EP, result });
   }
 

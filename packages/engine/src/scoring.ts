@@ -1,7 +1,8 @@
 // Metrics, reward and the deterministic debrief, computed from the episode's logs.
-import { ACTOR_PROFILES, type ActorId, type DebriefLesson, type EpisodeMetrics, type EpisodeOutcome, type EpisodeResult, type WorldEvent } from '@escape/contracts';
+import { ACTOR_PROFILES, type ActorId, type DebriefLesson, type EpisodeMetrics, type EpisodeOutcome, type EpisodeResult, type WorldEvent, type ZoneId } from '@escape/contracts';
 import { canonicalJson } from './hash.js';
 import { ruleSources } from './knowledge.js';
+import { ALARM_NAME, atPlace, doorName, joinNames } from './places.js';
 
 export interface ActionLogEntry {
   decision: string;
@@ -26,7 +27,7 @@ export interface Interruption {
   decisionIndex: number;
   simTime: number;
   evidenceId: string | null;
-  zone: string | null;
+  zone: ZoneId | null;
   hazardKind: 'fire' | 'electrical';
   component?: string;
 }
@@ -47,8 +48,10 @@ export interface ScoringInput {
   wallTimeMs: number;
   danielPreference: 'buddy' | 'independent';
   lost: { actor: ActorId; simTime: number; alertedAt: number | null }[];
-  alarm: { active: boolean; at: number | null; by: ActorId | null; stationId: string | null; stationLabel: string | null };
-  componentLabels: Record<string, string>;
+  /** via: 'tool' = the planner (pull_alarm, or arriving on an order to go to the alarm); 'instinct' = on the way past. */
+  alarm: { active: boolean; at: number | null; by: ActorId | null; via: 'tool' | 'instinct' | null; stationId: string | null };
+  /** Times people backed away from nearby fire by instinct. */
+  instinctFlees: number;
 }
 
 const name = (id: string) => ACTOR_PROFILES[id as ActorId]?.name ?? id;
@@ -133,6 +136,8 @@ export function computeResult(input: ScoringInput): EpisodeResult {
       replannedAfterInterruption: replanned,
       alarmRaised: input.alarm.active,
       alarmLatencySimSec: alarmLatency,
+      alarmBy: input.alarm.active ? (input.alarm.via === 'instinct' ? 'instinct' : 'planner') : null,
+      instinctFlees: input.instinctFlees,
       escaped: input.roster.checkedIn.length,
       lost: input.lost.length,
     },
@@ -189,7 +194,7 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
       l: lesson(
         'losses',
         input.outcome.status === 'failed' ? 'Nobody got out' : 'Lost to the spreading fire',
-        `The fire reached ${parts.join('; ')}. Fire spreads to nearby floor every second: early warning, leaving at once and keeping away from known fire are what buy time.`,
+        `The fire reached ${parts.join('; ')}. Fire spreads every second and, given time, burns through walls into the next room: early warning, leaving at once and keeping away from known fire are what buy time.`,
         ['EAP-REPORT', 'EAP-ROUTES'],
       ),
     });
@@ -215,9 +220,9 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
             l: lesson(
               'alarm',
               'Raising the alarm',
-              `${input.alarm.by ? name(input.alarm.by) : 'Someone'} pulled the fire alarm at the ${input.alarm.stationLabel ?? 'pull station'} ${
-                m.procedural.alarmLatencySimSec !== null ? `${m.procedural.alarmLatencySimSec.toFixed(1)} s after the fire was first seen` : ''
-              }. The siren alerts everyone at once — but it does not say where the fire is, so a spoken report with evidence still helps people choose a safe route.`,
+              `${input.alarm.by ? name(input.alarm.by) : 'Someone'} pulled ${ALARM_NAME}${input.alarm.via === 'instinct' ? ' on the way past — an instinct, not an order' : ''}${
+                m.procedural.alarmLatencySimSec !== null ? `, ${m.procedural.alarmLatencySimSec.toFixed(1)} s after the fire was first seen` : ''
+              }. The siren alerts everyone at once — but it does not say where the fire is, so a spoken report still helps people choose a safe route.`,
               ['EAP-REPORT', 'ALARM-SYSTEM'],
             ),
           }
@@ -237,9 +242,7 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
     const i = input.interruptions[0];
     const who = i.partner ? `${name(i.actor)} and ${name(i.partner)}` : name(i.actor);
     const door = i.hazardKind === 'electrical';
-    const what = door
-      ? `${(i.component && input.componentLabels[i.component]) || 'a sliding door'} jammed shut by a power failure${i.evidenceId ? ` (${i.evidenceId})` : ''}`
-      : `fire${i.evidenceId ? ` (${i.evidenceId})` : ''} across their route`;
+    const what = door ? `${doorName(i.component)} jammed shut by a power failure` : `fire across their route ${atPlace(i.zone)}`;
     candidates.push({
       score: 6.5,
       l: lesson(
@@ -262,6 +265,9 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
 
   if (firstFire) {
     const seer = firstFire.actor ? name(firstFire.actor) : 'Someone';
+    const shouted = [
+      ...new Set(input.events.filter((e) => e.type === 'instinct' && e.data.kind === 'shout' && (e.data.heard_by as unknown[] | undefined)?.length && e.actor).map((e) => e.actor!)),
+    ];
     candidates.push({
       score: report ? 5 : 5.5,
       l: lesson(
@@ -269,7 +275,11 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
         'Reporting the hazard',
         report
           ? `${seer} saw the fire${firstFire.data.via === 'smoke' ? ' (smoke)' : ''} at ${fmt(firstFire.simTime)} and ${report.actor ? name(report.actor) : 'someone'} reported it with evidence ${(report.simTime - firstFire.simTime).toFixed(1)} s later. Prompt, evidence-based reporting tells others where the danger is.`
-          : `${seer} saw the fire at ${fmt(firstFire.simTime)}, but nobody described it to the others with evidence. Others only learn where a hazard is if someone reports it.`,
+          : shouted.length
+            ? `${seer} saw the fire at ${fmt(firstFire.simTime)}${
+                shouted.length === 1 && firstFire.actor === shouted[0] ? ' and shouted' : `; ${joinNames(shouted.map(name))} shouted`
+              } "Fire!" to the people in the same room, but nobody told the other rooms where it was. Others only learn where a hazard is if someone reports it.`
+            : `${seer} saw the fire at ${fmt(firstFire.simTime)}, but nobody described it to the others with evidence. Others only learn where a hazard is if someone reports it.`,
         ['EAP-REPORT'],
       ),
     });
