@@ -107,7 +107,7 @@ On a Brev GPU VM (we used 1× H100 80GB HBM3), run [`deploy/vllm/serve.sh`](depl
 docker run -d --name escape-nemotron --restart unless-stopped --gpus all --ipc=host -p 127.0.0.1:8000:8000 \
   -v "$ESCAPE_ROOT/hf-cache:/root/.cache/huggingface" -v "$ESCAPE_ROOT/vllm-cache:/root/.cache/vllm" \
   vllm/vllm-openai:v0.27.1 --model nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16 \
-  --served-model-name escape-nemotron --dtype bfloat16 --max-model-len 8192 --max-num-seqs 4 \
+  --served-model-name escape-nemotron --dtype bfloat16 --max-model-len 8192 --max-num-seqs 8 \
   --max-num-batched-tokens 8192 --gpu-memory-utilization 0.90 --enable-prefix-caching --async-scheduling \
   --mamba-backend flashinfer --mamba-ssm-cache-dtype float16 \
   --enable-mamba-cache-stochastic-rounding --mamba-cache-philox-rounds 5 \
@@ -221,7 +221,7 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 
 **vLLM 0.27.1** serves the model on one Brev H100 (80GB HBM3) through the OpenAI-compatible API — it is the only path the submitted demo and results use.
 - Native tool calls via the `qwen3_coder` parser (100% of measured responses parsed natively; 0 malformed), reasoning separation via `nemotron_v3`.
-- Configured for this workload, not copied blindly: BF16 card recipe + `--max-model-len 8192` (prompts ≈ 3.7K tokens), `--max-num-seqs 4`, prefix caching (system prompt + tools are a shared ~3K-token prefix), API key, bound to localhost and reached through `brev port-forward`.
+- Configured for this workload, not copied blindly: BF16 card recipe + `--max-model-len 8192` (prompts ≈ 3.7K tokens), `--max-num-seqs 8` (five people decide in parallel in agents mode), prefix caching (system prompt + tools are a shared ~3K-token prefix), API key, bound to localhost and reached through `brev port-forward`.
 - Measured: decision latency p50 ≈ 0.6–0.7 s, p95 ≈ 1.0–1.2 s; weights 58.9 GiB, KV cache 9.3 GiB. Throughput and cache numbers: [`deploy/vllm/MODEL_MANIFEST.md`](deploy/vllm/MODEL_MANIFEST.md).
 - We use upstream vLLM because Red Hat AI Inference 3.5.1 packages vLLM 0.24.0, older than this model requires (0.27.1).
 

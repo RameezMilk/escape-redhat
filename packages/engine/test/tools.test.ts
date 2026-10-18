@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Driver, errCode, hero, map, okData } from './helpers.js';
 import { inEarshot, roomsOf } from '../src/index.js';
+import { tilesOf } from './mapFixtures.js';
 
 // Fire in the Red Hat room's far corner: Daniel (18,5) sees it — alone in the room, so nobody hears him. Alex and Maya
 // (cubicles), Rosa (reception) and Kenji (server room) know nothing yet.
@@ -124,6 +125,25 @@ describe('tool validation never mutates state', () => {
     const r2 = okData(d.call('plan_route', { actor_id: 'daniel', destination: 'assembly' }));
     expect(r2.zones).not.toContain('reception_door');
     expect(r2.accessible).toBe(true);
+  });
+
+  it('from an exit doorway the route to the assembly point goes around the building, not back through it (both modes)', () => {
+    const exitTile = tilesOf('west_exit')[0];
+    for (const instincts of [true, false]) {
+      const base = hero();
+      const d = new Driver({ ...base, spawns: { ...base.spawns, maya: { ...exitTile, dir: 'left', pose: 'stand' } } }, { ambient: false, instincts });
+      d.run(5);
+      d.place('fire', 26, 1); // Red Hat room: Daniel sees it and pulls the hallway alarm
+      d.run(2);
+      okData(d.call('move', { actor_id: 'daniel', destination: 'alarm' }));
+      expect(d.until(() => d.actor('maya').alerted, 3000)).toBe(true);
+      // Through the hallway, the cubicles and reception is shorter than the sidewalk — but she is already in the doorway.
+      const route = okData(d.call('plan_route', { actor_id: 'maya', destination: 'assembly' }));
+      expect(route.zones, `instincts ${instincts}`).toEqual(['west_exit', 'sidewalk', 'crosswalk', 'assembly']);
+      const stay = okData(d.call('move', { actor_id: 'maya', destination: 'west_exit' }));
+      expect(stay).toMatchObject({ already_there: true });
+      expect(String(stay.next)).toContain('"assembly"');
+    }
   });
 
   it('a jammed door blocks sight of the fire behind it', () => {

@@ -35,7 +35,7 @@ docker run -d \
   --port 8000 \
   --dtype bfloat16 \
   --max-model-len 8192 \
-  --max-num-seqs 4 \
+  --max-num-seqs 8 \
   --max-num-batched-tokens 8192 \
   --gpu-memory-utilization 0.90 \
   --enable-prefix-caching \

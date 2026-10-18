@@ -301,6 +301,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   /** Every tile inside the building (rooms, corridors, doorways, exits): off-limits to people who are outside. */
   const indoorTiles = new Set<number>();
   const outdoorTiles = new Set<number>();
+  const exitZones = new Set<ZoneId | null>(map.zones.filter((z) => z.kind === 'exit').map((z) => z.id));
   for (let i = 0; i < map.zone.length; i++) {
     if (!map.zone[i]) continue;
     if (isOutsideZone(map.zone[i])) outdoorTiles.add(i);
@@ -1212,7 +1213,17 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     // ...and people inside going somewhere inside stay inside: never out of one exit and back in through another.
     if (instinctsOn && targets.every((t) => indoorTiles.has(tileIndex(map, t.col, t.row)))) for (const i of outdoorTiles) blockedKnown.add(i);
     const start = { col: leader.col, row: leader.row };
-    const path = findPath(map, start, targets, { mask, blocked: blockedKnown, extraCost: fireAdjacentCost(movers, blockedKnown) });
+    const startZone = zoneAt(map, start.col, start.row);
+    let path: Tile[] | null = null;
+    // Standing in an exit doorway (or already outside) and going somewhere outside: walk around the building, not back
+    // through it. This is route choice, not an instinct, so it holds in both modes; no outdoor way → the normal route.
+    if ((exitZones.has(startZone) || leader.wentOutside) && targets.every((t) => outdoorTiles.has(tileIndex(map, t.col, t.row)))) {
+      const around = new Set(blockedKnown);
+      for (const i of indoorTiles) if (map.zone[i] !== startZone) around.add(i);
+      path = findPath(map, start, targets, { mask, blocked: around, extraCost: fireAdjacentCost(movers, around) });
+      if (path) for (const i of around) blockedKnown.add(i);
+    }
+    path ??= findPath(map, start, targets, { mask, blocked: blockedKnown, extraCost: fireAdjacentCost(movers, blockedKnown) });
     if (!path) return null;
     if (movers.length > 1) extendForFollower(start, path, destination, movers, blockedKnown);
     return { path, mask, blockedKnown, movers, start };
@@ -1564,7 +1575,12 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
           destination: args.destination,
           already_there: true,
           at: [leader.col, leader.row],
-          next: args.destination === 'assembly' ? `call check_in for ${movers.join(' and ')}.` : null,
+          next:
+            args.destination === 'assembly'
+              ? `call check_in for ${movers.join(' and ')}.`
+              : exitZones.has(args.destination as ZoneId) || isOutsideZone(args.destination as ZoneId)
+                ? 'keep going to the assembly point ("assembly") and check in.'
+                : null,
         },
       };
     }

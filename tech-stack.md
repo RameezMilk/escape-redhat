@@ -69,7 +69,7 @@ Instead of one planner directing everyone, Alex, Maya and Daniel each get **thei
 | `--tool-call-parser qwen3_coder --enable-auto-tool-choice` | Turns Nemotron's XML tool calls into OpenAI `tool_calls`, as in the card recipe. We send `tool_choice: auto` |
 | `--reasoning-parser nemotron_v3` | Separates reasoning from content when thinking is on (A/B option) |
 | `--max-model-len 8192`, `--max-num-batched-tokens 8192` | Prompts are about 3.7K tokens (system plus tools plus view); the card's 256K context isn't needed |
-| `--max-num-seqs 4` | Three characters plus benchmark headroom; it keeps the KV cache comfortable next to 58.9 GiB of BF16 weights |
+| `--max-num-seqs 8` | Five people can decide in parallel in agents mode, so all five requests fit in one batch; still small next to 58.9 GiB of BF16 weights |
 | `--enable-prefix-caching` | The system prompt and the 10 tool schemas are a stable shared prefix on every call |
 | `--async-scheduling`, `--mamba-*` flags | Taken from the card's single-H100 recipe, including the FP16 Mamba SSM cache |
 | `--api-key`, `-p 127.0.0.1:8000` | Private: the server is reachable only through `brev port-forward` |
