@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `central` (default, benchmarked): one planner call directs all five people from a merged team view.
 - `agents` (`PLANNER_MODE=agents`): each person makes their own reasoning call from their own personal view; the engine's hard-coded survival instincts are off.
 
-`README.md` (quick start, results, limitations) and `tech-stack.md` (serving/tool-calling details with measured numbers) are the user-facing docs.
+`README.md` (quick start, results, limitations) and `docs/tech-stack.md` (serving/tool-calling details with measured numbers) are the user-facing docs.
 
 ## Commands
 
@@ -103,7 +103,7 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
 - **Honesty conventions.**
   - Engine instinct rows carry the origin `Instinct (engine — not the model)` and must never be attributed to the model.
   - Scripted runs are always labelled as fixtures.
-  - Numbers in `README.md` / `tech-stack.md` come only from measured runs saved under `results/`. Fire tuning or rule changes invalidate earlier tables until they are re-measured.
+  - Numbers in `README.md` / `docs/tech-stack.md` come only from measured runs saved under `results/`. Fire tuning or rule changes invalidate earlier tables until they are re-measured.
 - **Fire tuning** lives in the constants at the top of `world.ts` (`FIRE_SPREAD_PER_TICK`, `WALL_IGNITION_FACTOR`, `DOOR_IGNITION_FACTOR`). `packages/engine/test/fire.test.ts` pins the growth bands, the wall delay and room-to-room reach times, using the setups in `packages/engine/test/fireSetups.ts` (`FIRE_SITES`).
   - Wall hold time scales as 1 / (spread × wall factor). To change the spread speed without changing how long walls hold, scale the wall factor inversely.
   - Before re-pinning, measure the new medians with the same seeds and setups as the tests: `npx tsx scripts/measure-fire.ts`.

@@ -56,7 +56,7 @@ If the model takes a different valid path, narrate what it actually did. Don't r
 | 0:00–0:25 | Team on camera: who we are, the problem |
 | 0:25–0:50 | Pitch: "Most evacuation material tells you the procedure. We let you change an office emergency — a spreading fire, a failed door — and watch how the alarm, route updates, assistance and accountability change the outcome." Then what's real and what's not (the fire is a game model, not fire science) |
 | 0:50–2:15 | Live core loop (above) |
-| 2:15–3:30 | Engineering: architecture diagram (README), tool validator and information boundaries (model proposes, engine decides; instincts labelled), vLLM config and measured latency/throughput ([`tech-stack.md`](../tech-stack.md)), benchmark dev/test table (`results/…/summary.md`), replay (labeled) |
+| 2:15–3:30 | Engineering: architecture diagram (README), tool validator and information boundaries (model proposes, engine decides; instincts labelled), vLLM config and measured latency/throughput ([`tech-stack.md`](tech-stack.md)), benchmark dev/test table (`results/…/summary.md`), replay (labeled) |
 | 3:30–4:15 | Why it matters, known limitations, next steps (customer floor plans, RL fine-tuning) |
 
 ## Submission checklist (Airtable form)

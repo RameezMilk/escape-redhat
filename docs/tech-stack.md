@@ -30,7 +30,7 @@ Browser (React + Canvas) ──WebSocket──▶ Node 24 server (laptop)
 
 **An honest stretch.** NVIDIA positions Lightning as the *execution layer*: frontier models plan, Lightning executes ([NVIDIA blog](https://developer.nvidia.com/blog/nvidia-nemotron-3-5-lightning-delivers-fast-accurate-specialized-task-execution-for-long-running-agents)). We deliberately stretch it into a real-time planner, and we back that with a held-out benchmark rather than vendor claims. The card's own table shows Qwen 3.6 35B-A3B ahead on most agentic rows, so we do **not** claim Lightning is the best tool-caller.
 
-**How we optimise it (harness v2, all in [`apps/server/src/prompt.ts`](apps/server/src/prompt.ts)):**
+**How we optimise it (harness v2, all in [`apps/server/src/prompt.ts`](../apps/server/src/prompt.ts)):**
 - **A short state digest at the top of every prompt:** who is urgent near known fire, who is waiting, who can hear whom, hazards, alarm status, open items.
 - **Per-turn action masking:** each tool's `actor_id` enum lists only people who can act now, for example `pull_alarm` only when standing at the station.
 - **Recovery feedback:** every error code carries an actionable hint, and the next prompt tells the model "your last call was rejected — don't repeat it".
@@ -40,40 +40,40 @@ Browser (React + Canvas) ──WebSocket──▶ Node 24 server (laptop)
 
 | Ruleset | Harness | Verified success (normal cases) | Invalid-call rate | Decisions / episode | p50 / p95 decision latency | Source |
 |---|---|---|---|---|---|---|
-| **Current: office-v2 ground floor, five people** (ruleset 3 rules, decision cap 100) | v1 | 6/14 (57/80 people out) | 47.4% | 88.5 | 699 / 1053 ms | [test-v1](results/2026-10-18-office-v2-vllm-h100/test-v1/summary.md) |
-| office-v2 | **v2** | **14/14 (78/80 people out)** | 31.5% | **28.4** | 703 / 984 ms | [test-v2](results/2026-10-18-office-v2-vllm-h100/test-v2/summary.md) |
-| office-v2, per-agent (reasoning ≤128 tokens, concurrency 1) | — | 12/14 (76/80 people out) | 9.2% | 57.7 | 1050 / 1737 ms | [agents-test](results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md) |
-| 1: static fire + blocker | v1 | 5/14 | 26.8% | 38.2 | 668 / 1002 ms | [test-v1](results/2026-10-17-vllm-h100/test-v1/summary.md) |
-| 1 | **v2** | **12/14** | **9.6%** | **28.0** | 670 / 1148 ms | [test-v2](results/2026-10-17-vllm-h100/test-v2/summary.md) |
-| 2: spreading fire, doors, alarm | v1 | 6/14 (26/48 people out) | 33.5% | 51.0 | 709 / 1147 ms | [test-v1](results/2026-10-17-ruleset2-vllm-h100/test-v1/summary.md) |
-| 2 | **v2** | **9/14 (33/48 people out)** | 41.4% | **29.1** | 649 / 1219 ms | [test-v2](results/2026-10-17-ruleset2-vllm-h100/test-v2/summary.md) |
-| 3 (office-v1, three people; history): + room-limited voice, one hallway alarm, instincts, burning walls | v1 | 6/14 (23/48 people out) | 50.9% | 54.1 | 713 / 1117 ms | [test-v1](results/2026-10-17-ruleset3-vllm-h100/test-v1/summary.md) |
-| 3 | **v2** | **11/14 (37/48 people out)** | 51.9% | **24.1** | 720 / 1174 ms | [test-v2](results/2026-10-17-ruleset3-vllm-h100/test-v2/summary.md) |
+| **Current: office-v2 ground floor, five people** (ruleset 3 rules, decision cap 100) | v1 | 9/14 (57/80 people out) | 42.2% | 82.7 | 726 / 1116 ms | [test-v1](../results/2026-10-18-office-v2-vllm-h100/test-v1/summary.md) |
+| office-v2 | **v2** | **13/14 (77/80 people out)** | 32.6% | **29.9** | 730 / 1078 ms | [test-v2](../results/2026-10-18-office-v2-vllm-h100/test-v2/summary.md) |
+| office-v2, per-agent (reasoning ≤128 tokens, concurrency 1) | — | 12/14 (76/80 people out) | 11.7% | 61.1 | 1080 / 2067 ms | [agents-test](../results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md) |
+| 1: static fire + blocker | v1 | 5/14 | 26.8% | 38.2 | 668 / 1002 ms | [test-v1](../results/2026-10-17-vllm-h100/test-v1/summary.md) |
+| 1 | **v2** | **12/14** | **9.6%** | **28.0** | 670 / 1148 ms | [test-v2](../results/2026-10-17-vllm-h100/test-v2/summary.md) |
+| 2: spreading fire, doors, alarm | v1 | 6/14 (26/48 people out) | 33.5% | 51.0 | 709 / 1147 ms | [test-v1](../results/2026-10-17-ruleset2-vllm-h100/test-v1/summary.md) |
+| 2 | **v2** | **9/14 (33/48 people out)** | 41.4% | **29.1** | 649 / 1219 ms | [test-v2](../results/2026-10-17-ruleset2-vllm-h100/test-v2/summary.md) |
+| 3 (office-v1, three people; history): + room-limited voice, one hallway alarm, instincts, burning walls | v1 | 6/14 (23/48 people out) | 50.9% | 54.1 | 713 / 1117 ms | [test-v1](../results/2026-10-17-ruleset3-vllm-h100/test-v1/summary.md) |
+| 3 | **v2** | **11/14 (37/48 people out)** | 51.9% | **24.1** | 720 / 1174 ms | [test-v2](../results/2026-10-17-ruleset3-vllm-h100/test-v2/summary.md) |
 
 - **No false successes.** No harness or mode ever produced a false success on the trapped-by-design cases.
-- **Zero provider errors** in every saved benchmark run, and zero malformed responses from the central planner. Per-agent mode had 10 malformed responses in about 1,700 decisions (office-v2 dev + test).
-- **office-v2 is the current game** (rows 1–3; older rows are history, measured with three people and a slower fire). Baseline → v2: 6/14 → 14/14, people lost on normal cases 6 → 0, a third of the decisions, and the alarm pulled 13.6 s after the first sighting instead of 45.4 s ([per-case comparison](results/2026-10-18-office-v2-vllm-h100/compare-test-v1-vs-v2.md)). Dev split: v2 15/15, per-agent 15/15.
+- **Zero provider errors** in every saved benchmark run, and zero malformed responses from the central planner. Per-agent mode had 31 malformed responses in about 1,740 decisions (office-v2 dev + test), each followed by a fresh decision.
+- **office-v2 is the current game** (rows 1–3; older rows are history, measured with three people and a slower fire). Baseline → v2: 9/14 → 13/14, people lost on normal cases 3 → 1, about a third of the decisions, and the alarm pulled 17.1 s after the first sighting instead of 30.0 s ([per-case comparison](../results/2026-10-18-office-v2-vllm-h100/compare-test-v1-vs-v2.md)). Dev split: v2 15/15, per-agent 15/15.
 - **Ruleset 3 on office-v1 (history).** The high invalid-call rate there is mostly people retrying routes that fire or a dead door had already cut, plus re-entry attempts the engine refuses. v2 needs less than half the decisions and repeats a rejected call a third as often (63 vs 184). The README's Results section carries the latest numbers.
 
 ### Per-agent mode: each person reasons for themselves (`PLANNER_MODE=agents`)
 
-Instead of one planner directing everyone, each of the five people gets **their own Nemotron call with reasoning on** ([`apps/server/src/agentPrompt.ts`](apps/server/src/agentPrompt.ts)).
+Instead of one planner directing everyone, each of the five people gets **their own Nemotron call with reasoning on** ([`apps/server/src/agentPrompt.ts`](../apps/server/src/agentPrompt.ts)).
 - **Personal view only** (`engine.agentView`): what *that* person has seen, been told, or can hear in their room, plus the siren — never anyone else's private knowledge.
 - **No hard-coded instincts.** The engine's shout / back-away / pull-in-passing / no-re-entry rules are switched off (`EngineOptions.instincts=false`). Each person's prompt makes them responsible for those things instead: get away from fire, raise the alarm if you know of a fire and haven't heard the siren, warn your room, don't go back in.
 - **Parallel decisions, actor pinned.** Everyone who is ready decides at once (headless: asked in parallel, applied in a fixed order for determinism); a call is always executed for the person who made it. The trace shows `Nemotron → Maya (own decision) → move` and a collapsible "thinking" block with the model's reasoning.
-- **Reasoning cap.** Decision latency is almost all reasoning decode, so each call sends vLLM's `thinking_token_budget` (default 128 tokens, `PLANNER_AGENT_THINKING_BUDGET`; `0` = uncapped): vLLM ends the thinking at the budget and the model then writes its tool call. In about 2–3% of calls the model keeps reasoning in the visible reply after the cap (up to ~1,100 completion tokens); the tool call still parses.
-- **Measured, reasoning capped at 128 tokens** (office-v2, one run per case, concurrency 1): test 12/14 normal successes, 0/2 false successes, 76/80 people out, 9.2% invalid calls, 57.7 decisions per episode, decision p50 / p95 1050 / 1737 ms (median ~180 completion tokens); dev 15/15. Sources: [agents-test](results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md), [agents-dev](results/2026-10-18-office-v2-vllm-h100/agents-dev/summary.md).
+- **Reasoning cap.** Decision latency is almost all reasoning decode, so each call sends vLLM's `thinking_token_budget` (default 128 tokens, `PLANNER_AGENT_THINKING_BUDGET`; `0` = uncapped): vLLM ends the thinking at the budget and the model then writes its tool call. In about 3% of calls the model keeps reasoning in the visible reply after the cap (up to ~1,100 completion tokens); the tool call still parses.
+- **Measured, reasoning capped at 128 tokens** (office-v2, one run per case, concurrency 1): test 12/14 normal successes, 0/2 false successes, 76/80 people out, 11.7% invalid calls, 61.1 decisions per episode, decision p50 / p95 1080 / 2067 ms; dev 15/15. Sources: [agents-test](../results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md), [agents-dev](../results/2026-10-18-office-v2-vllm-h100/agents-dev/summary.md).
 - **History, reasoning uncapped (office-v1, not a benchmark):** reasoning p50 2.5–3.4 s, p95 12.5–15 s per decision (~640 completion tokens, p95 ~2,900). Headless hero 2/2 verified success. With the clock running during inference people stood still for seconds next to fire (one live run: 0/3 escaped), so agents mode **holds the sim clock while anyone is thinking** by default. Prompt + 4k of thinking can exceed the 8k context; the digest drops the raw JSON and the provider retries a context-length 400 with the output budget that fits.
 
 ## 3. Brev + vLLM: the serving layer
 
-**Exact command.** See [`deploy/vllm/serve.sh`](deploy/vllm/serve.sh). The image is `vllm/vllm-openai:v0.27.1`, digest `sha256:0a51ea5b…`.
+**Exact command.** See [`deploy/vllm/serve.sh`](../deploy/vllm/serve.sh). The image is `vllm/vllm-openai:v0.27.1`, digest `sha256:0a51ea5b…`.
 
 | Flag | Why |
 |---|---|
 | `--tool-call-parser qwen3_coder --enable-auto-tool-choice` | Turns Nemotron's XML tool calls into OpenAI `tool_calls`, as in the card recipe. We send `tool_choice: auto` |
 | `--reasoning-parser nemotron_v3` | Separates reasoning from content when thinking is on (A/B option) |
-| `--max-model-len 8192`, `--max-num-batched-tokens 8192` | Central prompts are about 5.3K tokens median and at most 6.2K on the five-person ground floor (system plus tools plus view); per-agent prompts about 3.2K. The card's 256K context isn't needed, but the central planner's 1,024-token output budget leaves under 1K of headroom |
+| `--max-model-len 8192`, `--max-num-batched-tokens 8192` | Central v2 prompts are about 5.2–5.4K tokens median and at most 6.4K on the five-person ground floor (system plus tools plus view); per-agent prompts about 3.2K. The card's 256K context isn't needed, but the central planner's 1,024-token output budget leaves under 1K of headroom |
 | `--max-num-seqs 8` | Five people can decide in parallel in agents mode, so all five requests fit in one batch; still small next to 58.9 GiB of BF16 weights |
 | `--enable-prefix-caching` | The system prompt and the 10 tool schemas are a stable shared prefix on every call |
 | `--async-scheduling`, `--mamba-*` flags | Taken from the card's single-H100 recipe, including the FP16 Mamba SSM cache |
@@ -83,8 +83,8 @@ Instead of one planner directing everyone, each of the five people gets **their 
 
 | Concurrent episodes | Episodes / min | Decision p50 / p95 | Source |
 |---|---|---|---|
-| 1 | 5.66 | 462 / 625 ms | [dev-v2-c1](results/2026-10-17-vllm-h100/dev-v2-c1/summary.md) |
-| 4 | **13.81** (2.4×) | 585 / 1043 ms | [dev-v2](results/2026-10-17-vllm-h100/dev-v2/summary.md) |
+| 1 | 5.66 | 462 / 625 ms | [dev-v2-c1](../results/2026-10-17-vllm-h100/dev-v2-c1/summary.md) |
+| 4 | **13.81** (2.4×) | 585 / 1043 ms | [dev-v2](../results/2026-10-17-vllm-h100/dev-v2/summary.md) |
 
 vLLM batching of concurrent rollouts gives 2.4× the episode throughput, for about 120 ms on the median decision.
 
