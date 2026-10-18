@@ -9,13 +9,6 @@ export const map = loadMap();
 /** demo-hero spawns/seed/preference; its presenter events are 'manual' (ignored by the engine), so they are dropped. */
 export const hero = (): ScenarioCase => ({ ...(JSON.parse(readFileSync(join(root, 'data/scenarios/demo-hero.json'), 'utf8')) as ScenarioCase), events: [] });
 
-/** Everyone standing safely outside on the plaza (non-flammable). */
-export const outsideSpawns = (): ScenarioCase['spawns'] => ({
-  alex: { col: 22, row: 20, dir: 'down', pose: 'stand' },
-  maya: { col: 23, row: 20, dir: 'down', pose: 'stand' },
-  daniel: { col: 24, row: 20, dir: 'down', pose: 'stand' },
-});
-
 /** Test driver that also records RunInputs for replay checks. */
 export class Driver {
   engine: Engine;

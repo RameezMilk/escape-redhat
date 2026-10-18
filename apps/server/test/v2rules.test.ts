@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CreateEngine, PlannerView, ServerMessage, TraceRow, WorldEvent } from '@escape/contracts';
 import { TOOL_DEFS } from '@escape/contracts';
+import { loadMap } from '@escape/engine';
 import { readPlannerConfig } from '../src/config.js';
 import { bubblesForEvent, describeEvent, Orchestrator } from '../src/orchestrator.js';
 import { stateDigest, toolsFor } from '../src/prompt.js';
@@ -10,6 +11,7 @@ import { EvidenceBook } from '../src/places.js';
 import { ScriptedProvider } from '../src/providers/scripted.js';
 import { Session } from '../src/session.js';
 import { FakeEngine, fakeMap, fakeScenario } from './fakeEngine.js';
+import { idLeakRegex } from './idLeak.js';
 
 const ev = (type: WorldEvent['type'], data: Record<string, unknown>, extra: Partial<WorldEvent> = {}): WorldEvent => ({
   seq: 1,
@@ -63,7 +65,7 @@ const enumOf = (tools: ReturnType<typeof toolsFor>, name: string) =>
     .actor_id.enum ?? null);
 
 /** Nothing a viewer sees may contain evidence ids, raw zone/door ids, action ids or tile coordinates. */
-const ID_LEAK = /\bE\d+\b|\b(rh_room|door_a|door_b|north_corridor|connector|south_branch|west_exit|east_exit|west_sidewalk|south_door)\b|\b[AD]-\d+\b|\(\d+,\s*\d+\)/;
+const ID_LEAK = idLeakRegex(loadMap());
 
 describe('story beats: wording and bubbles (no ids)', () => {
   it('describes each story beat in plain English with names and places', () => {

@@ -1,21 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { ScenarioCase } from '@escape/contracts';
 import { FIRE_BURN_TICKS, NON_FLAMMABLE_ZONES, WALL_IGNITION_FACTOR, createEngine, lineOfSight, tileIndex } from '../src/index.js';
-import { Driver, errCode, hero, map, outsideSpawns } from './helpers.js';
+import { FIRE_SITES, fireCells, measureGrowth, measureReach, measureSealed, measureWalls, med, outside, terrainOf, zoneOf } from './fireSetups.js';
+import { Driver, errCode, hero, map } from './helpers.js';
 
-const zoneOf = (t: { col: number; row: number }) => map.zone[tileIndex(map, t.col, t.row)];
-const outside = (seed = 7): ScenarioCase => ({ ...hero(), seed, spawns: outsideSpawns() });
-const fireCells = (d: Driver) => d.engine.snapshot().hazards.filter((h) => h.kind === 'fire').flatMap((h) => h.noGo);
-const terrainOf = (t: { col: number; row: number }) => map.terrain[tileIndex(map, t.col, t.row)];
-/** Burning/charred FLOOR cells (walls burn too, but the growth bands are about floor). */
-const floorFire = (d: Driver) => fireCells(d).filter((t) => terrainOf(t) === 'floor');
-const med = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
-
+// Bands are re-pinned from `npx tsx scripts/measure-fire.ts` (same setups, see fireSetups.ts).
 describe('spreading fire', () => {
   it('is deterministic per seed and differs across seeds', () => {
     const run = (seed: number) => {
       const d = new Driver(outside(seed), { ambient: false });
-      d.place('fire', 10, 13);
+      d.place('fire', FIRE_SITES.growth.col, FIRE_SITES.growth.row);
       d.run(300);
       return JSON.stringify(d.engine.snapshot().hazards);
     };
@@ -24,16 +18,7 @@ describe('spreading fire', () => {
   });
 
   it('grows quickly (median of 9 seeds: ~25–42 floor cells at 20 s, ~85–130 at 40 s)', () => {
-    const at20: number[] = [];
-    const at40: number[] = [];
-    for (let seed = 1; seed <= 9; seed++) {
-      const d = new Driver(outside(seed), { ambient: false });
-      expect(d.place('fire', 10, 13).ok).toBe(true);
-      d.run(200);
-      at20.push(floorFire(d).length);
-      d.run(200);
-      at40.push(floorFire(d).length);
-    }
+    const { at20, at40 } = measureGrowth();
     expect(med(at20)).toBeGreaterThanOrEqual(25);
     expect(med(at20)).toBeLessThanOrEqual(42);
     expect(med(at40)).toBeGreaterThanOrEqual(85);
@@ -41,25 +26,10 @@ describe('spreading fire', () => {
   });
 
   it('spreads anywhere indoors: from the hero seed (Red Hat room, south-west corner) it reaches the hallway (median 65–85 s) and the lobby', () => {
-    const hallway: number[] = [];
-    let lobbyBy150 = 0;
-    for (let seed = 1; seed <= 15; seed++) {
-      const d = new Driver(outside(seed), { ambient: false });
-      expect(d.place('fire', 5, 12).ok).toBe(true);
-      let hall = -1;
-      let lobby = -1;
-      for (let t = 1; t <= 1500 && (hall < 0 || lobby < 0); t++) {
-        d.run(1);
-        const cells = fireCells(d);
-        if (hall < 0 && cells.some((c) => zoneOf(c) === 'north_corridor')) hall = t;
-        if (lobby < 0 && cells.some((c) => zoneOf(c) === 'lobby')) lobby = t;
-      }
-      hallway.push(hall < 0 ? Infinity : hall / 10);
-      if (lobby > 0) lobbyBy150++;
-    }
-    expect(med(hallway)).toBeGreaterThanOrEqual(65);
-    expect(med(hallway)).toBeLessThanOrEqual(85);
-    expect(lobbyBy150).toBeGreaterThanOrEqual(8); // a majority of seeds within 150 s
+    const { first, second } = measureReach();
+    expect(med(first)).toBeGreaterThanOrEqual(65);
+    expect(med(first)).toBeLessThanOrEqual(85);
+    expect(second.filter((t) => t <= 150).length).toBeGreaterThanOrEqual(8); // a majority of seeds within 150 s
   });
 
   it('never ignites outdoors, exits or the assembly area (walls next to them may burn), and burns out into charred debris', () => {
@@ -80,57 +50,17 @@ describe('spreading fire', () => {
   });
 
   it('closed (disabled) sliding doors and walls hold the fire back (≥15 s median), then it breaks through', () => {
-    const delays: number[] = [];
-    let escaped = 0;
-    for (let seed = 1; seed <= 15; seed++) {
-      const d = new Driver(outside(seed), { ambient: false });
-      expect(d.place('electrical', 8, 4).ok).toBe(true);
-      expect(d.place('electrical', 18, 9).ok).toBe(true);
-      expect(d.place('fire', 10, 13).ok).toBe(true);
-      // touch: burning floor right against the north wall/door A (row 5) or the east wall/door B (col 17)
-      let touch = -1;
-      let out = -1;
-      for (let t = 1; t <= 3000 && out < 0; t++) {
-        d.run(1);
-        const cells = fireCells(d);
-        if (touch < 0 && cells.some((c) => terrainOf(c) === 'floor' && (c.row === 5 || c.col === 17))) touch = t;
-        if (cells.some((c) => terrainOf(c) === 'floor' && zoneOf(c) !== 'rh_room')) out = t;
-      }
-      if (out > 0) {
-        escaped++;
-        delays.push((out - touch) / 10);
-      }
-    }
+    const { escaped, delays } = measureSealed();
     expect(escaped).toBeGreaterThanOrEqual(12); // it gets out of the sealed room (through walls / burnt doors)
     expect(med(delays)).toBeGreaterThanOrEqual(15);
   });
 
   it(`a wall next to burning floor ignites after ~20–30 s (median; WALL_IGNITION_FACTOR ${WALL_IGNITION_FACTOR}) and the fire reaches the next room`, () => {
-    const firstWall: number[] = [];
-    let nextRoom = 0;
-    for (const [col, row, far] of [
-      [16, 12, 'lobby'], // against the Red Hat room's east wall
-      [15, 5, 'north_corridor'], // against its north wall
-    ] as const) {
-      for (let seed = 1; seed <= 21; seed++) {
-        const d = new Driver(outside(seed), { ambient: false });
-        expect(d.place('fire', col, row).ok).toBe(true);
-        let wall = -1;
-        let reached = false;
-        for (let t = 1; t <= 1200 && !(wall > 0 && reached); t++) {
-          d.run(1);
-          const cells = fireCells(d);
-          if (wall < 0 && cells.some((c) => terrainOf(c) === 'wall')) wall = t;
-          reached ||= cells.some((c) => zoneOf(c) === far);
-        }
-        if (wall > 0) firstWall.push(wall / 10);
-        if (reached) nextRoom++;
-      }
-    }
-    expect(firstWall.length).toBe(42);
+    const { firstWall, nextRoom, runs } = measureWalls();
+    expect(firstWall.length).toBe(runs);
     expect(med(firstWall)).toBeGreaterThanOrEqual(20);
     expect(med(firstWall)).toBeLessThanOrEqual(30);
-    expect(nextRoom).toBeGreaterThanOrEqual(36); // within 120 s, almost always
+    expect(nextRoom).toBeGreaterThanOrEqual(Math.round(runs * 0.85)); // within 120 s, almost always
   });
 
   it('a burning wall is visible from the far side and is never lethal or passable', () => {

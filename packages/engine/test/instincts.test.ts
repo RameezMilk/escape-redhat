@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ScenarioCase, WorldEvent } from '@escape/contracts';
 import { FLEE_DESTINATION, FLEE_RADIUS, replayRun, tileIndex } from '../src/index.js';
-import { Driver, errCode, hero, map, okData, outsideSpawns } from './helpers.js';
+import { Driver, errCode, hero, map, okData } from './helpers.js';
 
 const instincts = (d: Driver, kind: string, actor?: string) =>
   d.engine.events.filter((e) => e.type === 'instinct' && e.data.kind === kind && (!actor || e.actor === actor));
@@ -108,7 +108,9 @@ describe('instinct: the alarm on the way', () => {
 describe('instinct: no going back in', () => {
   it('people outside cannot be sent back inside (zones, the alarm, people indoors); outside destinations still work', () => {
     const base = hero();
-    const d = new Driver({ ...base, spawns: { ...outsideSpawns(), alex: base.spawns.alex } }, { ambient: false });
+    // Maya and Daniel on the plaza in view of the east exit; Alex inside at his desk.
+    const plaza = { maya: { col: 23, row: 20, dir: 'down', pose: 'stand' }, daniel: { col: 24, row: 20, dir: 'down', pose: 'stand' } } as const;
+    const d = new Driver({ ...base, spawns: { ...base.spawns, ...plaza } }, { ambient: false });
     expect(d.place('fire', 26, 16).ok).toBe(true); // visible from the plaza through the east exit
     d.run(2);
     expect(d.actor('maya').alerted).toBe(true);

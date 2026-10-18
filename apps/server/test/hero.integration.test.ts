@@ -3,17 +3,18 @@ import { mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createEngine } from '@escape/engine';
+import { createEngine, loadMap } from '@escape/engine';
 import type { ScenarioCase, ServerMessage, TraceRow } from '@escape/contracts';
 import { readPlannerConfig } from '../src/config.js';
 import { loadCases, loadMapFile } from '../src/data.js';
 import { runEpisodeHeadless } from '../src/headless.js';
 import { ScriptedProvider } from '../src/providers/scripted.js';
 import { Session } from '../src/session.js';
+import { idLeakRegex } from './idLeak.js';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 /** Viewer-facing text must never contain evidence ids, raw zone/door ids, action ids or coordinates. */
-const ID_LEAK = /\bE\d+\b|\b(rh_room|door_a|door_b|north_corridor|connector|south_branch|west_exit|east_exit|west_sidewalk|south_door)\b|\b[AD]-\d+\b|\(\d+,\s*\d+\)/;
+const ID_LEAK = idLeakRegex(loadMap());
 /** Sim time of the first alarm in a trace: a completed pull_alarm decision or an instinct alarm story line. */
 const alarmAt = (rows: TraceRow[]) =>
   rows.find((r) => (r.kind === 'decision' && r.tool === 'pull_alarm' && r.status === 'completed') || (r.kind === 'engine' && r.summary.startsWith('🚨')))?.simTime;
