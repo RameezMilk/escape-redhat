@@ -400,6 +400,8 @@ function emptyResult(c: ScenarioCase): EpisodeResult {
         replannedAfterInterruption: false,
         alarmRaised: false,
         alarmLatencySimSec: null,
+        alarmBy: null,
+        instinctFlees: 0,
         escaped: 0,
         lost: 0,
       },
