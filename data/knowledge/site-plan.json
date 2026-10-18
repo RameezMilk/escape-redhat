@@ -1,0 +1,37 @@
+{
+  "title": "Fictional Hack Office Emergency Action Plan (exercise only)",
+  "disclaimer": "Fictional plan for a fictional office used in a simulation exercise. Not a real building's plan, not compliance advice, not certified training. Not affiliated with or endorsed by Red Hat or NVIDIA.",
+  "sections": {
+    "reporting": {
+      "text": "Anyone who sees or smells fire shouts \"Fire!\" to the people in their own room at once. Speech (notify) reaches only the same room — doorways join the two rooms they connect; anyone elsewhere does not hear it. To warn the whole building, use one of the two manual pull stations — in the main hallway by the west exit, or in reception by the main entrance (move to 'alarm' to reach the nearest, then pull_alarm); anyone passing one on the way out pulls it. The siren alerts everyone to evacuate but does not say where the hazard is, so tell people near you what you saw and where. Never go back inside to reach an alarm. Fire spreads, so alert people early. No real emergency call is made in this exercise.",
+      "rule_ids": [
+        "EAP-REPORT",
+        "ALARM-SYSTEM",
+        "NC-CONTEXT"
+      ]
+    },
+    "routes": {
+      "text": "Three ground-level exits lead outside: the main entrance from reception, the west exit at the end of the main hallway, and the kitchen back exit. Outside, cross the street at the crosswalk to the assembly point at the bus stop. Every room except the GPU server room has a second way out (the server room has a single door onto the hallway); the per-room primary and alternate routes are listed in the route briefing. Interior sliding doors are electric and can jam shut; exits are manual and always open. Fire spreads to nearby floor and can burn through walls: back away from flames, leave early by the exit away from the fire, re-plan if a route is unavailable, and never go back inside once out. All routes are wheelchair-accessible.",
+      "rule_ids": [
+        "EAP-ROUTES",
+        "EXIT-CLEAR",
+        "EXIT-OPENABLE",
+        "GUIDE-LAYOUT-BUDDY"
+      ]
+    },
+    "assistance": {
+      "text": "Visitors who may need help agree a buddy in advance. The warden, Alex, is Daniel's designated buddy if Daniel asks for it (Daniel uses a wheelchair; his current preference is in the briefing). Consent first: Daniel asks with request_assistance, Alex goes next to him, then assist links them and they move together on accessible tiles. Using the buddy is good practice but not required: Daniel moves himself and can evacuate independently on accessible routes. Nobody carries or lifts Daniel.",
+      "rule_ids": [
+        "EAP-ASSIST",
+        "GUIDE-LAYOUT-BUDDY"
+      ]
+    },
+    "accountability": {
+      "text": "Everyone who gets out crosses the street to the assembly point at the bus stop (the yellow area) and checks in with check_in; it only counts when physically inside the assembly area. Then the warden, Alex, runs verify_roster: every survivor must be checked in. Anyone caught by the fire is reported as lost, never assumed safe. Only the roster verification confirms the exercise complete.",
+      "rule_ids": [
+        "EAP-ACCOUNT",
+        "GUIDE-ACCOUNT"
+      ]
+    }
+  }
+}

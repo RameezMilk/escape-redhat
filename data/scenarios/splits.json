@@ -1,0 +1,491 @@
+{
+  "dataset": "escape-office-scenarios-v3",
+  "ruleset": 2,
+  "structural_holdout": {
+    "description": "Dev and test use disjoint fire-location families; test fire placements never appear in dev.",
+    "dev_fire_families": [
+      "rh_room",
+      "cubicles",
+      "kitchen"
+    ],
+    "test_fire_families": [
+      "server_room",
+      "hallway",
+      "reception"
+    ]
+  },
+  "splits": {
+    "dev": [
+      {
+        "caseId": "dev-00-hero",
+        "family": "hero",
+        "fireFamily": "hero",
+        "doors": [
+          "reception_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "maya"
+        ]
+      },
+      {
+        "caseId": "dev-01-fire_only",
+        "family": "fire_only",
+        "fireFamily": "rh_room",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      },
+      {
+        "caseId": "dev-02-fire_only",
+        "family": "fire_only",
+        "fireFamily": "cubicles",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "maya"
+        ]
+      },
+      {
+        "caseId": "dev-03-fire_only",
+        "family": "fire_only",
+        "fireFamily": "kitchen",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "maya"
+        ]
+      },
+      {
+        "caseId": "dev-04-fire_only",
+        "family": "fire_only",
+        "fireFamily": "rh_room",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "daniel"
+        ]
+      },
+      {
+        "caseId": "dev-05-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "rh_room",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "alex"
+        ]
+      },
+      {
+        "caseId": "dev-06-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "cubicles",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "alex",
+          "rosa"
+        ]
+      },
+      {
+        "caseId": "dev-07-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "kitchen",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "rosa"
+        ]
+      },
+      {
+        "caseId": "dev-08-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "rh_room",
+        "doors": [
+          "rh_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "alex"
+        ]
+      },
+      {
+        "caseId": "dev-09-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "cubicles",
+        "doors": [
+          "side_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "alex",
+          "maya",
+          "rosa"
+        ]
+      },
+      {
+        "caseId": "dev-10-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "kitchen",
+        "doors": [
+          "rh_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      },
+      {
+        "caseId": "dev-11-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "rh_room",
+        "doors": [
+          "reception_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "daniel"
+        ]
+      },
+      {
+        "caseId": "dev-12-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "cubicles",
+        "doors": [
+          "kitchen_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": []
+      },
+      {
+        "caseId": "dev-13-independent",
+        "family": "independent",
+        "fireFamily": "rh_room",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "independent",
+        "fireInitiallySeenBy": []
+      },
+      {
+        "caseId": "dev-14-independent",
+        "family": "independent",
+        "fireFamily": "cubicles",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "independent",
+        "fireInitiallySeenBy": [
+          "alex"
+        ]
+      },
+      {
+        "caseId": "dev-15-trapped",
+        "family": "trapped",
+        "fireFamily": "rh_room",
+        "doors": [
+          "rh_door",
+          "pantry_door"
+        ],
+        "fires": 1,
+        "solvable": false,
+        "expectLosses": true,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "daniel"
+        ]
+      }
+    ],
+    "test": [
+      {
+        "caseId": "test-01-fire_only",
+        "family": "fire_only",
+        "fireFamily": "server_room",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": []
+      },
+      {
+        "caseId": "test-02-fire_only",
+        "family": "fire_only",
+        "fireFamily": "hallway",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "rosa"
+        ]
+      },
+      {
+        "caseId": "test-03-fire_only",
+        "family": "fire_only",
+        "fireFamily": "reception",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "alex",
+          "daniel",
+          "rosa"
+        ]
+      },
+      {
+        "caseId": "test-04-fire_only",
+        "family": "fire_only",
+        "fireFamily": "server_room",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      },
+      {
+        "caseId": "test-05-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "server_room",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      },
+      {
+        "caseId": "test-06-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "hallway",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": []
+      },
+      {
+        "caseId": "test-07-multi_fire",
+        "family": "multi_fire",
+        "fireFamily": "reception",
+        "doors": [],
+        "fires": 2,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "rosa"
+        ]
+      },
+      {
+        "caseId": "test-08-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "server_room",
+        "doors": [
+          "reception_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": []
+      },
+      {
+        "caseId": "test-09-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "hallway",
+        "doors": [
+          "side_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      },
+      {
+        "caseId": "test-10-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "reception",
+        "doors": [
+          "reception_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "rosa"
+        ]
+      },
+      {
+        "caseId": "test-11-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "server_room",
+        "doors": [
+          "reception_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      },
+      {
+        "caseId": "test-12-fire_then_door",
+        "family": "fire_then_door",
+        "fireFamily": "hallway",
+        "doors": [
+          "kitchen_door"
+        ],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": true,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": []
+      },
+      {
+        "caseId": "test-13-independent",
+        "family": "independent",
+        "fireFamily": "server_room",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "independent",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      },
+      {
+        "caseId": "test-14-independent",
+        "family": "independent",
+        "fireFamily": "hallway",
+        "doors": [],
+        "fires": 1,
+        "solvable": true,
+        "expectLosses": false,
+        "primaryRouteBlocked": false,
+        "danielPreference": "independent",
+        "fireInitiallySeenBy": []
+      },
+      {
+        "caseId": "test-15-trapped",
+        "family": "trapped",
+        "fireFamily": "server_room",
+        "doors": [
+          "server_door"
+        ],
+        "fires": 1,
+        "solvable": false,
+        "expectLosses": true,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      },
+      {
+        "caseId": "test-16-trapped",
+        "family": "trapped",
+        "fireFamily": "server_room",
+        "doors": [
+          "server_door"
+        ],
+        "fires": 1,
+        "solvable": false,
+        "expectLosses": true,
+        "primaryRouteBlocked": false,
+        "danielPreference": "buddy",
+        "fireInitiallySeenBy": [
+          "kenji"
+        ]
+      }
+    ]
+  }
+}

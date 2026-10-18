@@ -1,0 +1,12 @@
+{
+  "mapId": "office-v2",
+  "events": [
+    { "id": "ev-fire", "trigger": { "type": "at_time", "simTime": 1 }, "action": { "type": "place_hazard", "kind": "fire", "col": 10, "row": 17 } },
+    { "id": "ev-door", "trigger": { "type": "actor_enters_zone", "actor": "any", "zone": "hallway" }, "action": { "type": "place_hazard", "kind": "electrical", "col": 31, "row": 12 } }
+  ],
+  "labels": {
+    "solvable": true,
+    "primaryRouteBlocked": true,
+    "notes": "Scripted hero story: a fire starts in the cubicles at t=1 s (Maya sees it; Alex hears her; nobody in the other rooms knows), and the reception door loses power when anyone enters the main hallway — the way Daniel and Kenji would take to the main entrance. Alternate routes: the cubicles and the reception side door, the kitchen back exit, or the west exit."
+  }
+}

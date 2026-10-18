@@ -1,0 +1,35 @@
+{
+  "name": "escape-from-red-hat",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pixel-art evacuation exercise: one Nemotron Lightning planner coordinates three characters through validated tools.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w @escape/server\" \"npm run dev -w @escape/web\"",
+    "build": "npm run build -w @escape/web",
+    "start": "npm run start -w @escape/server",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "data:map": "tsx data/maps/build-map.ts",
+    "data:scenarios": "tsx data/scenarios/generator.ts",
+    "assets:build": "tsx scripts/build-pixel-assets.ts",
+    "bench": "tsx --env-file-if-exists=.env apps/eval/src/bench.ts",
+    "replay": "tsx --env-file-if-exists=.env apps/eval/src/replay.ts",
+    "deps:audit": "node scripts/audit-dep-dates.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "concurrently": "^9.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.0"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "dataset": "escape-office-scenarios-v3",
+  "ruleset": 2,
+  "license": "CC-BY-4.0",
+  "synthetic": true,
+  "created": "2026-10-17",
+  "created_during": "NVIDIA x Red Hat Small Models Hack, Raleigh NC, 2026-10-17/18",
+  "generator": {
+    "path": "data/scenarios/generator.ts",
+    "version": "3.0.0",
+    "master_seed": 20261017
+  },
+  "map": {
+    "id": "office-v2",
+    "hash": "f82a8bdea353a149",
+    "source": "data/maps/office-v2.ascii + data/maps/office-v2.spec.ts (data/maps/builder.ts)"
+  },
+  "method": "Seeded sampling of spawns (map.spawnSpots), 2×2 fire seeds from fire-location families (dev/test disjoint), second fire seeds (multi_fire), and electrical failures on interior sliding doors chosen against oracle shortest routes; solvability labels from a full-knowledge grid search at placement time (Daniel on wheelchair-clearance tiles). Fire spread happens later in the engine (seeded, stochastic). No real-world measurements are included.",
+  "hazard_geometry": {
+    "fire": {
+      "w": 2,
+      "h": 2,
+      "sightRadius": 9,
+      "note": "2×2 seed; spreads stochastically in the engine"
+    },
+    "electrical": {
+      "sightRadius": 5,
+      "note": "disables one interior electric sliding door (its tiles become impassable and opaque)"
+    }
+  },
+  "engine_cross_check": "every placement validated with packages/engine validatePlacement",
+  "inputs": {
+    "demo-hero.json": "8aa97a7c5432c76fb75def7fccce3234e07679f4dda112a5503280657d8d2364",
+    "hero-story.json": "c0fd3dee8732e07921843954d3d7191cac6b6856af66dcc93fbcdabed5fd1a54",
+    "office-v2.json": "4f0432515fec48c38c0707ab67710ded5c038390d199ba2224344815ae373f92"
+  },
+  "outputs": {
+    "cases.dev.jsonl": "7ba9d519eb21b6877129e07422535213ea0d90a8ff3d76ac6508630e522a1d25",
+    "cases.test.jsonl": "7743adc815bb6955f6a39604dd1276043f00ddf8ccb89a51c001e526fcddaacd",
+    "splits.json": "ad46148d803b01720853ca6af4e4aa2ccbfe61ee3653df886c21c0e7eae66016"
+  },
+  "counts": {
+    "dev": 16,
+    "test": 16
+  }
+}

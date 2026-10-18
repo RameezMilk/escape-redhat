@@ -1,0 +1,21 @@
+{
+  "caseId": "demo-hero",
+  "split": "demo",
+  "family": "hero",
+  "seed": 20261017,
+  "mapId": "office-v2",
+  "spawns": {
+    "alex": { "col": 20, "row": 15, "dir": "up", "pose": "sit" },
+    "maya": { "col": 4, "row": 15, "dir": "up", "pose": "sit" },
+    "daniel": { "col": 18, "row": 5, "dir": "right", "pose": "sit" },
+    "rosa": { "col": 26, "row": 15, "dir": "down", "pose": "sit" },
+    "kenji": { "col": 11, "row": 6, "dir": "up", "pose": "sit" }
+  },
+  "danielPreference": "buddy",
+  "events": [],
+  "labels": {
+    "solvable": true,
+    "primaryRouteBlocked": false,
+    "notes": "The live demo: a normal day on the ground floor. Alex (the warden) and Maya work in the cubicles, Daniel is visiting the Red Hat conference room, Rosa is at the front desk and Kenji is in the GPU server room. The presenter places fires and power cuts wherever they like."
+  }
+}
