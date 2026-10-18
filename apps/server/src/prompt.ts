@@ -51,7 +51,7 @@ const PROCEDURE_V2 = `PROCEDURE (in order of need)
 5. Buddy (optional): Daniel may ask Alex for help (request_assistance → Alex next to him → assist; then moving Alex moves both). Never delay anyone's evacuation for it; nobody is carried.
 6. Account: check_in each person inside the assembly area; when every survivor is checked in, Alex calls verify_roster — the only way to confirm the drill is complete.
 MESSAGES: plain language — where the danger is and which way to go, e.g. "Fire by door A — leave through the east door, now!" or "The south door is dead — go out through the north hallway and the west exit." Never put evidence ids, zone codes or coordinates in message text (evidence_ids carries those).
-RULES: one tool call per turn, most urgent person first; the tool list shows only people who can take each action right now; never repeat a rejected call unchanged — read its hint and fix the cause; only cite evidence ids that appear in the state; plan_route/observe/consult_plan are optional look-ups that move nobody.`;
+RULES: send people to destination "assembly" (their route goes through the nearest safe exit) rather than to an exit; one tool call per turn, most urgent person first; the tool list shows only people who can take each action right now; never repeat a rejected call unchanged — read its hint and fix the cause; only cite evidence ids that appear in the state; plan_route/observe/consult_plan are optional look-ups that move nobody.`;
 
 export function buildSystemPrompt(harness: Harness, map: MapData, scenario: ScenarioCase): string {
   return [ROLE, briefing(map, scenario), harness === 'v2' ? PROCEDURE_V2 : GOAL_V1].join('\n\n');

@@ -1119,7 +1119,14 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
 
   /** Candidate target tiles for a destination (zone, person or 'alarm'), excluding occupied/claimed/known-blocked tiles. */
   function targetsFor(destination: string, movers: ActorId[], mask: NavMask, blocked: Set<number>): Tile[] {
-    const occupied = occupiedBy(movers);
+    const free = targetsForOcc(destination, movers, mask, blocked, true);
+    // Small destinations (an exit doorway, the alarm stand) can be fully claimed by others: people may share a tile
+    // rather than be told there is "no route".
+    return free.length ? free : targetsForOcc(destination, movers, mask, blocked, false);
+  }
+
+  function targetsForOcc(destination: string, movers: ActorId[], mask: NavMask, blocked: Set<number>, avoidOccupied: boolean): Tile[] {
+    const occupied = avoidOccupied ? occupiedBy(movers) : new Set<number>();
     const ok = (t: Tile) => {
       const i = idx(t);
       return (mask === 'accessible' ? map.accessible[i] : map.walkable[i]) && !occupied.has(i) && !blocked.has(i);
