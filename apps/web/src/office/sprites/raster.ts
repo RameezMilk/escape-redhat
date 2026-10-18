@@ -71,17 +71,17 @@ export class Raster {
     return this;
   }
 
-  /** Draw text with the 3×5 font (1px letter spacing). Returns width used. */
-  text(str: string, x: number, y: number, c: string): number {
+  /** Draw text with the 3×5 font (1px letter spacing), each font pixel `s`×`s`. Returns width used. */
+  text(str: string, x: number, y: number, c: string, s = 1): number {
     let cx = x;
     for (const chRaw of str.toUpperCase()) {
       const glyph = FONT_3X5[chRaw] ?? FONT_3X5['?'];
       glyph.forEach((row, gy) => {
-        for (let gx = 0; gx < row.length; gx++) if (row[gx] === '#') this.set(cx + gx, y + gy, c);
+        for (let gx = 0; gx < row.length; gx++) if (row[gx] === '#') this.rect(cx + gx * s, y + gy * s, s, s, c);
       });
-      cx += glyph[0].length + 1;
+      cx += (glyph[0].length + 1) * s;
     }
-    return cx - x - 1;
+    return cx - x - s;
   }
 
   /** Add a 1px dark outline around all opaque pixels (outside only). */
@@ -111,10 +111,10 @@ export class Raster {
   }
 }
 
-export function textWidth(str: string): number {
+export function textWidth(str: string, s = 1): number {
   let w = 0;
   for (const ch of str.toUpperCase()) w += (FONT_3X5[ch] ?? FONT_3X5['?'])[0].length + 1;
-  return Math.max(0, w - 1);
+  return Math.max(0, w - 1) * s;
 }
 
 export function mirrorSprite(s: SpriteData): SpriteData {

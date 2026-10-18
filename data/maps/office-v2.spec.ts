@@ -133,9 +133,8 @@ const spec: MapSpec = {
     { type: 'BUS_SHELTER', col: 37, row: 27 },
   ],
   decor: [
-    { kind: 'sign_nvidia_logo', col: 5, row: 0, label: 'NVIDIA' },
-    { kind: 'sign_redhat', col: 20, row: 0, label: 'RED HAT' },
-    { kind: 'warden_sign', col: 20, row: 12, label: 'FIRE WARDEN' },
+    { kind: 'sign_nvidia_logo', col: 8, row: 0, label: 'NVIDIA' }, // centred on col 8's left edge: the middle of the server room
+    { kind: 'sign_redhat', col: 21, row: 0, label: 'RED HAT' }, // centred on col 21's left edge: the middle of the Red Hat room
     { kind: 'sign_welcome', col: 34, row: 12, label: 'WELCOME' },
     { kind: 'evac_plan', col: 14, row: 8, label: 'Evacuation plan' },
     { kind: 'evac_plan', col: 37, row: 12, label: 'Evacuation plan' },
@@ -164,7 +163,7 @@ const spec: MapSpec = {
   // They are the ONLY building-wide alert — spoken notify reaches only people in the same room.
   alarms: [
     { id: 'alarm_hallway', name: 'the hallway fire alarm', label: 'Pull station — main hallway', wall: { col: 4, row: 8 }, stand: { col: 4, row: 9 } },
-    { id: 'alarm_reception', name: 'the reception fire alarm', label: 'Pull station — reception', wall: { col: 29, row: 19 }, stand: { col: 29, row: 18 } },
+    { id: 'alarm_reception', name: 'the reception fire alarm', label: 'Pull station — reception (behind the front desk)', wall: { col: 27, row: 12 }, stand: { col: 27, row: 13 } },
   ],
   spawns: {
     alex: [

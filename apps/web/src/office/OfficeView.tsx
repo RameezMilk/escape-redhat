@@ -18,8 +18,10 @@ import { ACTOR_ORDER, ACTOR_VIEW } from './actors';
 import { drawDisintegration, TOTAL_SEC } from './effects/disintegrate';
 import {
   createScene,
+  buildingBounds,
   drawAlarmStrobe,
   drawGhost,
+  extendedGroundMarkings,
   fixtureDrawables,
   rackLedDrawables,
   hazardDrawables,
@@ -47,7 +49,7 @@ export function OfficeView({ map }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<Scene | null>(null);
-  /** zr = integer render zoom (device px per art px), s = extra nearest-neighbour scale (1 when crisp), e = zr * s. */
+  /** zr = integer render zoom (device px per art px), s = extra nearest-neighbour scale to fill the stage, e = zr * s. */
   const zoomRef = useRef({ zr: 2, s: 1, e: 2 });
   const chipRefs = useRef<Partial<Record<ActorId, HTMLDivElement | null>>>({});
   const bubbleRefs = useRef<Partial<Record<ActorId, HTMLDivElement | null>>>({});
@@ -75,24 +77,63 @@ export function OfficeView({ map }: Props) {
     const wrap = wrapRef.current!;
     const scene = sceneRef.current!;
     const statics = staticDrawables(map);
+    const building = buildingBounds(map);
 
     const offscreen = document.createElement('canvas');
+    const ground = document.createElement('canvas'); // floor tiles only (no furniture or people), at render zoom
+    const backdrop = document.createElement('canvas'); // stage-sized: the outdoors carried on past the map's edges
     const mapW = map.cols * T;
     const mapH = map.rows * T;
+
+    /** Fill the stage around the map: beside it, its edge columns continue (sidewalk, road, far sidewalk) with the
+     *  kerbs and centre line running on; above and below, plain sidewalk. Rebuilt on resize only. */
+    const buildBackdrop = () => {
+      const { zr, e } = zoomRef.current;
+      const tz = T * zr;
+      ground.width = mapW * zr;
+      ground.height = mapH * zr;
+      const g = ground.getContext('2d')!;
+      g.imageSmoothingEnabled = false;
+      renderFrame(g, ground.width, ground.height, scene.tileMap, [], [], zr, 0, 0, undefined, undefined, map.layout.tileColors, map.cols, map.rows);
+      backdrop.width = canvas.width;
+      backdrop.height = canvas.height;
+      const b = backdrop.getContext('2d')!;
+      b.imageSmoothingEnabled = false;
+      const { offsetX: mx, offsetY: my } = mapOffset(canvas.width, canvas.height, map.cols, map.rows, e, 0, 0);
+      const step = T * e;
+      const xAt = (c: number) => Math.round(mx + c * step);
+      const yAt = (r: number) => Math.round(my + r * step);
+      const c0 = -Math.ceil(mx / step);
+      const c1 = map.cols + Math.ceil((canvas.width - mx - mapW * e) / step);
+      const r0 = -Math.ceil(my / step);
+      const r1 = map.rows + Math.ceil((canvas.height - my - mapH * e) / step);
+      for (let r = r0; r < r1; r++) {
+        for (let c = c0; c < c1; c++) {
+          const inRows = r >= 0 && r < map.rows;
+          if (inRows && c >= 0 && c < map.cols) continue;
+          const sc = inRows ? (c < 0 ? 0 : map.cols - 1) : 0;
+          const sr = inRows ? r : r < 0 ? 0 : map.rows - 1;
+          b.drawImage(ground, sc * tz, sr * tz, tz, tz, xAt(c), yAt(r), xAt(c + 1) - xAt(c), yAt(r + 1) - yAt(r));
+        }
+      }
+      const ext = 5 * Math.ceil((Math.max(-c0, c1 - map.cols) + 1) / 5);
+      for (const d of extendedGroundMarkings(map, ext)) d.draw(b, mx, my, e);
+    };
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
       const rect = wrap.getBoundingClientRect();
       canvas.width = Math.max(1, Math.round(rect.width * dpr));
       canvas.height = Math.max(1, Math.round(rect.height * dpr));
-      // Prefer the largest INTEGER device-pixel zoom (crisp). Only when even 2× does not fit (e.g. 1440×900 at dpr 1)
-      // render at 1× and upscale nearest-neighbour by a fractional factor so the office stays readable.
+      // Fill the stage: render at the largest integer zoom that fits (crisp), then upscale nearest-neighbour by the
+      // remaining fraction so the map uses all the space it can; the backdrop covers whatever is left on the sides.
       const fit = Math.min(canvas.width / mapW, (canvas.height - 20 * dpr) / (mapH + T));
-      const zr = fit >= 2 ? Math.floor(fit) : 1;
-      const sc = fit >= 2 ? 1 : Math.max(0.5, fit);
+      const zr = Math.max(1, Math.floor(fit));
+      const sc = Math.max(0.5, fit) / zr;
       zoomRef.current = { zr, s: sc, e: zr * sc };
       offscreen.width = mapW * zr;
       offscreen.height = (mapH + 2 * T) * zr; // one tile of headroom above row 0 (wall caps, signs) and below
+      buildBackdrop();
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -176,13 +217,19 @@ export function OfficeView({ map }: Props) {
         // Placement ghost (drawn at render zoom, scaled with the scene)
         const g = placement.state;
         const ev = g.kind && g.visible ? placement.evaluate(g.kind, g.col, g.row, store.getState().snapshot) : null;
-        if (snap?.alarm?.active && !snap.outcome) drawAlarmStrobe(off, offscreen.width, offscreen.height, now, reduced);
+        if (snap?.alarm?.active && !snap.outcome) {
+          // The building and its walls, from one tile above the top wall (its caps) down to the bottom wall.
+          const tz = T * zr;
+          const rect = { x: offsetX + building.col * tz, y: offsetY + (building.row - 1) * tz, w: building.cols * tz, h: (building.rows + 1) * tz };
+          drawAlarmStrobe(off, rect, now, reduced);
+        }
         if (g.kind && ev) drawGhost(off, { kind: g.kind, col: g.col, row: g.row, valid: ev.valid, tiles: ev.tiles }, offsetX, offsetY, zr, now);
 
-        // Blit to the visible canvas (1:1 when crisp; nearest-neighbour upscale otherwise)
+        // Blit to the visible canvas over the backdrop (nearest-neighbour upscale to the fitted zoom)
         const { offsetX: mx, offsetY: my } = mapOffset(canvas.width, canvas.height, map.cols, map.rows, e, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(backdrop, 0, 0);
         ctx.drawImage(offscreen, mx - offsetX * sc, my - offsetY * sc, offscreen.width * sc, offscreen.height * sc);
 
         const tip = tipRef.current;
@@ -337,12 +384,10 @@ export function OfficeView({ map }: Props) {
             >
               <span className="name">
                 {v.name}
-                {a?.usesWheelchair ? <span className="wc" title="Uses a wheelchair"> ♿</span> : null}
                 {a?.escort?.role === 'leader' ? (
                   <span className="pair-name">
                     {' '}
                     + {ACTOR_VIEW[a.escort.partner].name}
-                    {ACTOR_PROFILES[a.escort.partner].usesWheelchair ? <span className="wc"> ♿</span> : null}
                   </span>
                 ) : null}
               </span>
@@ -364,7 +409,6 @@ export function OfficeView({ map }: Props) {
             >
               {shown ? (
                 <>
-                  {shown.kind === 'ambient' ? <span className="bubble-tag">ambient · scripted</span> : null}
                   {shown.kind === 'message' ? (
                     isShoutText(shown.text) ? (
                       <span className="bubble-tag tag-instinct" title="human instinct — not a model decision">

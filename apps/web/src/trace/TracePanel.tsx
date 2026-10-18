@@ -9,7 +9,7 @@ import { useStore } from '../state/store';
 import { evidenceNames, humanize, instinctKind } from './humanize';
 import { eventIcon, fmtSim, oneLiner, statusGlyph, stripLeadingEmoji, toolGroup } from './summarize';
 
-type Filter = 'all' | ActorId | 'engine';
+type Filter = 'all' | ActorId;
 
 function fmtVal(v: unknown): string {
   if (typeof v === 'string') return v.length > 60 ? `“${v.slice(0, 58)}…”` : `“${v}”`;
@@ -157,6 +157,8 @@ function EngineRow({ row, names }: { row: TraceRow; names: Map<string, string> }
 export function TracePanel() {
   const trace = useStore((s) => s.trace);
   const provider = useStore((s) => s.provider);
+  const connection = useStore((s) => s.connection);
+  const source = useStore((s) => s.source);
   const [filter, setFilter] = useState<Filter>('all');
   const listRef = useRef<HTMLOListElement>(null);
   const [pinned, setPinned] = useState(true);
@@ -166,7 +168,6 @@ export function TracePanel() {
     () =>
       trace.filter((r) => {
         if (filter === 'all') return true;
-        if (filter === 'engine') return r.kind === 'engine';
         return r.actor === filter;
       }),
     [trace, filter],
@@ -174,11 +175,8 @@ export function TracePanel() {
 
   const counts = useMemo(() => {
     const decisions = trace.filter((r) => r.kind === 'decision');
-    const per = { all: trace.length, engine: 0, ...Object.fromEntries(ACTOR_IDS.map((id) => [id, 0])) } as Record<Filter, number>;
-    for (const r of trace) {
-      if (r.kind === 'engine') per.engine++;
-      else if (r.actor) per[r.actor]++;
-    }
+    const per = { all: trace.length, ...Object.fromEntries(ACTOR_IDS.map((id) => [id, 0])) } as Record<Filter, number>;
+    for (const r of trace) if (r.kind !== 'engine' && r.actor) per[r.actor]++;
     return {
       decisions: new Set(decisions.map((r) => r.decisionId)).size,
       rejected: decisions.filter((r) => r.status === 'rejected' || r.status === 'malformed').length,
@@ -199,15 +197,15 @@ export function TracePanel() {
   };
 
   const scripted = provider?.endpointKind === 'scripted';
-  const how = provider?.mode === 'agents' ? `each person decides for themselves${provider.thinking ? ` · reasoning on${provider.thinkingBudget ? ` (≤${provider.thinkingBudget} tokens)` : ''}` : ''}` : 'one central planner';
-  const plannerName = scripted ? 'Scripted fixture' : provider?.label ?? 'Planner';
+  // No provider line in the header: a dropped server or tunnel is still flagged here.
+  const offline = source === 'live' && connection === 'closed' ? 'server disconnected' : provider?.healthy === false ? 'model unreachable' : null;
   const thinkingLabel = `${scripted ? 'Scripted fixture' : (provider?.label ?? 'Planner').split(' ').slice(0, 1).join(' ') || 'Planner'} is deciding…`;
 
   return (
     <aside className="panel trace-panel">
       <header className="panel-head">
         <div className="th-top">
-          <h2>Agent trace</h2>
+          <h2>Agent Trace</h2>
           <div className="th-stats">
             <span className="stat" title="planner decisions this episode">
               {counts.decisions} <i>decisions</i>
@@ -220,27 +218,26 @@ export function TracePanel() {
             </span>
           </div>
         </div>
-        {scripted ? (
+        {/* Only shown when something is off: the scripted fixture is labelled, and a dropped server or model is flagged. */}
+        {scripted || offline ? (
           <div className="th-sub">
-            <span className="scripted-chip">SCRIPTED — not a model</span> · {how} · engine-validated
+            {scripted ? <span className="scripted-chip">SCRIPTED — not a model</span> : null}
+            {scripted && offline ? ' · ' : null}
+            {offline ? <span className="th-warn">{offline}</span> : null}
           </div>
-        ) : (
-          <div className="th-sub">
-            <b>{plannerName}</b> · {how} · engine-validated
-          </div>
-        )}
+        ) : null}
         <nav className="tabs" role="tablist">
-          {(['all', ...ACTOR_ORDER, 'engine'] as Filter[]).map((f) => (
+          {(['all', ...ACTOR_ORDER] as Filter[]).map((f) => (
             <button
               key={f}
               role="tab"
               aria-selected={filter === f}
               className={`tab ${filter === f ? 'on' : ''}`}
-              style={f !== 'all' && f !== 'engine' ? { ['--actor' as string]: ACTOR_VIEW[f].color } : undefined}
+              style={f !== 'all' ? { ['--actor' as string]: ACTOR_VIEW[f].color } : undefined}
               onClick={() => setFilter(f)}
             >
-              {f !== 'all' && f !== 'engine' ? <span className="tab-dot" aria-hidden /> : null}
-              {f === 'all' ? 'All' : f === 'engine' ? 'Events' : ACTOR_VIEW[f].name}
+              {f !== 'all' ? <span className="tab-dot" aria-hidden /> : null}
+              {f === 'all' ? 'All' : ACTOR_VIEW[f].name}
               <span className="tab-count">{counts.per[f]}</span>
             </button>
           ))}

@@ -1,27 +1,27 @@
 {
   "generated_by": "gym/make_tasks.ts",
   "source": "data/scenarios/cases.{dev,test}.jsonl (escape-office-scenarios-v1)",
-  "map_hash": "74d3e8adcb552d29",
+  "map_hash": "f82a8bdea353a149",
   "files": {
     "dev_v1.jsonl": {
       "rows": 16,
-      "sha256": "f80ece723af9989c7d20da9fa06d31997f3d83f789f690bc01ff0185097b026f"
+      "sha256": "4cbaedd2be38e35f9f4aa65b25ddf6d1e308710d89240424ec0cfb68d182514b"
     },
     "dev_v2.jsonl": {
       "rows": 16,
-      "sha256": "744858d69ebccd1d5d34195d60813e41672d17ec03a58f17632b7e143cbccfd3"
+      "sha256": "d3bea188ed263bc4932f0a4acabc573314a9f33142e959571ac851e89e1baeec"
     },
     "test_v1.jsonl": {
       "rows": 16,
-      "sha256": "44b90ae68742e0c547ed21c572d078b00b57d3d283e40a849d702a7b755c38cf"
+      "sha256": "bc03623455750303d61bc00f05a85e9fbf1401ab3b11bb0ce0bb13132c945a83"
     },
     "test_v2.jsonl": {
       "rows": 16,
-      "sha256": "e35fb698ac42a2aee1e7b1966f93ff0fd5d88ccb134154b03430bf2456e1733b"
+      "sha256": "5ef0a610030ad37480e9d6852df6938f1eda6521fbf8ff61d8793615ca99c5b3"
     },
     "example.jsonl": {
       "rows": 3,
-      "sha256": "baa0cd8785c952332b063cd79b8f7c558c2665af9b962ab3da6a79a18d64d0d1"
+      "sha256": "ebcc9e0e309ccacbe5e02039df18e05056b5a97a50233b32435737fe06923069"
     }
   }
 }

@@ -146,7 +146,7 @@ Development fallback with the same weights: the hosted NVIDIA API Catalog (see e
 
 ### 3. Run the hero scenario
 
-1. `npm run dev`, then open http://localhost:5173. On the start screen, click the glowing ground floor of the (pixel-art) tower or press Enter; add `?intro=0` to the URL to skip it. Check that the top bar shows **Nemotron · self-hosted vLLM** and that the model is healthy.
+1. `npm run dev`, then open http://localhost:5173. On the start screen, click the glowing ground floor of the (pixel-art) tower or press Enter; add `?intro=0` to the URL to skip it. Check that the server's startup line reports `health: OK` for the model, and that the trace panel header shows no "model unreachable" warning.
 2. Watch the idle office. No model calls happen before an incident.
 3. Drag **Fire** into the cubicles beside Maya. It starts spreading, and given time it climbs the walls and moves into the next rooms.
 4. Maya sees it and shouts "Fire!" (instinct), so Alex, in the same room, hears it and both back away from the flames. Daniel (Red Hat room), Rosa (reception) and Kenji (server room) hear nothing. Follow the trace: Nemotron moves people out and gets someone to a **fire-alarm pull station** (a person whose way out passes one pulls it on the way). The siren and red strobes are what alert the other rooms.

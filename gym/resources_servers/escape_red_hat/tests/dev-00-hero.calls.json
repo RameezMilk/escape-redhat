@@ -59,6 +59,46 @@
       }
     },
     {
+      "name": "observe",
+      "arguments": {
+        "actor_id": "alex",
+        "reason_summary": "Monitor while others move."
+      }
+    },
+    {
+      "name": "observe",
+      "arguments": {
+        "actor_id": "alex",
+        "reason_summary": "Monitor while others move."
+      }
+    },
+    {
+      "name": "check_in",
+      "arguments": {
+        "actor_id": "alex"
+      }
+    },
+    {
+      "name": "observe",
+      "arguments": {
+        "actor_id": "maya",
+        "reason_summary": "Monitor while others move."
+      }
+    },
+    {
+      "name": "check_in",
+      "arguments": {
+        "actor_id": "rosa"
+      }
+    },
+    {
+      "name": "observe",
+      "arguments": {
+        "actor_id": "maya",
+        "reason_summary": "Monitor while others move."
+      }
+    },
+    {
       "name": "move",
       "arguments": {
         "actor_id": "daniel",
@@ -75,15 +115,31 @@
       }
     },
     {
-      "name": "check_in",
+      "name": "move",
       "arguments": {
-        "actor_id": "alex"
+        "actor_id": "maya",
+        "destination": "assembly",
+        "reason_summary": "Evacuate to the assembly point now."
       }
     },
     {
-      "name": "check_in",
+      "name": "observe",
       "arguments": {
-        "actor_id": "rosa"
+        "actor_id": "maya",
+        "reason_summary": "Monitor while others move."
+      }
+    },
+    {
+      "name": "notify",
+      "arguments": {
+        "actor_id": "maya",
+        "recipient": "all",
+        "topic": "route_blocked",
+        "evidence_ids": [
+          "E2"
+        ],
+        "message": "The reception door is dead — use another way out.",
+        "reason_summary": "Share the dead door with people in this room."
       }
     },
     {
@@ -118,30 +174,9 @@
       }
     },
     {
-      "name": "move",
-      "arguments": {
-        "actor_id": "maya",
-        "destination": "assembly",
-        "reason_summary": "Evacuate to the assembly point now."
-      }
-    },
-    {
       "name": "check_in",
       "arguments": {
         "actor_id": "maya"
-      }
-    },
-    {
-      "name": "notify",
-      "arguments": {
-        "actor_id": "daniel",
-        "recipient": "all",
-        "topic": "route_blocked",
-        "evidence_ids": [
-          "E2"
-        ],
-        "message": "The reception door is dead — use another way out.",
-        "reason_summary": "Share the dead door with people in this room."
       }
     },
     {

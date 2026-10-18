@@ -165,7 +165,8 @@ export function staticDrawables(map: MapData): ExtraDrawable[] {
     const { col, row } = deco;
     switch (deco.kind) {
       case 'sign_redhat':
-        out.push({ zY: (row + 1) * T + 0.25, draw: (c, ox, oy, z) => blit(c, d.redhat, col * T - 4, row * T - 9, ox, oy, z) });
+        // Big room signs are centred on the left edge of `col` and on the 32 px outer wall (−16…+16 around the row top).
+        out.push({ zY: (row + 1) * T + 0.25, draw: (c, ox, oy, z) => blit(c, d.redhat, col * T - Math.floor(d.redhat[0].length / 2), row * T - 13, ox, oy, z) });
         break;
       case 'sign_nvidia':
         out.push({ zY: (row + 1) * T + 0.25, draw: (c, ox, oy, z) => blit(c, d.nvidia, col * T + 2, row * T - 8, ox, oy, z) });
@@ -180,7 +181,7 @@ export function staticDrawables(map: MapData): ExtraDrawable[] {
         out.push({ zY: (row + 1) * T - 0.5, draw: (c, ox, oy, z) => blit(c, d.flag, col * T, (row + 1) * T - d.flag.length, ox, oy, z) });
         break;
       case 'sign_nvidia_logo':
-        out.push({ zY: (row + 1) * T + 0.25, draw: (c, ox, oy, z) => blit(c, d.nvidiaLogo, col * T, row * T - 10, ox, oy, z) });
+        out.push({ zY: (row + 1) * T + 0.25, draw: (c, ox, oy, z) => blit(c, d.nvidiaLogo, col * T - Math.floor(d.nvidiaLogo[0].length / 2), row * T - 13, ox, oy, z) });
         break;
       case 'sign_welcome':
         out.push({ zY: (row + 1) * T + 0.25, draw: (c, ox, oy, z) => blit(c, d.welcome, col * T, row * T - 8, ox, oy, z) });
@@ -222,6 +223,20 @@ export function staticDrawables(map: MapData): ExtraDrawable[] {
         c.restore();
       },
     });
+  }
+  return out;
+}
+
+/** Kerbs and centre lines that reach the map's left or right edge, continued `ext` tiles past it (for the backdrop
+ *  beyond the map). Keep `ext` a multiple of 5 tiles so the 10 px dash rhythm stays in step with the map's own. */
+export function extendedGroundMarkings(map: MapData, ext: number): ExtraDrawable[] {
+  const out: ExtraDrawable[] = [];
+  for (const deco of map.decor) {
+    if (deco.kind !== 'lane_line' && deco.kind !== 'curb') continue;
+    const w = deco.w ?? 1;
+    const left = deco.col === 0 ? ext : 0;
+    const right = deco.col + w === map.cols ? ext : 0;
+    if (left || right) out.push(groundMarking(deco.kind, deco.col - left, deco.row, w + left + right, deco.h ?? 1));
   }
   return out;
 }
@@ -511,14 +526,35 @@ export function fixtureDrawables(
   return out;
 }
 
-/** Whole-office red strobe while the alarm is active (≤ 0.18 alpha; slow and soft with reduced motion). */
-export function drawAlarmStrobe(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: number, reducedMotion: boolean): void {
+/** The building's footprint in tiles: the bounding box of its walls (rooms, doorways and exits all lie inside). */
+export function buildingBounds(map: MapData): { col: number; row: number; cols: number; rows: number } {
+  let c0 = map.cols;
+  let r0 = map.rows;
+  let c1 = -1;
+  let r1 = -1;
+  for (let i = 0; i < map.terrain.length; i++) {
+    if (map.terrain[i] !== 'wall') continue;
+    const c = i % map.cols;
+    const r = Math.floor(i / map.cols);
+    c0 = Math.min(c0, c);
+    c1 = Math.max(c1, c);
+    r0 = Math.min(r0, r);
+    r1 = Math.max(r1, r);
+  }
+  return { col: c0, row: r0, cols: c1 - c0 + 1, rows: r1 - r0 + 1 };
+}
+
+/** Red strobe over the building while the alarm is active (≤ 0.18 alpha; slow and soft with reduced motion). The
+ *  rect is in canvas pixels; only pixels already drawn there are tinted (source-atop), so the wall tops above the
+ *  first row flash with the building but the street and sidewalks outside it never do. */
+export function drawAlarmStrobe(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, timeMs: number, reducedMotion: boolean): void {
   const hz = reducedMotion ? 0.35 : 1.2;
   const wave = 0.5 + 0.5 * Math.sin((timeMs / 1000) * hz * Math.PI * 2);
   const a = reducedMotion ? 0.04 + 0.04 * wave : 0.03 + 0.15 * wave * wave;
   ctx.save();
+  ctx.globalCompositeOperation = 'source-atop';
   ctx.fillStyle = `rgba(255, 24, 24, ${a.toFixed(3)})`;
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
   ctx.restore();
 }
 

@@ -99,7 +99,7 @@ Development tuning uses only `dev_*.jsonl`. The test split is not used to edit p
 - `nemo-gym==0.6.0` installs on Python 3.13.14.
 - `EscapeResourcesServer` subclasses the real `SimpleResourcesServer`.
 - `tests/test_app.py` passes against a live app server. It covers:
-  - `seed_session` → 19 replayed calls → `verify`, giving **reward 1 / success** on `dev-00-hero` (office-v2, five people; re-recorded and re-run 2026-10-18). The calls come from the scripted fixture, not a model; this checks plumbing.
+  - `seed_session` → 24 replayed calls → `verify`, giving **reward 1 / success** on `dev-00-hero` (office-v2, five people; re-recorded and re-run 2026-10-18). The calls come from the scripted fixture, not a model; this checks plumbing.
   - Invalid calls coming back as model-visible `INVALID_ARGUMENT` errors.
   - Per-session isolation.
   - Early stop scored as incomplete.

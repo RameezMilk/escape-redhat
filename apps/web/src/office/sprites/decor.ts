@@ -4,22 +4,25 @@
 // Fictional hackathon-themed office; not affiliated with or endorsed by Red Hat or NVIDIA.
 import { Raster, textWidth, type SpriteData } from './raster';
 
+/** Red Hat room sign at 2× (pixel-doubled fedora and lettering), 26 px tall to fill the outer wall. */
 function redHatSign(): SpriteData {
   const label = 'RED HAT';
-  const w = 17 + textWidth(label) + 4;
-  const r = new Raster(w, 14);
-  r.rect(0, 0, w, 14, '#151515');
-  r.box(0, 0, w, 14, '#3b3b3b');
+  const tw = textWidth(label, 2);
+  const w = 36 + tw + 6;
+  const r = new Raster(w, 26);
+  r.rect(0, 0, w, 26, '#151515');
+  r.box(0, 0, w, 26, '#3b3b3b');
   r.rect(1, 1, w - 2, 1, '#262626');
-  // Stylized fedora
-  r.rect(5, 3, 7, 4, '#e00000'); // crown
-  r.rect(6, 2, 5, 1, '#e00000');
-  r.rect(7, 3, 3, 1, '#b80000'); // crease
-  r.rect(5, 6, 7, 1, '#1a1a1a'); // band
-  r.rect(2, 7, 13, 2, '#c40000'); // brim
-  r.rect(3, 9, 11, 1, '#8f0000');
-  r.text(label, 17, 5, '#f4f4f4');
-  r.rect(17, 11, textWidth(label), 1, '#e00000');
+  // Stylized fedora, drawn on a 2× grid
+  const f = (x: number, y: number, fw: number, fh: number, c: string) => r.rect(2 * x, 2 * y + 1, 2 * fw, 2 * fh, c);
+  f(5, 3, 7, 4, '#e00000'); // crown
+  f(6, 2, 5, 1, '#e00000');
+  f(7, 3, 3, 1, '#b80000'); // crease
+  f(5, 6, 7, 1, '#1a1a1a'); // band
+  f(2, 7, 13, 2, '#c40000'); // brim
+  f(3, 9, 11, 1, '#8f0000');
+  r.text(label, 36, 7, '#f4f4f4', 2);
+  r.rect(36, 19, tw, 2, '#e00000');
   return r.sprite();
 }
 
@@ -50,25 +53,26 @@ const NVIDIA_EYE = [
   '...GGGGGGGGGGGGG',
 ];
 
-function drawEye(r: Raster, x: number, y: number) {
+function drawEye(r: Raster, x: number, y: number, s = 1) {
   NVIDIA_EYE.forEach((row, yy) => {
     for (let xx = 0; xx < row.length; xx++) {
-      if (row[xx] === 'G') r.set(x + xx, y + yy, '#76b900');
-      else if (row[xx] === 'k') r.set(x + xx, y + yy, '#0d0d0d');
+      if (row[xx] === 'G') r.rect(x + xx * s, y + yy * s, s, s, '#76b900');
+      else if (row[xx] === 'k') r.rect(x + xx * s, y + yy * s, s, s, '#0d0d0d');
     }
   });
 }
 
-/** Server-room sign: eye logo + white NVIDIA wordmark on a dark plate. */
+/** Server-room sign at 2×: eye logo + white NVIDIA wordmark on a dark plate, 26 px tall to fill the outer wall. */
 function nvidiaLogoSign(): SpriteData {
   const label = 'NVIDIA';
-  const w = 3 + 16 + 4 + textWidth(label) + 4;
-  const r = new Raster(w, 15);
-  r.rect(0, 0, w, 15, '#111111');
-  r.box(0, 0, w, 15, '#333333');
-  drawEye(r, 3, 2);
-  r.text(label, 23, 5, '#f4f4f4');
-  r.rect(23, 11, textWidth(label), 1, '#76b900');
+  const tw = textWidth(label, 2);
+  const w = 4 + 32 + 6 + tw + 6;
+  const r = new Raster(w, 26);
+  r.rect(0, 0, w, 26, '#111111');
+  r.box(0, 0, w, 26, '#333333');
+  drawEye(r, 4, 2, 2);
+  r.text(label, 42, 7, '#f4f4f4', 2);
+  r.rect(42, 19, tw, 2, '#76b900');
   return r.sprite();
 }
 

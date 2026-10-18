@@ -102,22 +102,12 @@ kbd {
   gap: 10px;
   min-width: 0;
 }
-.brand-hat {
-  color: var(--red-hat);
-  font-size: 18px;
-  transform: translateY(1px);
-}
 .brand h1 {
   font: 700 22px var(--pixel);
   letter-spacing: 0.5px;
   margin: 0;
   color: var(--text);
   text-shadow: 0 2px 0 #000;
-  white-space: nowrap;
-}
-.brand-sub {
-  color: var(--muted);
-  font-size: 12px;
   white-space: nowrap;
 }
 .tb-status {
@@ -127,42 +117,6 @@ kbd {
   font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
-}
-.phase {
-  font: 600 13px var(--pixel);
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: #3a2e44;
-  color: var(--text);
-  border: 2px solid #0b080e;
-  text-transform: capitalize;
-}
-.phase-incident,
-.phase-evacuating {
-  background: #6b2420;
-  color: #ffd9cf;
-  animation: pulse 1.6s ease-in-out infinite;
-}
-.phase-accounting {
-  background: #5a4515;
-  color: #ffe9a8;
-}
-.phase-success {
-  background: #1f5a37;
-  color: #c9ffdc;
-}
-.phase-incomplete,
-.phase-partial {
-  background: #6a4a10;
-  color: #ffe2a0;
-  text-transform: none;
-}
-.phase-failed,
-.phase-unresolved,
-.phase-aborted {
-  background: #5a1c1c;
-  color: #ffd0d0;
-  text-transform: none;
 }
 .alarm-badge {
   font: 700 12px var(--pixel);
@@ -263,56 +217,6 @@ kbd {
   background: transparent;
   box-shadow: none;
 }
-.case-select {
-  background: #1b1420;
-  color: var(--text);
-  border: 2px solid var(--edge);
-  border-radius: 6px;
-  padding: 5px 8px;
-  font: 13px var(--ui);
-  max-width: 220px;
-}
-.provider-chip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 2px solid var(--edge);
-  white-space: nowrap;
-  max-width: 420px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.provider-chip.tone-ok {
-  background: #183a26;
-  color: #c9f7d8;
-}
-.provider-chip.tone-warn {
-  background: #4a3a12;
-  color: #ffe9a8;
-}
-.provider-chip.tone-bad {
-  background: #5a1c1c;
-  color: #ffd2d2;
-}
-.conn {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: none;
-  background: var(--faint);
-}
-.conn-open {
-  background: var(--green);
-  box-shadow: 0 0 6px var(--green);
-}
-.conn-closed {
-  background: var(--red);
-}
-
 /* ---------------- Stage (office) ---------------- */
 .stage {
   grid-area: stage;
@@ -367,9 +271,6 @@ kbd {
   padding: 2px 8px 3px;
   text-shadow: 0 1px 0 #000;
   white-space: nowrap;
-}
-.name-chip .wc {
-  font-size: 11px;
 }
 .name-chip.lost .name {
   border-color: #555;
@@ -556,6 +457,10 @@ kbd {
 }
 .th-sub b {
   color: var(--muted);
+  font-weight: 600;
+}
+.th-warn {
+  color: #ff8a80;
   font-weight: 600;
 }
 .scripted-chip {
@@ -1105,35 +1010,52 @@ kbd {
   color: #e3d6cc;
   line-height: 1.3;
 }
-.palette-help,
 .roster {
   font-size: 12px;
   color: var(--muted);
   min-width: 0;
-}
-.palette-help {
-  flex: 1;
-}
-.palette-help ol {
-  margin: 4px 0 0;
-  padding-left: 18px;
-}
-.palette-help li {
-  margin: 2px 0;
 }
 .help-title {
   font: 700 13px var(--pixel);
   color: var(--gold);
 }
 .roster {
-  width: 280px;
-  flex: none;
+  flex: 1;
+  max-width: 560px;
 }
-/* Five people: two columns so the alarm / buddy / roster lines still fit the palette row. */
-.roster-people {
+/* People in one column on the left; alarm / buddy / roster status as label–value pairs on the right. */
+.roster-body {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 12px;
+  grid-template-columns: max-content 1fr;
+  column-gap: 22px;
+}
+.roster-meta {
+  margin: 3px 0 0;
+  padding-left: 16px;
+  border-left: 2px solid var(--edge);
+  display: grid;
+  align-content: start;
+  row-gap: 7px;
+}
+.roster-meta > div {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  align-items: baseline;
+}
+.roster-meta dt {
+  font: 700 11px var(--pixel);
+  color: var(--faint);
+}
+.roster-meta dd {
+  margin: 0;
+  color: var(--text);
+}
+.roster-meta .alarm-on dd {
+  color: #ff9a9a;
+  font-weight: 600;
+}
+.roster-meta .ok dd {
+  color: var(--green);
 }
 .roster-row {
   display: flex;
@@ -1151,10 +1073,6 @@ kbd {
   font-weight: 700;
   color: var(--text);
   width: 52px;
-}
-.roster-row.sub {
-  color: var(--faint);
-  font-size: 11.5px;
 }
 
 /* ---------------- Debrief ---------------- */
@@ -1314,11 +1232,6 @@ kbd {
     width: 260px;
   }
 }
-@media (max-width: 1300px) {
-  .palette-help {
-    display: none;
-  }
-}
 
 .show-debrief {
   position: absolute;
@@ -1393,13 +1306,6 @@ kbd {
   background-clip: text;
   filter: drop-shadow(0 3px 0 #7e1015) drop-shadow(3px 0 0 #1a0709) drop-shadow(-3px 0 0 #1a0709)
     drop-shadow(0 -3px 0 #1a0709) drop-shadow(0 6px 0 #1a0709) drop-shadow(0 10px 0 rgba(0, 0, 0, 0.35));
-}
-.intro-sub {
-  margin: 14px 0 0;
-  font: 600 clamp(12px, 1.3vw, 16px) var(--ui);
-  color: #f3f1ec;
-  letter-spacing: 0.04em;
-  text-shadow: 0 2px 0 rgba(20, 16, 24, 0.75);
 }
 .intro-prompt {
   position: absolute;
@@ -1481,10 +1387,6 @@ kbd {
 .roster-row.is-lost .rstate {
   color: #8a8290;
   text-decoration: line-through;
-}
-.roster-row.sub.alarm-on {
-  color: #ff9a9a;
-  font-weight: 600;
 }
 .metrics {
   grid-template-columns: repeat(3, 1fr);
