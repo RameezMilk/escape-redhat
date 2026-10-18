@@ -177,9 +177,10 @@ describe('check-in, roster and outcomes', () => {
   });
 
   it('someone lost, survivors checked in and verified → partial', () => {
-    // Everyone in the Red Hat room so Maya's shout reaches them: Maya (13,7), Daniel (15,12), Alex (12,13)
+    // Everyone in the Red Hat room so Maya's warning reaches them: Maya (13,7), Daniel (15,12), Alex (12,13).
+    // Instincts off so Maya stays at her desk; backing away by instinct, she can outrun the fire on some seeds.
     const base = hero();
-    const d = new Driver({ ...base, spawns: { ...base.spawns, alex: { col: 12, row: 13, dir: 'up', pose: 'stand' } } });
+    const d = new Driver({ ...base, spawns: { ...base.spawns, alex: { col: 12, row: 13, dir: 'up', pose: 'stand' } } }, { instincts: false });
     expect(d.place('fire', 11, 7).ok).toBe(true);
     d.run(2);
     okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire!' }));

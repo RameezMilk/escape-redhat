@@ -37,7 +37,7 @@ function providerChip(p: ProviderInfo | null, source: 'live' | 'fixture', replay
   if (p.healthy === false) return { text: `Model unreachable · ${p.label}${p.healthDetail ? ` (${p.healthDetail})` : ''}`, tone: 'bad' };
   const kind = p.endpointKind === 'self-hosted-vllm' ? 'vLLM self-hosted' : 'hosted API';
   const p50 = p.p50LatencyMs !== undefined ? ` · p50 ${(p.p50LatencyMs / 1000).toFixed(1)} s` : '';
-  const think = p.thinking ? ' · reasoning on' : '';
+  const think = p.thinking ? ` · reasoning on${p.thinkingBudget ? ` (≤${p.thinkingBudget} tokens)` : ''}` : '';
   const who = p.mode === 'agents' ? ' · each person decides' : '';
   return { text: `${p.label} · ${kind}${who}${p50}${think}`, tone: p.healthy ? 'ok' : 'warn' };
 }

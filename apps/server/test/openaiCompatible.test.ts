@@ -62,6 +62,29 @@ describe('openai-compatible provider', () => {
     expect(bodies[1].max_tokens).toBe(8192 - 4300 - 32);
   });
 
+  it('caps per-agent reasoning with thinking_token_budget (default 128), and drops the cap with the template kwargs', async () => {
+    const agentsCfg = readPlannerConfig({ PLANNER_PROVIDER: 'openai-compatible', PLANNER_API_KEY: 'k', PLANNER_MODE: 'agents' });
+    expect(agentsCfg.thinkingBudget).toBe(128);
+    expect(readPlannerConfig({ PLANNER_MODE: 'agents', PLANNER_AGENT_THINKING_BUDGET: '0' }).thinkingBudget).toBe(0);
+    expect(cfg.thinkingBudget).toBe(0); // central mode: no cap
+    const call = { tool_calls: [{ id: 'c1', function: { name: 'move', arguments: '{"actor_id":"maya","destination":"assembly"}' } }] };
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(ok(call))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'chat_template_kwargs: extra inputs are not permitted' } }), { status: 400 }))
+      .mockResolvedValueOnce(ok(call));
+    const p = new OpenAICompatibleProvider(agentsCfg, f as unknown as typeof fetch);
+    expect(p.info().thinkingBudget).toBe(128);
+    await p.decide(req());
+    await p.decide(req());
+    const bodies = f.mock.calls.map((c) => JSON.parse((c as unknown as [string, RequestInit])[1].body as string));
+    expect(bodies[0]).toMatchObject({ thinking_token_budget: 128, max_tokens: 128 + agentsCfg.maxTokens, chat_template_kwargs: { enable_thinking: true } });
+    expect(bodies[2].thinking_token_budget).toBeUndefined();
+    expect(bodies[2].chat_template_kwargs).toBeUndefined();
+    expect(bodies[2].max_tokens).toBe(4096);
+    expect(p.info().thinkingBudget).toBeUndefined();
+  });
+
   it('parses a bare JSON object in content', () => {
     const calls = parseContentToolCalls('Sure:\n```json\n{"name":"check_in","arguments":{"actor_id":"maya"}}\n```');
     expect(calls[0]).toMatchObject({ name: 'check_in', arguments: { actor_id: 'maya' } });

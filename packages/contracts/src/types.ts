@@ -510,6 +510,8 @@ export interface ProviderInfo {
   healthy: boolean | null;
   healthDetail?: string;
   thinking: boolean;
+  /** Reasoning-token cap per decision, when one is sent (vLLM `thinking_token_budget`). */
+  thinkingBudget?: number;
   /** 'central' = one planner directs everyone; 'agents' = each person decides for themselves. */
   mode?: 'central' | 'agents';
   p50LatencyMs?: number;

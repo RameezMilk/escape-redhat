@@ -48,7 +48,7 @@ describe('per-agent views', () => {
 
   it('instincts off: no flee or passing pull; a deliberate trip to the alarm still pulls it', () => {
     const d = fireAtDoorA();
-    d.run(150);
+    d.run(100); // the fire is within a tile of Maya by now: with instincts on she would have backed away
     expect(d.engine.events.some((x) => x.type === 'instinct')).toBe(false);
     expect(d.engine.events.some((x) => x.type === 'alarm_activated')).toBe(false);
     okData(d.call('move', { actor_id: 'maya', destination: 'alarm' }));

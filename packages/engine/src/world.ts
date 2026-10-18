@@ -54,14 +54,14 @@ import { computeResult, type ActionLogEntry, type Interruption } from './scoring
 
 export const SPEED_TILES_PER_SEC = 3;
 /** Per-tick probability that a burning cell tries to ignite one random neighbour. Fast enough that a fire anywhere in
- *  a room reaches the next room or corridor within about a minute (crossing the floor is the slow part, not walls). */
-export const FIRE_SPREAD_PER_TICK = 0.03;
+ *  a room reaches the next room or corridor in a minute or two (crossing the floor is the slow part, not walls). */
+export const FIRE_SPREAD_PER_TICK = 0.024;
 /** Probability that a spread attempt onto a doorway tile succeeds (doorways slow fire). */
 export const DOOR_IGNITION_FACTOR = 0.3;
 /** Probability that a spread attempt onto a wall tile or a dead (closed) sliding door succeeds: walls hold for
  *  roughly 20–30 s next to burning floor, then the fire breaks through to the far side. Scaled with
  *  FIRE_SPREAD_PER_TICK (the hold time goes as 1 / (spread × factor)). */
-export const WALL_IGNITION_FACTOR = 0.072;
+export const WALL_IGNITION_FACTOR = 0.09;
 /** People back away by instinct from known fire within this many tiles. */
 export const FLEE_RADIUS = 3.5;
 /** People within this many tiles of a burning cell smell it, even through a wall. */

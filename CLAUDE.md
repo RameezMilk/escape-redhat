@@ -36,7 +36,7 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
 
 - **Configuration.** Copy `.env.example` to `.env` (gitignored). `PLANNER_PROVIDER=scripted` runs a deterministic rule policy, clearly labelled "SCRIPTED fixture — not a model"; tests use it.
 - **Self-hosted model.** Set `PLANNER_PROVIDER=openai-compatible` and point it at vLLM through `brev port-forward escape-nemotron --port 8001:8000`. The tunnel drops occasionally: re-run it, then restart the server, because the model health check runs only at startup.
-- **Agents mode.** Its settings are separate from the central `PLANNER_*` values in `.env`: `PLANNER_AGENT_THINKING`, `PLANNER_AGENT_MAX_DECISIONS` and `PLANNER_AGENT_FREEZE_WHILE_THINKING`.
+- **Agents mode.** Its settings are separate from the central `PLANNER_*` values in `.env`: `PLANNER_AGENT_THINKING`, `PLANNER_AGENT_THINKING_BUDGET` (reasoning-token cap per decision, default 128), `PLANNER_AGENT_MAX_DECISIONS` and `PLANNER_AGENT_FREEZE_WHILE_THINKING`.
 - **Web URL parameters.** `?intro=0` skips the start screen. `?fixture=1` streams canned UI data with no server.
 - **Bench limitation.** `npm run bench` only loads the `dev` and `test` splits. `demo-hero` is split `demo`, and its fire and power-cut events are `manual` (the presenter drags them in), so they never fire headless.
 - **Rehearsal helpers.** `scripts/auto-electrical.mjs` cuts the south door's power when the evacuation reaches the lobby. `scripts/watch-trace.mjs` tails the trace.

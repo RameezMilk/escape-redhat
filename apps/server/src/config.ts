@@ -14,6 +14,9 @@ export interface PlannerConfig {
   endpointKind: ProviderInfo['endpointKind'];
   label: string;
   thinking: boolean;
+  /** Reasoning-token cap per decision (vLLM `thinking_token_budget`, sent only with thinking on and the template
+   *  kwargs); 0 or absent = no cap. */
+  thinkingBudget?: number;
   /** Send chat_template_kwargs (vLLM supports it; the hosted NVIDIA API Catalog hangs on it as of 2026-10-17). */
   templateKwargs?: boolean;
   /** Live mode: hold the sim clock while a decision is in flight (for slow endpoints; sim time then excludes inference wait). */
@@ -70,6 +73,9 @@ export function readPlannerConfig(env: Env = process.env): PlannerConfig {
     label: (env.PLANNER_LABEL ?? 'Nemotron 3.5 Lightning 30B-A3B').trim(),
     // Per-agent mode has its own switches so the central settings in .env stay as they are.
     thinking: agents ? bool(env.PLANNER_AGENT_THINKING, true) : bool(env.PLANNER_THINKING, false),
+    // Uncapped, per-agent reasoning ran ~715 tokens per decision (p50 3.5 s, p95 ~10 s, live hero runs); latency is
+    // almost all reasoning decode, so it is capped. PLANNER_AGENT_THINKING_BUDGET=0 removes the cap.
+    thinkingBudget: agents ? Math.max(0, Math.round(num(env.PLANNER_AGENT_THINKING_BUDGET, 128))) : 0,
     templateKwargs: bool(env.PLANNER_TEMPLATE_KWARGS, endpointKind === 'self-hosted-vllm'),
     // Per-agent mode reasons for ~3 s (p95 ~13 s) per decision: holding the clock keeps inference time from costing
     // lives, so people are judged on their decisions. PLANNER_AGENT_FREEZE_WHILE_THINKING=false restores real-time pressure.
@@ -99,5 +105,5 @@ export function readServerConfig(env: Env = process.env): ServerConfig {
 /** Safe-to-log description (never includes the key). */
 export function describePlanner(c: PlannerConfig): string {
   if (c.provider === 'scripted') return 'SCRIPTED fixture (not a model)';
-  return `${c.label} · ${c.model} @ ${c.baseUrl} (${c.endpointKind}, ${c.mode === 'agents' ? 'each person decides' : 'central planner'}, thinking ${c.thinking ? 'on' : 'off'}, key ${c.apiKey ? 'set' : 'MISSING'})`;
+  return `${c.label} · ${c.model} @ ${c.baseUrl} (${c.endpointKind}, ${c.mode === 'agents' ? 'each person decides' : 'central planner'}, thinking ${c.thinking ? `on${c.thinkingBudget ? ` ≤${c.thinkingBudget} tokens` : ''}` : 'off'}, key ${c.apiKey ? 'set' : 'MISSING'})`;
 }

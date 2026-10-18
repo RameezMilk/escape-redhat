@@ -199,7 +199,7 @@ export function TracePanel() {
   };
 
   const scripted = provider?.endpointKind === 'scripted';
-  const how = provider?.mode === 'agents' ? `each person decides for themselves${provider.thinking ? ' · reasoning on' : ''}` : 'one central planner';
+  const how = provider?.mode === 'agents' ? `each person decides for themselves${provider.thinking ? ` · reasoning on${provider.thinkingBudget ? ` (≤${provider.thinkingBudget} tokens)` : ''}` : ''}` : 'one central planner';
   const plannerName = scripted ? 'Scripted fixture' : provider?.label ?? 'Planner';
   const thinkingLabel = `${scripted ? 'Scripted fixture' : (provider?.label ?? 'Planner').split(' ').slice(0, 1).join(' ') || 'Planner'} is deciding…`;
 

@@ -61,7 +61,7 @@ export interface BenchSummary {
     dataset: string;
     split: string;
     cases: number;
-    provider: { id: string; label: string; model: string; endpointKind: string; thinking: boolean; baseUrl?: string };
+    provider: { id: string; label: string; model: string; endpointKind: string; thinking: boolean; thinkingBudget?: number; baseUrl?: string };
     harness: string;
     mode: 'central' | 'agents';
     maxDecisions: number | null;
@@ -218,7 +218,7 @@ export function renderMarkdown(s: BenchSummary): string {
   const lines: string[] = [];
   lines.push(`# Benchmark: ${s.meta.dataset} / ${s.meta.split}`);
   lines.push('');
-  lines.push(`- Provider: **${p.label}** · model \`${p.model}\` · ${p.endpointKind}${p.endpointKind === 'scripted' ? ' (**scripted fixture, NOT a model**)' : ''} · thinking ${p.thinking ? 'on' : 'off'} · ${s.meta.mode === 'agents' ? 'each person decides for themselves (no engine instincts)' : 'one central planner'}`);
+  lines.push(`- Provider: **${p.label}** · model \`${p.model}\` · ${p.endpointKind}${p.endpointKind === 'scripted' ? ' (**scripted fixture, NOT a model**)' : ''} · thinking ${p.thinking ? `on${p.thinkingBudget ? ` (≤${p.thinkingBudget} tokens)` : ''}` : 'off'} · ${s.meta.mode === 'agents' ? 'each person decides for themselves (no engine instincts)' : 'one central planner'}`);
   lines.push(`- Harness: \`${s.meta.harness}\` · decision cap ${s.meta.maxDecisions ?? 'default'} · concurrency ${s.meta.concurrency} · clock ${s.meta.clock}`);
   lines.push(`- Run: ${s.meta.startedAt} → ${s.meta.finishedAt} · ${s.meta.cases} cases`);
   lines.push(`- ${s.meta.note}`);
@@ -299,7 +299,7 @@ async function main() {
   const outDir = resolve(root, args.out ?? join('results', `${stamp}-${split}-${info.endpointKind}-${harness}`));
   mkdirSync(join(outDir, 'runs'), { recursive: true });
 
-  console.log(`[bench] ${cases.length} cases · split ${split} · ${info.label} (${info.model}, ${info.endpointKind}) · harness ${harness} · mode ${mode} · thinking ${info.thinking ? 'on' : 'off'} · concurrency ${concurrency}`);
+  console.log(`[bench] ${cases.length} cases · split ${split} · ${info.label} (${info.model}, ${info.endpointKind}) · harness ${harness} · mode ${mode} · thinking ${info.thinking ? `on${info.thinkingBudget ? ` ≤${info.thinkingBudget} tokens` : ''}` : 'off'} · concurrency ${concurrency}`);
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
   const rows: BenchRow[] = new Array(cases.length);
@@ -339,7 +339,7 @@ async function main() {
       dataset: datasetId(),
       split,
       cases: cases.length,
-      provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, thinking: info.thinking, baseUrl: info.baseUrl },
+      provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, thinking: info.thinking, ...(info.thinkingBudget ? { thinkingBudget: info.thinkingBudget } : {}), baseUrl: info.baseUrl },
       harness,
       mode,
       maxDecisions: maxDecisions ?? null,

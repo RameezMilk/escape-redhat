@@ -141,7 +141,7 @@ export class Session {
       scenario,
       mapId: this.d.map.id,
       mapHash: this.d.map.hash,
-      provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, baseUrl: info.baseUrl, thinking: info.thinking },
+      provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, baseUrl: info.baseUrl, thinking: info.thinking, ...(info.thinkingBudget ? { thinkingBudget: info.thinkingBudget } : {}) },
       harness: this.d.planner.harness,
       mode,
       engineOptions: { maxDecisions, instincts },

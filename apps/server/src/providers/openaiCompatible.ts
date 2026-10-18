@@ -33,6 +33,7 @@ export class OpenAICompatibleProvider implements DecisionProvider {
   }
 
   info(): ProviderInfo {
+    const thinkingBudget = this.budget(!this.dropTemplateKwargs);
     return {
       id: 'openai-compatible',
       label: this.cfg.label,
@@ -42,10 +43,16 @@ export class OpenAICompatibleProvider implements DecisionProvider {
       healthy: this.healthy,
       healthDetail: this.healthDetail,
       thinking: this.cfg.thinking,
+      ...(thinkingBudget ? { thinkingBudget } : {}),
       mode: this.cfg.mode,
       p50LatencyMs: this.stats.p50(),
       lastLatencyMs: this.stats.last,
     };
+  }
+
+  /** Reasoning cap in force: a vLLM extension like chat_template_kwargs, so it is sent (and dropped) with them. */
+  private budget(withTemplateKwargs: boolean): number {
+    return withTemplateKwargs && this.cfg.thinking ? (this.cfg.thinkingBudget ?? 0) : 0;
   }
 
   private headers(): Record<string, string> {
@@ -102,6 +109,8 @@ export class OpenAICompatibleProvider implements DecisionProvider {
   }
 
   private async post(req: DecideRequest, withTemplateKwargs: boolean, maxTokens?: number): Promise<DecisionResult> {
+    // vLLM ends the reasoning at the budget; the tool call then gets the usual output budget on top.
+    const budget = this.budget(withTemplateKwargs);
     const body: Record<string, unknown> = {
       model: this.cfg.model,
       messages: [
@@ -112,9 +121,10 @@ export class OpenAICompatibleProvider implements DecisionProvider {
       tool_choice: 'auto',
       temperature: this.cfg.temperature,
       top_p: this.cfg.topP,
-      max_tokens: maxTokens ?? (this.cfg.thinking ? Math.max(this.cfg.maxTokens, 4096) : this.cfg.maxTokens),
+      max_tokens: maxTokens ?? (budget ? budget + this.cfg.maxTokens : this.cfg.thinking ? Math.max(this.cfg.maxTokens, 4096) : this.cfg.maxTokens),
     };
     if (withTemplateKwargs) body.chat_template_kwargs = { enable_thinking: this.cfg.thinking };
+    if (budget) body.thinking_token_budget = budget;
     const rawRequest = { url: `${this.cfg.baseUrl}/chat/completions`, body };
 
     const timeout = AbortSignal.timeout(req.deadlineMs);
