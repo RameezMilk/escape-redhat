@@ -1,6 +1,7 @@
 // Presentation helpers for the trace panel: tool colour groups, one-line summaries, status glyphs and engine-event icons.
 // Pure functions of a TraceRow — nothing here invents data; every line is derived from the row's args/result/summary.
 import type { TraceRow } from '@escape/contracts';
+import { stationName } from '@escape/engine';
 
 import { humanize, ZONE_NAMES } from './humanize';
 
@@ -92,7 +93,7 @@ export function oneLiner(row: TraceRow, names?: Map<string, string>): string {
       return `planned a way to ${pretty(a.destination)}${tiles}${via}`.replace(/\s+/g, ' ');
     }
     case 'pull_alarm':
-      return d.already_active ? 'alarm already sounding' : 'pulled the hallway fire alarm — everyone hears it';
+      return d.already_active ? 'alarm already sounding' : `pulled ${stationName(typeof d.station === 'string' ? d.station : undefined)} — everyone hears it`;
     case 'check_in':
       return 'checked in at assembly';
     case 'verify_roster': {

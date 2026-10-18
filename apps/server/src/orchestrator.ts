@@ -20,7 +20,7 @@ import {
 import { agentToolsFor, agentUserContent, buildAgentSystemPrompt } from './agentPrompt.js';
 import type { Harness, PlannerMode } from './config.js';
 import { buildSystemPrompt, toolsFor } from './prompt.js';
-import { componentOf, EvidenceBook, humanize, inPlace, theDoor, zoneAtTile } from './places.js';
+import { componentOf, EvidenceBook, humanize, inPlace, theAlarm, theDoor, zoneAtTile } from './places.js';
 import { modelName, plannerName, type DecideRequest, type DecisionProvider, type DecisionResult } from './providers/types.js';
 import type { RunInput } from './runlog.js';
 
@@ -127,13 +127,13 @@ export function describeEvent(e: WorldEvent, map?: MapData, ctx: DescribeContext
         return `📣 ${who} shouts “Fire!”${heard.length ? ` — ${joinNames(heard)} hear${heard.length === 1 ? 's' : ''}` : ''}`;
       }
       if (kind === 'flee') return `🏃 ${who} backs away from the fire`;
-      if (kind === 'alarm') return `🚨 ${who} pulls the hallway alarm on the way out — everyone hears the siren`;
+      if (kind === 'alarm') return `🚨 ${who} pulls ${theAlarm(d.station)} on the way out — everyone hears the siren`;
       return null;
     }
     case 'alarm_activated':
       return alarmVia(e) === 'instinct'
-        ? `🚨 ${who} pulls the hallway alarm on the way out — everyone hears the siren`
-        : `🚨 ${who} pulls the hallway alarm — everyone hears the siren`;
+        ? `🚨 ${who} pulls ${theAlarm(d.station)} on the way out — everyone hears the siren`
+        : `🚨 ${who} pulls ${theAlarm(d.station)} — everyone hears the siren`;
     case 'actor_lost':
       return `✖ ${who} was lost to the fire`;
     case 'episode_ended': {

@@ -12,18 +12,20 @@ export {
   FLEE_DESTINATION,
 } from './world.js';
 export {
+  placesFor,
   placeName,
   atPlace,
   placeNameAt,
   zoneNear,
   doorName,
+  stationName,
+  anyStationName,
   destinationName,
   describeHazard,
   describeEvidence,
   joinNames,
   isOutsideZone,
-  OUTSIDE_ZONES,
-  ALARM_NAME,
+  type Places,
 } from './places.js';
 export { loadMap, tileIndex, inBounds, zoneAt, zoneTiles, tileDistance, tileKey, roomsOf, inEarshot, type RoomId } from './map.js';
 export { findPath, planPath, pathCost, lineOfSight, passable, type NavMask, type PathOptions } from './nav.js';

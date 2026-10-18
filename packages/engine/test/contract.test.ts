@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { TOOL_ARG_SCHEMAS, TOOL_DEFS, TOOL_NAMES } from '@escape/contracts';
+import { ALARM_STATION_IDS, DEFAULT_MAP_ID, DOOR_IDS, TOOL_ARG_SCHEMAS, TOOL_DEFS, TOOL_NAMES, ZONE_IDS } from '@escape/contracts';
+import { loadMap } from '../src/index.js';
 
 describe('tool contract parity', () => {
   it('every tool has a JSON schema and a zod validator with the same keys', () => {
@@ -11,5 +12,22 @@ describe('tool contract parity', () => {
       expect(params.additionalProperties).toBe(false);
       for (const req of params.required) expect(zodShape).toHaveProperty(req);
     }
+  });
+});
+
+describe('map-derived ids', () => {
+  it('the generated zone, door and pull-station ids match the current map (run `npm run data:map` if not)', () => {
+    const map = loadMap();
+    expect(map.id).toBe(DEFAULT_MAP_ID);
+    expect([...ZONE_IDS]).toEqual(map.zones.map((z) => z.id));
+    expect([...DOOR_IDS]).toEqual(map.components.map((d) => d.id));
+    expect([...ALARM_STATION_IDS]).toEqual(map.alarms.map((a) => a.id));
+  });
+
+  it('every zone, door and pull station has a human name', () => {
+    const map = loadMap();
+    for (const z of map.zones) expect(z.name && z.at, z.id).toBeTruthy();
+    for (const d of map.components) expect(d.name, d.id).toBeTruthy();
+    for (const a of map.alarms) expect(a.name, a.id).toBeTruthy();
   });
 });

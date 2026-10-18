@@ -1,5 +1,6 @@
 import type { DoorComponent, HazardKind, HazardSnapshot, MapData, PlacementCode, Tile, ZoneId } from '@escape/contracts';
-import { inBounds, tileIndex } from './map.js';
+import { inBounds, loadMap, tileIndex } from './map.js';
+import { placesFor } from './places.js';
 
 export type { PlacementCode } from '@escape/contracts';
 
@@ -9,8 +10,8 @@ export const HAZARD_SPECS = {
   electrical: { visibility: 5, label: 'Electrical failure' },
 } as const satisfies Record<HazardKind, { visibility: number; label: string; w?: number; h?: number }>;
 
-/** Zones where fire never ignites (outside, exits, assembly). */
-export const NON_FLAMMABLE_ZONES: readonly ZoneId[] = ['west_exit', 'east_exit', 'west_sidewalk', 'plaza', 'assembly'];
+/** Zones of the current map where fire never ignites (exits, outdoors, the assembly point — by ZoneDef.kind). */
+export const NON_FLAMMABLE_ZONES: readonly ZoneId[] = placesFor(loadMap()).nonFlammableZones;
 
 /** What can burn: interior floor (furniture-blocked floor included) and the building's walls (interior and
  *  perimeter; they catch slowly). Exits, outdoor tiles and void never burn. */
@@ -20,7 +21,7 @@ export function isFlammable(map: MapData, col: number, row: number): boolean {
   if (map.terrain[i] === 'wall') return true;
   if (map.terrain[i] !== 'floor') return false;
   const z = map.zone[i];
-  return !!z && !NON_FLAMMABLE_ZONES.includes(z);
+  return !!z && !placesFor(map).isNonFlammable(z);
 }
 
 /** 2×2 fire seed footprint with (col,row) as top-left. */
@@ -82,9 +83,10 @@ export function validatePlacement(
     if (terrain !== 'floor' && terrain !== 'outdoor') return { ok: false, code: 'NOT_FLOOR', reason: 'Fire must start on open floor, not walls.' };
     if (!map.walkable[i]) return { ok: false, code: 'FURNITURE', reason: 'That spot collides with furniture.' };
   }
+  const places = placesFor(map);
   for (const t of tiles) {
     const z = map.zone[tileIndex(map, t.col, t.row)];
-    if (z === 'west_exit' || z === 'east_exit' || z === 'assembly') return { ok: false, code: 'EXIT_OR_ASSEMBLY', reason: 'Exits and the assembly point cannot catch fire.' };
+    if (places.isExit(z) || places.isAssembly(z)) return { ok: false, code: 'EXIT_OR_ASSEMBLY', reason: 'Exits and the assembly point cannot catch fire.' };
     const def = map.zones.find((d) => d.id === z);
     if (!def || !def.hazardPlaceable || !isFlammable(map, t.col, t.row)) {
       return { ok: false, code: 'NOT_PLACEABLE_ZONE', reason: 'Fire can only be started inside the office.' };

@@ -1,7 +1,7 @@
 // SCRIPTED FIXTURE — not a model. A deterministic rule policy over the same PlannerView the model sees.
 // Used for UI development, tests and as a labeled offline demo; every trace row says "SCRIPTED fixture".
-import type { ActorId, AgentView, NormalizedToolCall, PlannerView, ProviderInfo } from '@escape/contracts';
-import { inEarshot, loadMap } from '@escape/engine';
+import type { ActorId, AgentView, NormalizedToolCall, PlannerView, ProviderInfo, ZoneId } from '@escape/contracts';
+import { inEarshot, isOutsideZone, loadMap } from '@escape/engine';
 
 /** Static office map: the fixture needs room layout to know who can hear whom. */
 const OFFICE = loadMap();
@@ -9,8 +9,7 @@ import { inPlace, theDoor } from '../places.js';
 import { LatencyStats, type DecideRequest, type DecisionProvider, type DecisionResult } from './types.js';
 
 /** Zones outside the building — people there never go back in. */
-const OUTSIDE = new Set(['west_sidewalk', 'plaza', 'assembly']);
-const outside = (a: { zone: string | null }) => !!a.zone && OUTSIDE.has(a.zone);
+const outside = (a: { zone: string | null }) => isOutsideZone(a.zone as ZoneId | null);
 /** Moving on instinct (backing away from fire) — the planner may redirect them. */
 const onInstinct = (a: { busy: string | null }) => !!a.busy && /instinct|backing away|flee/i.test(a.busy);
 const busy = (a: { busy: string | null }) => !!a.busy && !onInstinct(a);

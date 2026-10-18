@@ -6,7 +6,7 @@ import { loadCases, loadMapFile } from '../src/data.js';
 import { GymError, GymSessions, compactState, registerGymRoutes, type GymStepResponse } from '../src/gymApi.js';
 import { ScriptedProvider } from '../src/providers/scripted.js';
 
-const map = loadMapFile('office-v1');
+const map = loadMapFile();
 const cases = loadCases();
 // Dataset cases are regenerated with the rules; pick by family rather than by fixed id.
 const devCase = (family: string) => [...cases.values()].find((c) => c.split === 'dev' && c.family === family && c.events.every((e) => e.trigger.type !== 'manual'));

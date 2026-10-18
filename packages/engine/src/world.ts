@@ -47,7 +47,7 @@ import { hashValue, canonicalJson } from './hash.js';
 import { SITE_PLAN, ruleSources, type PlanSectionId } from './knowledge.js';
 import { inBounds, inEarshot, tileDistance, tileIndex, zoneAt } from './map.js';
 import { findPath, lineOfSight, type NavMask } from './nav.js';
-import { ALARM_NAME, atPlace, describeHazard, destinationName, doorName, isOutsideZone, joinNames, placeName, zoneNear } from './places.js';
+import { anyStationName, atPlace, capitalize, describeHazard, destinationName, doorName, isOutsideZone, joinNames, placeName, stationName, zoneNear } from './places.js';
 import { HAZARD_SPECS, isFlammable, validatePlacement } from './placement.js';
 import { mulberry32 } from './rng.js';
 import { computeResult, type ActionLogEntry, type Interruption } from './scoring.js';
@@ -1356,8 +1356,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     };
     const others = living().filter((id) => id !== a.id);
     const alarmHint = a.wentOutside
-      ? 'only the hallway fire alarm reaches other rooms — someone still inside must pull it'
-      : `use the hallway fire alarm (move ${a.id} to destination "alarm" — they pull it on arrival), or go to them`;
+      ? `only ${anyStationName()} reaches other rooms — someone still inside must pull it`
+      : `use ${anyStationName()} (move ${a.id} to destination "alarm" — they pull it on arrival), or go to them`;
     let recipients: ActorId[];
     let notReached: ActorId[] = [];
     if (args.recipient === 'all') {
@@ -1797,7 +1797,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       return fail(
         actionId,
         'OUT_OF_RANGE',
-        `${name(a.id)} is not at ${ALARM_NAME}.`,
+        `${name(a.id)} is not at ${stationName(st?.s.id)}.`,
         a.wentOutside ? `${name(a.id)} is outside and cannot go back in — someone still inside must pull it.` : `move ${a.id} to destination "alarm" — they pull it on arrival.`,
         { nearest_station: st?.s.id ?? null, distance: st ? round2(st.d) : null },
       );
@@ -1866,7 +1866,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
             : 'Roster verified: everyone accounted for'
           : `Roster incomplete: still missing ${names(d.outstanding)}`;
       case 'pull_alarm':
-        return d.already_active ? `${who} went for the alarm — it is already sounding` : `${who} pulled ${ALARM_NAME} — everyone is alerted`;
+        return d.already_active ? `${who} went for the alarm — it is already sounding` : `${who} pulled ${stationName(d.station as string | undefined)} — everyone is alerted`;
       default:
         return `${call.name} ok`;
     }
@@ -2039,8 +2039,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
         return `Fire ${d.evidence} has spread into ${placeName(d.zone as ZoneId | null)}${zid(d.zone)} (${d.cells_known} burning/burnt tiles known).`;
       case 'alarm_activated':
         return d.via === 'instinct'
-          ? `${who} pulled ${ALARM_NAME} on the way past (instinct) — everyone is alerted to evacuate.`
-          : `${who} pulled ${ALARM_NAME} — everyone is alerted to evacuate.`;
+          ? `${who} pulled ${stationName(d.station as string | undefined)} on the way past (instinct) — everyone is alerted to evacuate.`
+          : `${who} pulled ${stationName(d.station as string | undefined)} — everyone is alerted to evacuate.`;
       case 'actor_lost':
         return `${who} was lost to the fire ${atPlace(d.zone as ZoneId | null)}.`;
       case 'move_completed':
@@ -2239,7 +2239,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (e.type === 'assistance_requested') {
       return d.helper === id ? `${name(d.person as ActorId)} asked you for help evacuating.` : `You asked ${name(d.helper as ActorId)} for help.`;
     }
-    if (e.type === 'alarm_activated') return `The hallway fire alarm is sounding — everyone in the building can hear the siren.`;
+    if (e.type === 'alarm_activated') return `${capitalize(stationName(d.station as string | undefined))} is sounding — everyone in the building can hear the siren.`;
     if (e.type === 'escort_started') {
       return d.helper === id ? `You are now escorting ${name(d.person as ActorId)} — your moves take them with you.` : `${name(d.helper as ActorId)} is now escorting you — you move together with them.`;
     }

@@ -23,7 +23,7 @@ interface Sock {
 async function main() {
   const config = readServerConfig();
   const { createEngine } = (await import('@escape/engine')) as { createEngine: CreateEngine };
-  const map = loadMapFile('office-v1');
+  const map = loadMapFile();
   const cases = loadCases();
   const provider = createProviderFromEnv();
 

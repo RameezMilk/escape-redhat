@@ -12,8 +12,8 @@
   },
   "map": {
     "id": "office-v1",
-    "hash": "a339a878397b5d12",
-    "source": "data/maps/office-v1.ascii + data/maps/build-map.ts"
+    "hash": "b3087dce77c796d6",
+    "source": "data/maps/office-v1.ascii + data/maps/office-v1.spec.ts (data/maps/builder.ts)"
   },
   "method": "Seeded sampling of spawns (map.spawnSpots), 2×2 fire seeds from fire-location families (dev/test disjoint), second fire seeds (multi_fire), and electrical failures on interior sliding doors chosen against oracle shortest routes; solvability labels from a full-knowledge grid search at placement time (Daniel on wheelchair-clearance tiles). Fire spread happens later in the engine (seeded, stochastic). No real-world measurements are included.",
   "hazard_geometry": {
@@ -31,7 +31,7 @@
   "engine_cross_check": "every placement validated with packages/engine validatePlacement",
   "inputs": {
     "demo-hero.json": "b240865c71c98d7268d8068458b428887b0014ce7d758554f69ddac918fb2963",
-    "office-v1.json": "d0b6de3dcba05424541bc7608285ff32cddae4bf79ceac44aa0aff685acd57ef"
+    "office-v1.json": "a4c6aa3eae0217401d3d81e74fd228151c64d9321f0c1d5a1837ff4e0fba8d75"
   },
   "outputs": {
     "cases.dev.jsonl": "673523808d5f4b18593243b344727b5bd2bda1548a6d55b3520fc42e2e386d03",

@@ -314,7 +314,8 @@ async function main() {
       try {
         const r = await runEpisodeHeadless({
           scenario: c,
-          provider,
+          // The scripted fixture keeps per-episode memory: one per episode, or concurrent episodes corrupt each other.
+          provider: providerMode === 'scripted' ? createProviderFromEnv(env) : provider,
           harness,
           mode,
           maxDecisions,

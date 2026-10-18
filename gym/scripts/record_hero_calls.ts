@@ -11,7 +11,7 @@ import { GymSessions, type GymStepResponse } from '../../apps/server/src/gymApi.
 import { ScriptedProvider } from '../../apps/server/src/providers/scripted.js';
 
 const caseId = process.argv[2] ?? 'dev-00-hero';
-const gym = new GymSessions({ map: loadMapFile('office-v1'), cases: loadCases(), createEngine: createEngine as CreateEngine });
+const gym = new GymSessions({ map: loadMapFile(), cases: loadCases(), createEngine: createEngine as CreateEngine });
 const provider = new ScriptedProvider({ latencyMs: [0, 0], seed: 1 });
 let step: GymStepResponse = gym.create({ sessionId: 'rec', caseId, harness: 'v2' });
 const calls: { name: string; arguments: Record<string, unknown> }[] = [];

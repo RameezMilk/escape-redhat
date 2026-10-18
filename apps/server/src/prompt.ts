@@ -3,7 +3,7 @@
 //   v2 = v1 + explicit exercise procedure and error-recovery guidance.
 // The model never sees unobserved hazard truth: the user message is exactly engine.plannerView().
 import { ACTOR_IDS, ACTOR_PROFILES, TOOL_DEFS, type MapData, type OpenAIToolDef, type PlannerView, type ScenarioCase, type ZoneId } from '@escape/contracts';
-import { inEarshot, roomsOf } from '@escape/engine';
+import { inEarshot, isOutsideZone, loadMap, placesFor, roomsOf } from '@escape/engine';
 import type { Harness } from './config.js';
 
 function briefing(map: MapData, scenario: ScenarioCase): string {
@@ -59,28 +59,17 @@ export function buildSystemPrompt(harness: Harness, map: MapData, scenario: Scen
 
 type ViewActor = PlannerView['actors'][number];
 
-/** Zones outside the building (no going back in once here). */
-const OUTSIDE_ZONES = new Set(['west_sidewalk', 'plaza', 'assembly']);
-const isOutside = (a: ViewActor) => !!a.zone && OUTSIDE_ZONES.has(a.zone);
+/** Outside the building (no going back in once here). */
+const isOutside = (a: ViewActor) => isOutsideZone(a.zone as ZoneId | null);
 /** A person moving on instinct (backing away from fire) can be given a destination — they are not really busy. */
 const onInstinct = (a: ViewActor) => !!a.busy && /instinct|backing away|flee/i.test(a.busy);
 const reallyBusy = (a: ViewActor) => !!a.busy && !onInstinct(a);
-/** Short place names for the digest (zone ids stay available to the model alongside them). */
-const PLACE: Record<string, string> = {
-  rh_room: 'the Red Hat room',
-  door_a: 'door A',
-  door_b: 'door B',
-  north_corridor: 'the north hallway',
-  connector: 'the lobby connector',
-  lobby: 'the NVIDIA lobby',
-  south_branch: 'the south corridor',
-  west_exit: 'the west exit',
-  east_exit: 'the east exit',
-  west_sidewalk: 'outside',
-  plaza: 'outside',
-  assembly: 'the assembly point',
+/** Place names for the digest (zone ids stay available to the model alongside them). */
+const place = (z: string | null | undefined) => {
+  if (!z) return 'an unknown place';
+  const p = placesFor(loadMap());
+  return p.isZone(z) ? p.placeName(z) : z.replace(/_/g, ' ');
 };
-const place = (z: string | null | undefined) => (z ? (PLACE[z] ?? z.replace(/_/g, ' ')) : 'an unknown place');
 
 const dist = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 

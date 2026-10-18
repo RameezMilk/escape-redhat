@@ -42,6 +42,7 @@ import type {
   Tile,
   ZoneId,
 } from '../../packages/contracts/src/types.js';
+import { DEFAULT_MAP_ID } from '../../packages/contracts/src/map-ids.generated.js';
 
 export const GENERATOR_VERSION = '2.0.0';
 export const DATASET_ID = 'escape-office-scenarios-v2';
@@ -576,7 +577,7 @@ function crossCheck(eng: EngineValidator, map: MapData, built: Built): string | 
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const mapPath = join(root, 'data/maps/office-v1.json');
+  const mapPath = join(root, `data/maps/${DEFAULT_MAP_ID}.json`);
   const map = JSON.parse(readFileSync(mapPath, 'utf8')) as MapData;
   if (!map.components?.length) throw new Error('map has no sliding-door components; rebuild with npm run data:map');
   const g = new Grid(map);
@@ -663,12 +664,12 @@ async function main() {
     created: '2026-10-17',
     created_during: 'NVIDIA x Red Hat Small Models Hack, Raleigh NC, 2026-10-17/18',
     generator: { path: 'data/scenarios/generator.ts', version: GENERATOR_VERSION, master_seed: MASTER_SEED },
-    map: { id: map.id, hash: map.hash, source: 'data/maps/office-v1.ascii + data/maps/build-map.ts' },
+    map: { id: map.id, hash: map.hash, source: `data/maps/${map.id}.ascii + data/maps/${map.id}.spec.ts (data/maps/builder.ts)` },
     method:
       'Seeded sampling of spawns (map.spawnSpots), 2×2 fire seeds from fire-location families (dev/test disjoint), second fire seeds (multi_fire), and electrical failures on interior sliding doors chosen against oracle shortest routes; solvability labels from a full-knowledge grid search at placement time (Daniel on wheelchair-clearance tiles). Fire spread happens later in the engine (seeded, stochastic). No real-world measurements are included.',
     hazard_geometry: HAZARD_GEOMETRY,
     engine_cross_check: eng ? 'every placement validated with packages/engine validatePlacement' : 'engine not importable at generation time; local checks only',
-    inputs: { 'demo-hero.json': sha(readFileSync(heroPath, 'utf8')), 'office-v1.json': sha(readFileSync(mapPath, 'utf8')) },
+    inputs: { 'demo-hero.json': sha(readFileSync(heroPath, 'utf8')), [`${map.id}.json`]: sha(readFileSync(mapPath, 'utf8')) },
     outputs: Object.fromEntries(Object.entries(files).map(([k, v]) => [k, sha(v)])),
     counts: Object.fromEntries((['dev', 'test'] as const).map((s) => [s, out[s].length])),
   };

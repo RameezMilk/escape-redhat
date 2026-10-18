@@ -2,13 +2,13 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CaseSummary, MapData, ScenarioCase } from '@escape/contracts';
+import { DEFAULT_MAP_ID, type CaseSummary, type MapData, type ScenarioCase } from '@escape/contracts';
 
 export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 export const RUNS_DIR = join(REPO_ROOT, 'runs');
 export const WEB_DIST = join(REPO_ROOT, 'apps', 'web', 'dist');
 
-export function loadMapFile(mapId = 'office-v1'): MapData {
+export function loadMapFile(mapId: string = DEFAULT_MAP_ID): MapData {
   return JSON.parse(readFileSync(join(REPO_ROOT, 'data', 'maps', `${mapId}.json`), 'utf8')) as MapData;
 }
 

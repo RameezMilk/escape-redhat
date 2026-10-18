@@ -1,12 +1,12 @@
 // Tool contract: OpenAI-compatible JSON Schemas (sent to the model) + zod validators (enforced by the engine).
 // Keep the two in sync — tests in packages/engine/test/tools.contract.test.ts check every schema parses.
 import { z } from 'zod';
+import { ALARM_STATION_IDS } from './map-ids.generated.js';
 import { ACTOR_IDS, ZONE_IDS, type ToolName } from './types.js';
 
 const actorEnum = [...ACTOR_IDS];
 const zoneEnum = [...ZONE_IDS];
 /** Destinations: a zone, a person (go next to them), 'alarm' (nearest reachable pull station) or a station id. */
-export const ALARM_STATION_IDS = ['alarm_corridor'] as const;
 const destinationEnum = [...ZONE_IDS, ...ACTOR_IDS, 'alarm', ...ALARM_STATION_IDS];
 
 export const PLAN_SECTIONS = ['reporting', 'routes', 'assistance', 'accountability'] as const;

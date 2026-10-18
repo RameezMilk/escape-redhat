@@ -2,57 +2,52 @@
 // Evidence ids (E1…), raw zone ids (rh_room…), action ids (A-007) and tile coordinates never reach the screen;
 // they stay in planner-facing fields and in the raw JSON a viewer can expand.
 import type { MapData, WorldEvent } from '@escape/contracts';
+import { loadMap, placesFor } from '@escape/engine';
 
-/** Short names for zones (fallback when the engine's own place names are unavailable). */
-export const PLACE_NAMES: Record<string, string> = {
-  rh_room: 'Red Hat room',
-  door_a: 'door A',
-  door_b: 'door B',
-  north_corridor: 'north hallway',
-  connector: 'lobby connector',
-  lobby: 'NVIDIA lobby',
-  south_branch: 'south corridor',
-  west_exit: 'west exit',
-  east_exit: 'east exit',
-  west_sidewalk: 'outside',
-  plaza: 'outside',
-  assembly: 'assembly point',
-};
+// All names come from the map (ZoneDef.name, DoorComponent.name, AlarmStation.name) via the engine's placesFor.
+const places = () => placesFor(loadMap());
 
-/** Short names for electric sliding doors (component ids). */
-export const DOOR_NAMES: Record<string, string> = {
-  door_a: 'door A',
-  door_b: 'door B',
-  connector: 'lobby connector door',
-  south_door: 'south door',
-};
-
-// Only underscore ids: bare words like "lobby"/"assembly" also occur inside already-human text ("NVIDIA lobby",
-// "assembly point") — replacing them again produced "assembly point point".
-const ZONE_ID_RE = new RegExp(`\\b(${Object.keys(PLACE_NAMES).filter((k) => k.includes('_')).join('|')})\\b`, 'g');
-const DOOR_ID_RE = /\bsouth_door\b/g;
-
+/** Short place name without a leading article: "Red Hat room", "door A", "outside"; unknown ids → words. */
 export function placeName(zone: unknown): string {
   if (typeof zone !== 'string' || !zone) return 'the building';
-  return PLACE_NAMES[zone] ?? zone.replace(/_/g, ' ');
+  return places().shortName(zone);
 }
 
 /** "the Red Hat room" / "door A" / "outside" — with an article where it reads naturally. */
 export function inPlace(zone: unknown): string {
   if (typeof zone !== 'string' || !zone) return 'the building';
-  const p = placeName(zone);
-  return /^(door [A-Z]|outside)$/.test(p) ? p : `the ${p}`;
+  const p = places();
+  return p.isZone(zone) ? p.placeName(zone) : `the ${zone.replace(/_/g, ' ')}`;
 }
 
+/** Short sliding-door name without a leading article: "door A", "south door". */
 export function doorName(component: unknown): string {
   if (typeof component !== 'string' || !component) return 'sliding door';
-  return DOOR_NAMES[component] ?? component.replace(/_/g, ' ');
+  const n = places().doorName(component);
+  return n === 'a sliding door' ? component.replace(/_/g, ' ') : n.replace(/^the /, '');
 }
 
 /** Door with the right article: "door B" (named), "the south door". */
 export function theDoor(component: unknown): string {
-  const n = doorName(component);
-  return /^door [A-Z]$/.test(n) ? n : `the ${n}`;
+  if (typeof component !== 'string' || !component) return 'the sliding door';
+  const n = places().doorName(component);
+  return n === 'a sliding door' ? `the ${component.replace(/_/g, ' ')}` : n;
+}
+
+/** Pull station with its article, short: "the hallway alarm"; unknown or 'alarm' → the only one, or "the fire alarm". */
+export function theAlarm(station: unknown): string {
+  const p = places();
+  const name = typeof station === 'string' && station ? p.stationName(station) : p.anyStationName;
+  return name === 'a fire alarm' || name === 'the nearest fire alarm' ? 'the fire alarm' : name.replace(/ fire alarm$/, ' alarm');
+}
+
+/** Short name for any code-like id a viewer must not see: zones, doors and pull stations. */
+function idToWords(id: string): string {
+  const p = places();
+  if (p.isZone(id)) return p.shortName(id);
+  const door = p.doorName(id);
+  if (door !== 'a sliding door') return door.replace(/^the /, '');
+  return p.stationName(id).replace(/^the /, '');
 }
 
 /** Zone of a tile, if the map knows it. */
@@ -113,8 +108,9 @@ export function humanize(text: string, book?: EvidenceBook): string {
   s = s.replace(/\s*\((E\d+(?:,\s*E\d+)*)\)/g, '');
   s = s.replace(/\b(fire|door|hazard|evidence)\s+(E\d+)\b/gi, (_m, _w, id: string) => (book ? book.describe(id) : 'the hazard'));
   s = s.replace(/\bE\d+\b/g, (id) => (book ? book.describe(id) : 'the hazard'));
-  s = s.replace(DOOR_ID_RE, 'south door');
-  s = s.replace(ZONE_ID_RE, (z) => placeName(z));
+  // Only underscore ids: bare words like "lobby"/"assembly" also occur inside already-human text ("NVIDIA lobby",
+  // "assembly point") — replacing them again produced "assembly point point".
+  s = s.replace(new RegExp(places().idPattern, 'g'), (id) => idToWords(id));
   // action / decision ids and coordinates
   s = s.replace(/\s*\((?:A|D)-\d+\)/g, '');
   s = s.replace(/\s*(?:at|near)?\s*\(\d+,\s*\d+\)/g, '');

@@ -16,7 +16,7 @@ import { GymSessions } from '../apps/server/src/gymApi.js';
 const OUT = join(REPO_ROOT, 'gym', 'resources_servers', 'escape_red_hat', 'data');
 mkdirSync(OUT, { recursive: true });
 
-const map = loadMapFile('office-v1');
+const map = loadMapFile();
 const cases = loadCases();
 const gym = new GymSessions({ map, cases, createEngine: createEngine as CreateEngine });
 

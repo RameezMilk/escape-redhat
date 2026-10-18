@@ -2,7 +2,7 @@
 import { ACTOR_PROFILES, type ActorId, type DebriefLesson, type EpisodeMetrics, type EpisodeOutcome, type EpisodeResult, type WorldEvent, type ZoneId } from '@escape/contracts';
 import { canonicalJson } from './hash.js';
 import { ruleSources } from './knowledge.js';
-import { ALARM_NAME, atPlace, doorName, joinNames } from './places.js';
+import { anyStationName, atPlace, doorName, joinNames, stationName } from './places.js';
 
 export interface ActionLogEntry {
   decision: string;
@@ -220,7 +220,7 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
             l: lesson(
               'alarm',
               'Raising the alarm',
-              `${input.alarm.by ? name(input.alarm.by) : 'Someone'} pulled ${ALARM_NAME}${input.alarm.via === 'instinct' ? ' on the way past — an instinct, not an order' : ''}${
+              `${input.alarm.by ? name(input.alarm.by) : 'Someone'} pulled ${stationName(input.alarm.stationId)}${input.alarm.via === 'instinct' ? ' on the way past — an instinct, not an order' : ''}${
                 m.procedural.alarmLatencySimSec !== null ? `, ${m.procedural.alarmLatencySimSec.toFixed(1)} s after the fire was first seen` : ''
               }. The siren alerts everyone at once — but it does not say where the fire is, so a spoken report still helps people choose a safe route.`,
               ['EAP-REPORT', 'ALARM-SYSTEM'],
@@ -231,7 +231,7 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
             l: lesson(
               'alarm',
               'The alarm was never pulled',
-              `Nobody used the hallway pull station; people were warned only by word of mouth${report ? '' : ' (or not at all)'}, and a voice carries only within a room. The pull station alerts the whole building at once, including people in other rooms who cannot see or hear about the fire.`,
+              `Nobody used ${anyStationName().replace(/fire alarm$/, 'pull station')}; people were warned only by word of mouth${report ? '' : ' (or not at all)'}, and a voice carries only within a room. The pull station alerts the whole building at once, including people in other rooms who cannot see or hear about the fire.`,
               ['EAP-REPORT', 'ALARM-SYSTEM'],
             ),
           },

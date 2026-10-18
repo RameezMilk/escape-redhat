@@ -3,9 +3,9 @@
 // are the person's own judgement, stated once in their system prompt. The central planner prompt (prompt.ts) is
 // unchanged and still used by central mode and the Gym API.
 import { ACTOR_IDS, ACTOR_PROFILES, TOOL_DEFS, type ActorId, type AgentView, type MapData, type OpenAIToolDef, type ScenarioCase } from '@escape/contracts';
-import { PLACE_NAMES } from './places.js';
+import { placeName } from './places.js';
 
-const place = (z: string | null | undefined) => (z ? (PLACE_NAMES[z] ?? z.replace(/_/g, ' ')) : 'somewhere unknown');
+const place = (z: string | null | undefined) => (z ? placeName(z) : 'somewhere unknown');
 const dist = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
 function building(map: MapData): string {
