@@ -38,7 +38,7 @@ export interface RunHeader {
   harness: string;
   /** 'agents' = each person decided for themselves (absent in older logs = central). */
   mode?: 'central' | 'agents';
-  /** Live runs have no stall ceiling (there is no gameplay timer); headless/Gym runs record theirs. */
+  /** Live runs have no stall ceiling (there is no gameplay timer); headless runs record theirs. */
   engineOptions: {
     maxDecisions: number;
     stallCeilingSimSec?: number;

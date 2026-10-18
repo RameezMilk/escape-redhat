@@ -221,7 +221,7 @@ What "verified success" meant in ruleset 1: all three characters physically chec
 
 Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 
-## How NVIDIA Nemotron, vLLM and NeMo Gym are used
+## How NVIDIA Nemotron and vLLM are used
 
 **Nemotron 3.5 Lightning 30B-A3B** is the only generative model (30B total parameters ≤ the 33B cap; no draft, critic or router model).
 - It is the central planner: each decision is one native tool call for one named character, executed by a deterministic engine that validates it against world truth.
@@ -234,7 +234,7 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 - Measured on the office-v2 benchmark: central decision latency p50 ≈ 0.70–0.73 s, p95 ≈ 1.0 s; per-agent (reasoning capped at 128 tokens) p50 ≈ 1.05–1.12 s, p95 ≈ 1.7–2.2 s. Weights 58.9 GiB, KV cache 9.3 GiB. Throughput and cache numbers: [`deploy/vllm/MODEL_MANIFEST.md`](deploy/vllm/MODEL_MANIFEST.md).
 - We use upstream vLLM because Red Hat AI Inference 3.5.1 packages vLLM 0.24.0, older than this model requires (0.27.1).
 
-**NeMo Gym 0.6.0** (released 2026-09-09): [`gym/`](gym/) wraps this same engine as a Resources Server — tasks from the dataset's dev/test splits, the tools as Gym tool routes (ruleset 2 adds `pull_alarm`; task rows are regenerated with `gym/make_tasks.ts`), and `verify()` returning the engine's reward (+1 verified success with procedures, 0 incomplete, −1 critical violation). It runs through the real nemo-gym classes (tests pass); full Gym rollout collection against our vLLM is documented there. The baseline-vs-final numbers above come from our own bench runner over the same engine and scoring. **The improvement is a prompt/harness improvement, not RL — no model weights were trained.**
+The baseline-vs-final numbers above come from our own bench runner (`apps/eval`) over the engine's own scoring. **The improvement is a prompt/harness improvement, not RL — no model weights were trained.**
 
 ## Known limitations and next steps
 
@@ -250,7 +250,7 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 **Next steps:**
 - Import a customer's own floor plan.
 - More hazard types and occupants.
-- Gym rollout collection at scale (multiple samples per case) to tighten the confidence on the v1→v2 gain.
+- Multiple samples per case to tighten the confidence on the v1→v2 gain.
 - RL fine-tuning of a warden policy, once trainer and hardware compatibility is confirmed.
 - A study of whether watching runs actually helps people learn.
 

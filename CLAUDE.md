@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 "Escape from Red Hat": a pixel-art office-evacuation exercise (NVIDIA × Red Hat Small Models Hack). A deterministic TypeScript engine owns the world: the office-v2 ground floor (GPU server room, Red Hat conference room, kitchen, main hallway, cubicles, reception; a street with a crosswalk and the bus-stop assembly point across it), spreading fire, seven electric sliding doors, three manual exits, two fire-alarm pull stations (hallway, reception), and five people: Alex the warden, Maya, Daniel who uses a wheelchair, Rosa the receptionist and Kenji the IT engineer. NVIDIA Nemotron 3.5 Lightning 30B-A3B, self-hosted on vLLM (Brev H100), chooses validated tool calls. Two decision modes:
-- `central` (default, benchmarked, used by the Gym API): one planner call directs all five people from a merged team view.
+- `central` (default, benchmarked): one planner call directs all five people from a merged team view.
 - `agents` (`PLANNER_MODE=agents`): each person makes their own reasoning call from their own personal view; the engine's hard-coded survival instincts are off.
 
 `README.md` (quick start, results, limitations) and `tech-stack.md` (serving/tool-calling details with measured numbers) are the user-facing docs.
@@ -46,7 +46,6 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
 - **Web URL parameters.** `?intro=0` skips the start screen. `?fixture=1` streams canned UI data with no server. `?gallery=1` shows every procedural sprite (furniture, decor, outfits) for visual review.
 - **Bench limitation.** `npm run bench` only loads the `dev` and `test` splits. `demo-hero` is split `demo` and has no events (the presenter places the fire and the power cut live), so it is never benchmarked; `dev-00-hero` is its scripted stand-in (`hero-story.json`).
 - **Rehearsal helpers.** `scripts/auto-electrical.mjs` cuts the reception door's power once someone is moving through the main hallway (`--door`, `--when-zone`, `--url`; door tiles come from the current map). `scripts/watch-trace.mjs` tails the trace.
-- **Gym.** NeMo Gym is a Python proxy: see `gym/README.md`.
 - **vLLM serving.** See `deploy/vllm/`.
 
 ## Architecture
@@ -78,11 +77,10 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
   - Headless agents mode asks everyone ready in parallel, then applies the answers in a fixed order.
   - The same file holds the story-beat filter for engine rows and the speech bubbles.
 - **`headless.ts`:** lockstep episodes for bench/eval (the sim is frozen while waiting on the model).
-- **`prompt.ts`:** the central planner prompts. Harness `v1` is the baseline; `v2` adds a state digest, per-turn action masking (`toolsFor`) and a procedure. **The Gym task rows are generated from this file**, so editing it changes the Gym prompts: regenerate them with `npx tsx gym/make_tasks.ts`.
+- **`prompt.ts`:** the central planner prompts. Harness `v1` is the baseline; `v2` adds a state digest, per-turn action masking (`toolsFor`) and a procedure.
 - **`agentPrompt.ts`:** the first-person prompt per person, their personal digest and their tool menu (agents mode only).
 - **`providers/`:** `openaiCompatible.ts` (vLLM/hosted; parses native `tool_calls` with an XML/JSON content fallback; captures `reasoning_content`; sends `thinking_token_budget` only alongside `chat_template_kwargs`, and drops both on the "unknown field" 400 fallback; retries a context-length 400 with a smaller output budget) and `scripted.ts` (fixture policies for central and per-person decisions).
 - **`runlog.ts`:** run logs in `runs/<episodeId>.jsonl`: header, tick-stamped inputs, trace rows, result, footer hash. Replays re-apply the recorded inputs and never call the model again.
-- **`gymApi.ts`:** `/api/gym/*` for NeMo Gym. It always uses central semantics.
 - **`places.ts`:** `humanize()`, the last safety net for anything a viewer sees.
 
 **`apps/web`** is React 19 + Vite. `src/vendor/pixel-agents/` is a vendored Canvas renderer (@3537e14, MIT); local changes are marked `// ESCAPE-PATCH`, and `THIRD_PARTY_NOTICES.md` lists the vendored files. The trace panel lives in `src/trace/`.
@@ -99,7 +97,7 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
 - **Replay determinism.**
   - Any input that changes the engine other than `step()` must go through `recordInput`: `begin`, `view` (with `actor` in agents mode), `tool`, `note`, `place`, `end`.
   - Any new `EngineOptions` field must be written to the run header and passed through `replayEngineOptions` in `runlog.ts`, or replays diverge.
-- **The map is the single source of truth.** Zone, door and station names, which zones are outside, exits or non-flammable, and the id lists all come from the map JSON. To add or rename a place, edit the spec/ASCII and run `npm run data:map` (then `npm run data:scenarios` and `npx tsx gym/make_tasks.ts`); never add a hand-kept name table. Moving furniture changes the map hash in `provenance.json` even when the cases stay the same.
+- **The map is the single source of truth.** Zone, door and station names, which zones are outside, exits or non-flammable, and the id lists all come from the map JSON. To add or rename a place, edit the spec/ASCII and run `npm run data:map` (then `npm run data:scenarios`); never add a hand-kept name table. Moving furniture changes the map hash in `provenance.json` even when the cases stay the same.
 - **Engine API changes.** New `Engine` methods need stubs in `apps/server/test/fakeEngine.ts`.
 - **Viewer-facing text** (trace engine rows, bubbles, debrief) must never contain evidence ids (`E1`), zone ids (`rh_room`), action ids (`A-007`) or coordinates; tests check this with `idLeakRegex(map)` (`apps/server/test/idLeak.ts`). Planner-facing text keeps the ids, because the model needs them for `evidence_ids` and `route_id`.
 - **Honesty conventions.**

@@ -22,7 +22,7 @@ export interface EngineOptions {
   tickMs?: number;
   /** Decision cap per episode — a safety stop, not a game rule (default 60). */
   maxDecisions?: number;
-  /** Headless/Gym safety stop: end as 'incomplete' (stalled) after this many simulated seconds since the incident.
+  /** Headless safety stop: end as 'incomplete' (stalled) after this many simulated seconds since the incident.
    *  Unset (live game) = no limit; there is no gameplay timer. */
   stallCeilingSimSec?: number;
   /** Seed for idle/ambient behaviour; defaults to scenario.seed. */

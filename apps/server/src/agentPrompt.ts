@@ -1,7 +1,7 @@
 // Per-agent mode prompts: each person (Alex, Maya, Daniel) is their own model call, deciding only for themselves from
 // what they personally know (engine.agentView). No hard-coded instincts run in this mode — the responsibilities below
 // are the person's own judgement, stated once in their system prompt. The central planner prompt (prompt.ts) is
-// unchanged and still used by central mode and the Gym API.
+// unchanged and still used by central mode.
 import { ACTOR_IDS, ACTOR_PROFILES, ASSISTANCE, countWord, TOOL_DEFS, WARDEN_ID, type ActorId, type AgentView, type MapData, type OpenAIToolDef, type ScenarioCase } from '@escape/contracts';
 import { joinNames } from '@escape/engine';
 import { placeName } from './places.js';

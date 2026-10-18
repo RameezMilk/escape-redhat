@@ -57,7 +57,7 @@ If the model takes a different valid path, narrate what it actually did. Don't r
 | 0:25–0:50 | Pitch: "Most evacuation material tells you the procedure. We let you change an office emergency — a spreading fire, a failed door — and watch how the alarm, route updates, assistance and accountability change the outcome." Then what's real and what's not (the fire is a game model, not fire science) |
 | 0:50–2:15 | Live core loop (above) |
 | 2:15–3:30 | Engineering: architecture diagram (README), tool validator and information boundaries (model proposes, engine decides; instincts labelled), vLLM config and measured latency/throughput ([`tech-stack.md`](../tech-stack.md)), benchmark dev/test table (`results/…/summary.md`), replay (labeled) |
-| 3:30–4:15 | Why it matters, known limitations, next steps (customer floor plans, Gym/RL) |
+| 3:30–4:15 | Why it matters, known limitations, next steps (customer floor plans, RL fine-tuning) |
 
 ## Submission checklist (Airtable form)
 
@@ -70,11 +70,10 @@ If the model takes a different valid path, narrate what it actually did. Don't r
 **Form fields:**
 - Track: **Tool-Calling**.
 - AI models: Nemotron 3.5 Lightning 30B-A3B (BF16) via vLLM 0.27.1.
-- Tools: vLLM, Brev, (NeMo Gym only if built).
+- Tools: vLLM, Brev.
 
 **Bounties.** Only tick these where we can show evidence:
 - Nemotron: explanation text.
 - vLLM: config and measurements.
-- Gym: only with baseline vs final on held-out tasks.
 
 **Before 11:00:** final push, check the repo opens in a private window, submit.

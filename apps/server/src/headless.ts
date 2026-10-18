@@ -13,7 +13,7 @@ import { RunLog } from './runlog.js';
 
 export type { DecisionProvider } from './providers/types.js';
 
-/** Default headless/Gym safety stop: sim seconds after the incident with no completion. Not a game timer. */
+/** Default headless safety stop: sim seconds after the incident with no completion. Not a game timer. */
 export const DEFAULT_STALL_CEILING_SIM_SEC = 900;
 
 /** Absolute tick guard for loops that step the engine: the stall ceiling plus pre-incident slack (100 ms ticks). */

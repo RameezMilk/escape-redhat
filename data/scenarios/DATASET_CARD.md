@@ -11,7 +11,7 @@ v3 is the same recipe as v2, regenerated for the **office-v2 ground floor** (six
 | Generator | `data/scenarios/generator.ts` v3.0.0, master seed `20261017`, run with `npm run data:scenarios` (`--check` regenerates and compares without writing) |
 | Map | `data/maps/office-v2.json`, built from `office-v2.ascii` + `office-v2.spec.ts` by `data/maps/builder.ts`. A fictional 44×29-tile ground floor: GPU server room, Red Hat conference room, kitchen, main hallway, cubicles and reception; 7 interior electric sliding doors; 3 manual exits (west, kitchen back door, main entrance); 2 fire-alarm pull stations (hallway, reception); a street with a crosswalk and the bus-stop assembly point across it |
 | Files | `cases.dev.jsonl` (16), `cases.test.jsonl` (16), `demo-hero.json` (live demo: spawns only, the presenter places hazards), `hero-story.json` (the scripted hero events), `splits.json`, `provenance.json` (sha256 of all inputs and outputs) |
-| Used by | The app boots `demo-hero` from this folder; `apps/eval/src/bench.ts` runs and scores every case; `gym/make_tasks.ts` turns cases into NeMo Gym task rows |
+| Used by | The app boots `demo-hero` from this folder; `apps/eval/src/bench.ts` runs and scores every case |
 
 ## What a case contains
 

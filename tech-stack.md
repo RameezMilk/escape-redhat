@@ -158,11 +158,10 @@ Rejections come back as observations: `INVALID_ARGUMENT`, `UNKNOWN_EVIDENCE`, `R
 | 6 | **Parallel tool calls**: one call per person per turn | 2 h (engine already validates each call independently) | Fewer turns per episode; a BFCL "parallel" category |
 | 7 | **BF16 vs NVFP4** on the same H100 | 1 h plus a restart | Same-accuracy / higher-throughput row (the card shows about 2 points on PinchBench; Hopper throughput **[UNVERIFIED]**) |
 | 8 | **Constrained-decoding ladder**: on a rejected call, retry with a named `tool_choice` or strict schema; count how often each rung fires | 2 h | Recovery-rate gain. vLLM guarantees *parseable* calls, not *good* ones ([tool calling docs](https://docs.vllm.ai/en/latest/features/tool_calling.html)) |
-| 9 | **NeMo Gym rollouts**: `gym/` already wraps this engine; add partial-credit `verify()` and per-task mean ± sd ([Gym](https://github.com/NVIDIA-NeMo/Gym), [NVIDIA RL agents post](https://developer.nvidia.com/blog/how-to-train-scientific-agents-with-reinforcement-learning/)) | 2–3 h | Gym-native baseline-vs-final numbers |
-| 10 | **Speculative decoding**: built-in MTP vs none at low and high concurrency; acceptance rate from `vllm:spec_decode_*` ([spec metrics](https://docs.vllm.ai/en/stable/api/vllm/v1/spec_decode/metrics/)). A DSpark draft would add parameters (size **[UNVERIFIED]**) against the 33B cap | 2 h | Latency at concurrency 1 vs 32 |
-| 11 | **LoRA per harness**: v1/v2 as adapters on one server (`NemotronHForCausalLM` is listed as LoRA-capable, [supported models](https://docs.vllm.ai/en/latest/models/supported_models.html); Lightning in 0.27.1 **[UNVERIFIED]**) | half a day | Multi-adapter serving demo |
-| 12 | **Brev Launchable**: one-click VM with `serve.sh` and a public repo; no secrets in the image or logs | 1 h | "Launch on Brev" badge; judges can reproduce |
-| 13 | **Customer floor-plan import**: the ASCII-to-JSON map builder is the extension point | 1 day | The product story beyond the hackathon office |
+| 9 | **Speculative decoding**: built-in MTP vs none at low and high concurrency; acceptance rate from `vllm:spec_decode_*` ([spec metrics](https://docs.vllm.ai/en/stable/api/vllm/v1/spec_decode/metrics/)). A DSpark draft would add parameters (size **[UNVERIFIED]**) against the 33B cap | 2 h | Latency at concurrency 1 vs 32 |
+| 10 | **LoRA per harness**: v1/v2 as adapters on one server (`NemotronHForCausalLM` is listed as LoRA-capable, [supported models](https://docs.vllm.ai/en/latest/models/supported_models.html); Lightning in 0.27.1 **[UNVERIFIED]**) | half a day | Multi-adapter serving demo |
+| 11 | **Brev Launchable**: one-click VM with `serve.sh` and a public repo; no secrets in the image or logs | 1 h | "Launch on Brev" badge; judges can reproduce |
+| 12 | **Customer floor-plan import**: the ASCII-to-JSON map builder is the extension point | 1 day | The product story beyond the hackathon office |
 
 ## 7. Pitfalls we avoid
 

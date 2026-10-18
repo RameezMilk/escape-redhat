@@ -8,7 +8,6 @@ import { ClientMessageSchema, type CreateEngine, type ServerMessage } from '@esc
 import { describePlanner, readServerConfig } from './config.js';
 import { caseSummaries, loadCases, loadMapFile, RUNS_DIR, WEB_DIST } from './data.js';
 import { createProviderFromEnv } from './headless.js';
-import { GymSessions, registerGymRoutes } from './gymApi.js';
 import { listRuns } from './runlog.js';
 import { Session } from './session.js';
 
@@ -52,8 +51,6 @@ async function main() {
   app.get('/api/provider', async () => provider.info());
   app.get('/api/cases', async () => caseSummaries(cases));
   app.get('/api/runs', async () => listRuns(RUNS_DIR));
-  // Headless engine sessions for NeMo Gym (gym/resources_servers/escape_red_hat) and other harnesses.
-  registerGymRoutes(app, new GymSessions({ map, cases, createEngine }));
 
   app.register(async (scope) => {
     scope.get('/ws', { websocket: true }, (socket: Sock) => {
