@@ -30,6 +30,8 @@ export function TopBar() {
     return [...demo, ...rest.slice(0, 8)];
   }, [runs, mapHash]);
   const alarmOn = !!snapshot?.alarm?.active && !snapshot?.outcome;
+  // Live cue: a hazard has been placed and the run is going (not paused, ended or a replay).
+  const live = !!snapshot && snapshot.hazards.length > 0 && !snapshot.outcome && !paused && snapshot.mode !== 'replay';
   const muted = useSyncExternalStore(onMuteChange, isMuted);
 
   // Siren follows the alarm: plays while active and running; stops on pause, mute, episode end or reset.
@@ -58,6 +60,12 @@ export function TopBar() {
           decisions {snapshot?.decisions.used ?? 0}/{snapshot?.decisions.max ?? '—'}
           {snapshot?.decisions.inFlight ? <span className="thinking"> · {provider?.mode === 'agents' ? 'thinking…' : 'planner thinking…'}</span> : null}
         </span>
+        {live ? (
+          <span className="live-pill" title="Live simulation: the fire and the people are moving in real time">
+            <span className="live-dot" aria-hidden />
+            LIVE
+          </span>
+        ) : null}
       </div>
       <div className="tb-controls">
         <button

@@ -28,7 +28,6 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#tech-stack-and-architecture">Tech stack</a> ·
   <a href="#how-to-reproduce-the-demo">Reproduce the demo</a> ·
-  <a href="#results">Results</a> ·
   <a href="#datasets-and-synthetic-data">Datasets</a> ·
   <a href="#known-limitations-and-next-steps">Limitations</a>
 </p>
@@ -44,7 +43,7 @@ A deterministic TypeScript engine owns a fictional office ground floor: six room
 - **Five independent agents.** One Nemotron call per person, each with a strictly personal view and reasoning capped at 128 tokens. All five decide in parallel, about 1.1 s per decision on one H100.
 - **No hard-coded reflexes.** Warning the room, pulling the alarm, helping Daniel and choosing an exit are each person's own decision. The engine only simulates the world: fire, doors, sight and earshot.
 - **Honest by construction.** Rejected calls change nothing and return an error code with a hint. Nobody can declare success; only the warden's verified roster can end a run as one.
-- **Measured.** On 14 held-out scenarios, everyone got out in 12, and no run ever claimed a false success ([results](#results)).
+- **Measured.** On 14 held-out scenarios, everyone got out in 12, and no run ever claimed a false success ([summary](results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md)).
 
 ## Quick start
 
@@ -166,20 +165,6 @@ PLANNER_MODE=agents             # one Nemotron call per person
 5. The run ends once every survivor has checked in at the bus stop and Alex has verified the roster.
 
 Each person is a separate model call, so routes, timing and who does what differ from run to run. The recorded demo is one such run.
-
-## Results
-
-Agents mode on 16 synthetic scenarios per split (14 normal, 2 trapped by design on test; 15 and 1 on dev). The held-out test split has fires in rooms never used while developing the prompt. Nemotron 3.5 Lightning on our vLLM, one H100, temperature 0.6, reasoning capped at 128 tokens, one run per case, measured 2026-10-18.
-
-| Split | Everyone out, normal cases | False success, trapped cases | People out | Invalid calls | Decisions per run | Decision latency p50 / p95 |
-|---|---|---|---|---|---|---|
-| **Test (held out)** | **12/14** | **0/2** | **76/80** | 11.7% | 61.1 | 1.08 / 2.07 s |
-| Dev | 15/15 | 0/1 | 79/80 | 10.1% | 47.9 | 1.14 / 2.07 s |
-
-- Someone pulled a fire alarm in every run, on average 18.7 s (test) and 10.7 s (dev) after the fire was first seen.
-- No provider errors. 31 malformed replies in about 1,740 decisions, each followed by a fresh decision.
-- Single runs at temperature above 0 with a stochastic fire: a difference of one or two cases can be noise.
-- Raw summaries and replayable logs: [`agents-test`](results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md), [`agents-dev`](results/2026-10-18-office-v2-vllm-h100/agents-dev/summary.md). Serving measurements: [`docs/tech-stack.md`](docs/tech-stack.md).
 
 ## Datasets and synthetic data
 

@@ -168,6 +168,50 @@ kbd {
     filter: brightness(1.25);
   }
 }
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 700 11px var(--pixel);
+  letter-spacing: 1px;
+  padding: 3px 9px 3px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: #c4161c;
+  border: 2px solid #0b080e;
+  animation: live-pulse 1.4s ease-in-out infinite;
+}
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  animation: live-blink 1.4s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(255, 59, 48, 0);
+  }
+}
+@keyframes live-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-pill,
+  .live-dot {
+    animation: none;
+  }
+}
 .clock,
 .decisions {
   font-variant-numeric: tabular-nums;
