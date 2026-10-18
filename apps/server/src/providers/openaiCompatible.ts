@@ -42,6 +42,7 @@ export class OpenAICompatibleProvider implements DecisionProvider {
       healthy: this.healthy,
       healthDetail: this.healthDetail,
       thinking: this.cfg.thinking,
+      mode: this.cfg.mode,
       p50LatencyMs: this.stats.p50(),
       lastLatencyMs: this.stats.last,
     };
@@ -91,21 +92,27 @@ export class OpenAICompatibleProvider implements DecisionProvider {
       if (second.kind !== 'error') this.dropTemplateKwargs = true;
       return second;
     }
+    // Prompt + requested output over the served context (reasoning asks for 4k output): retry once with what fits.
+    const ctx = first.kind === 'error' && first.status === 400 ? first.message.match(/maximum context length is (\d+) tokens[\s\S]*?(\d+) input tokens/) : null;
+    if (ctx) {
+      const room = Number(ctx[1]) - Number(ctx[2]) - 32;
+      if (room >= 512) return this.post(req, !this.dropTemplateKwargs, room);
+    }
     return first;
   }
 
-  private async post(req: DecideRequest, withTemplateKwargs: boolean): Promise<DecisionResult> {
+  private async post(req: DecideRequest, withTemplateKwargs: boolean, maxTokens?: number): Promise<DecisionResult> {
     const body: Record<string, unknown> = {
       model: this.cfg.model,
       messages: [
         { role: 'system', content: req.system },
-        { role: 'user', content: userContent(req.view, req.harness) },
+        { role: 'user', content: req.agent ? req.agent.user : userContent(req.view!, req.harness, req.map) },
       ],
       tools: req.tools,
       tool_choice: 'auto',
       temperature: this.cfg.temperature,
       top_p: this.cfg.topP,
-      max_tokens: this.cfg.thinking ? Math.max(this.cfg.maxTokens, 4096) : this.cfg.maxTokens,
+      max_tokens: maxTokens ?? (this.cfg.thinking ? Math.max(this.cfg.maxTokens, 4096) : this.cfg.maxTokens),
     };
     if (withTemplateKwargs) body.chat_template_kwargs = { enable_thinking: this.cfg.thinking };
     const rawRequest = { url: `${this.cfg.baseUrl}/chat/completions`, body };
@@ -176,6 +183,9 @@ export function parseChatMessage(
   usage: Usage | undefined,
   raw: { request?: unknown; response?: unknown },
 ): DecisionResult {
+  // vLLM's reasoning parser returns the thinking separately (field name differs across versions).
+  const thought = (message.reasoning_content ?? message.reasoning ?? '').trim();
+  const reasoning = thought ? { reasoning: thought.slice(0, 6000) } : {};
   const native = message.tool_calls ?? [];
   if (native.length) {
     let malformed = false;
@@ -198,13 +208,13 @@ export function parseChatMessage(
       }
       return { id: tc.id || synthId(), name, arguments: args, ...(rawArguments !== undefined ? { rawArguments } : {}) };
     });
-    return { kind: 'tool_call', calls, parseMode: 'native', latencyMs, usage, raw, ...(malformed ? { malformedArguments: true } : {}) };
+    return { kind: 'tool_call', calls, parseMode: 'native', latencyMs, usage, raw, ...reasoning, ...(malformed ? { malformedArguments: true } : {}) };
   }
 
   const content = message.content ?? '';
   const fallback = parseContentToolCalls(content);
-  if (fallback.length) return { kind: 'tool_call', calls: fallback, parseMode: 'content-fallback', latencyMs, usage, raw };
-  return { kind: 'no_call', text: content.slice(0, 500), latencyMs, usage, raw };
+  if (fallback.length) return { kind: 'tool_call', calls: fallback, parseMode: 'content-fallback', latencyMs, usage, raw, ...reasoning };
+  return { kind: 'no_call', text: content.slice(0, 500), latencyMs, usage, raw, ...reasoning };
 }
 
 function coerceValue(v: string): unknown {

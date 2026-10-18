@@ -4,6 +4,7 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
+  ActorId,
   DecisionMeta,
   DecisionNote,
   Engine,
@@ -19,7 +20,8 @@ import type {
 export type RunInput =
   | { tick: number; type: 'place'; kind: HazardKind; col: number; row: number }
   | { tick: number; type: 'begin'; decisionId: string }
-  | { tick: number; type: 'view' }
+  /** Central: the team view. With `actor` (per-agent mode): that person's own view. */
+  | { tick: number; type: 'view'; actor?: ActorId }
   | { tick: number; type: 'tool'; call: NormalizedToolCall; meta: DecisionMeta }
   | { tick: number; type: 'note'; note: DecisionNote; meta?: Omit<DecisionMeta, 'decisionId'> }
   | { tick: number; type: 'end'; status: 'aborted' | 'incomplete'; reason: string };
@@ -34,8 +36,18 @@ export interface RunHeader {
   mapHash: string;
   provider: Omit<ProviderInfo, 'healthy' | 'healthDetail' | 'p50LatencyMs' | 'lastLatencyMs'>;
   harness: string;
+  /** 'agents' = each person decided for themselves (absent in older logs = central). */
+  mode?: 'central' | 'agents';
   /** Live runs have no stall ceiling (there is no gameplay timer); headless/Gym runs record theirs. */
-  engineOptions: { maxDecisions: number; stallCeilingSimSec?: number; seed?: number; tickMs?: number };
+  engineOptions: {
+    maxDecisions: number;
+    stallCeilingSimSec?: number;
+    seed?: number;
+    tickMs?: number;
+    instincts?: boolean;
+    ambient?: boolean;
+    fireSpreadPerTick?: number;
+  };
   clock: 'live' | 'lockstep';
 }
 
@@ -54,6 +66,9 @@ export function replayEngineOptions(h: RunHeader): RunHeader['engineOptions'] {
     ...(o.stallCeilingSimSec !== undefined ? { stallCeilingSimSec: o.stallCeilingSimSec } : {}),
     ...(o.seed !== undefined ? { seed: o.seed } : {}),
     ...(o.tickMs !== undefined ? { tickMs: o.tickMs } : {}),
+    ...(o.instincts !== undefined ? { instincts: o.instincts } : {}),
+    ...(o.ambient !== undefined ? { ambient: o.ambient } : {}),
+    ...(o.fireSpreadPerTick !== undefined ? { fireSpreadPerTick: o.fireSpreadPerTick } : {}),
   };
 }
 
@@ -67,6 +82,11 @@ export function applyInput(engine: Engine, input: RunInput): void {
       engine.beginDecision();
       return;
     case 'view':
+      if (input.actor) {
+        engine.agentView(input.actor);
+        engine.markAgentViewed(input.actor);
+        return;
+      }
       engine.plannerView();
       engine.markViewed();
       return;

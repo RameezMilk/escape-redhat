@@ -91,6 +91,13 @@ export class FakeEngine implements Engine {
     };
   }
   markViewed(): void {}
+  agentView(): never {
+    throw new Error('FakeEngine: per-agent mode not supported');
+  }
+  markAgentViewed(): void {}
+  agentNeedsDecision() {
+    return { needed: false, reason: 'fake engine' };
+  }
   snapshot(): Snapshot {
     return {
       episodeId: this.episodeId,

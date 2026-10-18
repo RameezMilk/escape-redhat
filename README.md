@@ -3,7 +3,7 @@
 **A pixel-art workplace evacuation exercise where you change the emergency and watch AI-controlled characters respond.**
 
 - **The setting.** A fictional Red Hat conference room connects to an NVIDIA-themed lobby, two ground-level exits and an assembly point.
-- **The model.** A single small open model, **NVIDIA Nemotron 3.5 Lightning 30B-A3B** served with **vLLM**, acts as a *central planner*. It picks real, validated tool calls for three characters:
+- **The model.** A single small open model, **NVIDIA Nemotron 3.5 Lightning 30B-A3B** served with **vLLM**, picks real, validated tool calls for three characters — either as one *central planner* (default, benchmarked) or, with `PLANNER_MODE=agents`, as **three separate reasoning calls, one per person**, each seeing only what that person knows:
   - Alex, the warden;
   - Maya, an employee;
   - Daniel, a visitor who uses a wheelchair.
@@ -137,6 +137,8 @@ Development fallback with the same weights: the hosted NVIDIA API Catalog (see e
 | `PLANNER_FREEZE_WHILE_THINKING` | auto | live mode: hold the sim clock during inference (default on for hosted APIs) |
 | `PLANNER_MAX_DECISIONS` | `60` | per-episode decision cap — a safety stop, not a game rule (there is no time limit) |
 | `PLANNER_HARNESS` | `v2` | prompt/harness version (`v1` = baseline) |
+| `PLANNER_MODE` | `central` | `agents` = each person makes their own reasoning call from their own view; engine instincts off |
+| `PLANNER_AGENT_THINKING` / `PLANNER_AGENT_MAX_DECISIONS` / `PLANNER_AGENT_FREEZE_WHILE_THINKING` | `true` / `150` / `true` | agents-mode settings (the central ones are left alone) |
 | `PORT` | `8787` | server port |
 | `DEMO_CASE` | `demo-hero` | scenario loaded on start/reset |
 
@@ -169,6 +171,13 @@ Rehearsal helper: `node scripts/auto-electrical.mjs` drops the electrical failur
 ## Results
 
 **Current game (room-limited voice, one hallway alarm, survival instincts, fire that burns through walls).** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) on our vLLM 0.27.1, one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 60 (safety stop), lockstep clock, concurrency 4, **one run per case** — temperature > 0 *and* a seeded stochastic fire, so differences of 1–2 cases can be noise. Raw summaries and replayable run logs: [`results/2026-10-17-ruleset3-vllm-h100/`](results/2026-10-17-ruleset3-vllm-h100/).
+
+> **Not yet re-measured:** these numbers were taken before the fire was made to spread faster (spread probability 0.018 → 0.03 per tick, walls still holding ~20–30 s), so fire now reaches the hallway in about a minute and the lobby a little after. Expect lower success rates until re-run.
+
+**Per-agent mode (`PLANNER_MODE=agents`) — early, not benchmarked.** Each person is their own Nemotron call (reasoning on) from their own view; no engine instincts. Observed on 2026-10-17, same vLLM server, hero map:
+- Headless (clock held during inference), fire at t=1 s + power cut on the south door: **2 of 2 runs verified success** (36.0 s and 36.6 s of sim time). Maya decided to pull the hallway alarm herself in both, 4.7 s and 6.7 s after first seeing the fire. Reasoning latency p50 2.5–3.4 s, p95 12.5–15 s; ~640 completion tokens per decision (p95 ~2,900).
+- Live, **real-time clock** (sim keeps running while people think), fire placed in the Red Hat room's north-west corner + power cut: **0 of 3 escaped** — people stood still for seconds per decision while the fire spread. This is why agents mode holds the clock during inference by default.
+- Live, **clock held**: Maya warned the room and pulled the alarm 6.0 s after seeing the fire; Alex re-planned around the dead door; Alex and Maya checked in; Daniel was left with no step-free route (dead south door, burning Red Hat room) after a run of look-arounds and a route through the lobby.
 
 **Held-out test split** (16 cases: 14 normal + 2 trapped-by-design; fire locations never used while tuning; same model, server and config for both harnesses):
 
@@ -223,8 +232,8 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 **Limitations:**
 - One fictional single-level map with three characters, four interior sliding doors and one hallway pull station.
 - The fire is a simple seeded cellular spread (each burning tile occasionally ignites a random neighbour; doorways and walls slow it, walls burn through after a while; tiles burn out into impassable debris). It is not fire science: no smoke plume, heat, toxicity, ventilation or injury model — "lost" is a game state.
-- Perception, smelling smoke through a nearby wall, earshot (same room only), the alarm and the survival instincts (shout, back away, pull the alarm on the way out, no re-entry) are simple deterministic rules, shown in the trace as instincts rather than model decisions. The alarm reaches everyone instantly.
-- A central planner controls all three characters. These are not independent agents, and we make no claim that a multi-agent setup is better.
+- Perception, smelling smoke through a nearby wall, earshot (same room only), the alarm and — in central mode only — the survival instincts (shout, back away, pull the alarm on the way out, no re-entry) are simple deterministic rules, shown in the trace as instincts rather than model decisions. In per-agent mode the instincts are off and each person decides those things themselves. The alarm reaches everyone instantly.
+- Default mode: a central planner controls all three characters. Per-agent mode (`PLANNER_MODE=agents`) gives each person their own reasoning call and view, but it is early: a handful of runs, not benchmarked, and we make no claim yet that it is better than the central planner. Its reasoning takes ~3 s per decision (p95 ~13 s), so it holds the sim clock while anyone thinks.
 - Benchmark: 32 synthetic cases, a single run per case, temperature > 0, and a seeded stochastic fire. Treat differences of one or two cases as noise. The v2 harness was tuned on dev; it narrows the tool menu each turn (action masking), which is part of what is being measured.
 - Educational value is a hypothesis; no learning outcomes were measured. Not compliance training; no building-code claims.
 - Replays re-apply recorded decisions. A fresh run with the same seed can make different model choices.

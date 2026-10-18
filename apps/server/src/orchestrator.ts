@@ -1,5 +1,6 @@
 // Planner loop shared by the live server and headless evaluation.
-//   wake → beginDecision → plannerView → provider.decide → (stale? held?) → executeTool → trace
+//   central: wake → beginDecision → plannerView → provider.decide → (stale? held?) → executeTool → trace
+//   agents:  per person: wake → beginDecision → agentView(person) → provider.decide → executeTool (actor pinned) → trace
 // Every real proposal and result becomes a TraceRow; engine events become gray "engine" rows.
 import {
   ACTOR_IDS,
@@ -10,15 +11,17 @@ import {
   type Engine,
   type MapData,
   type ScenarioCase,
+  type NormalizedToolCall,
   type ToolResult,
   type TraceRow,
   type TraceStatus,
   type WorldEvent,
 } from '@escape/contracts';
-import type { Harness } from './config.js';
+import { agentToolsFor, agentUserContent, buildAgentSystemPrompt } from './agentPrompt.js';
+import type { Harness, PlannerMode } from './config.js';
 import { buildSystemPrompt, toolsFor } from './prompt.js';
 import { componentOf, EvidenceBook, humanize, inPlace, theDoor, zoneAtTile } from './places.js';
-import { plannerName, type DecisionProvider, type DecisionResult } from './providers/types.js';
+import { modelName, plannerName, type DecideRequest, type DecisionProvider, type DecisionResult } from './providers/types.js';
 import type { RunInput } from './runlog.js';
 
 export interface OrchestratorDeps {
@@ -27,6 +30,8 @@ export interface OrchestratorDeps {
   map: MapData;
   scenario: ScenarioCase;
   harness: Harness;
+  /** 'central' (default): one planner call directs everyone. 'agents': each person makes their own call. */
+  mode?: PlannerMode;
   deadlineMs: number;
   /** Number of engine.step() calls so far (stamps run-log inputs). */
   getTick(): number;
@@ -53,6 +58,19 @@ export const QUIET_EVENTS = new Set<WorldEvent['type']>([
   'cell_charred',
 ]);
 const NON_PROGRESS_TOOLS = new Set(['observe', 'consult_plan']);
+/** Decision slot key for the central planner (per-agent mode uses the person's id). */
+const CENTRAL = 'central';
+/** Reasoning text kept on a trace row (the full text stays in raw.response). */
+const REASONING_MAX_CHARS = 1500;
+
+/** One decision between asking the model and applying its answer. */
+interface OpenDecision {
+  base: TraceRow;
+  idx: number;
+  /** Per-agent mode: the person deciding (their calls are pinned to them). */
+  actor: ActorId | null;
+  req: DecideRequest;
+}
 
 function compactArgs(args: Record<string, unknown>): Record<string, unknown> {
   const { reason_summary: _r, ...rest } = args;
@@ -195,10 +213,11 @@ const STORY_TYPES = new Set<WorldEvent['type']>(['hazard_placed', 'door_disabled
 const FLEE_ROW_GAP_SIM_SEC = 10;
 
 export class Orchestrator {
-  inFlight = false;
   disposed = false;
   private controller = new AbortController();
-  private releaseHeld: (() => void) | null = null;
+  /** Open decision slots: 'central', or person ids in per-agent mode. */
+  private busy = new Set<string>();
+  private held: (() => void)[] = [];
   private rows = new Map<string, TraceRow>();
   private moveRows = new Map<string, string>();
   private consecutiveProviderFailures = 0;
@@ -213,15 +232,27 @@ export class Orchestrator {
   private alarmRowDone = false;
   private decisionIndex = 0;
   private lastSeq = 0;
-  private lastDecision: { simTime: number; seq: number; productive: boolean } | null = null;
+  /** Last decision per slot (idle backoff after an unproductive one). */
+  private lastDecision = new Map<string, { simTime: number; seq: number; productive: boolean }>();
   private readonly system: string;
+  private readonly agentSystems: Record<ActorId, string>;
   private readonly planner: string;
+  private readonly model: string;
+  readonly mode: PlannerMode;
 
   constructor(private d: OrchestratorDeps) {
+    this.mode = d.mode ?? 'central';
     this.system = buildSystemPrompt(d.harness, d.map, d.scenario);
+    this.agentSystems = Object.fromEntries(ACTOR_IDS.map((id) => [id, buildAgentSystemPrompt(id, d.map, d.scenario)])) as Record<ActorId, string>;
     this.planner = plannerName(d.provider.info());
+    this.model = modelName(d.provider.info());
     // Ingest events already present (episode_started etc.).
     this.ingestNew();
+  }
+
+  /** Any decision waiting on the model (the live loop may freeze the sim clock meanwhile). */
+  get inFlight(): boolean {
+    return this.busy.size > 0;
   }
 
   get episodeId() {
@@ -232,8 +263,8 @@ export class Orchestrator {
     return [...this.rows.values()];
   }
 
-  systemPrompt(): string {
-    return this.system;
+  systemPrompt(actor?: ActorId): string {
+    return actor && this.mode === 'agents' ? this.agentSystems[actor] : this.system;
   }
 
   private emit(row: TraceRow) {
@@ -256,120 +287,191 @@ export class Orchestrator {
     return { id: i.id, model: i.model, endpointKind: i.endpointKind };
   }
 
-  /** True when a new decision should be requested now. */
-  ready(): boolean {
+  /** Idle backoff: after an unproductive decision, wait for news or a couple of simulated seconds. */
+  private backoffOver(key: string): boolean {
     const { engine } = this.d;
-    if (this.inFlight || this.disposed || this.d.isPaused() || engine.outcome()) return false;
-    if (!engine.needsDecision().needed) return false;
-    const ld = this.lastDecision;
+    const ld = this.lastDecision.get(key);
     if (!ld || ld.productive) return true;
     const meaningful = engine.eventsSince(ld.seq).some((e) => e.seq > ld.seq && !QUIET_EVENTS.has(e.type));
     if (meaningful) return true;
     return engine.snapshot().simTime >= ld.simTime + IDLE_BACKOFF_SIM_SEC;
   }
 
-  /** Live mode: start a decision if the engine has work and nothing blocks. */
-  maybeDecide(): void {
-    if (!this.ready()) return;
-    void this.decideOnce().catch((e) => this.d.log?.(`[orchestrator] decision failed: ${(e as Error).stack ?? e}`));
+  private blocked(): boolean {
+    return this.disposed || this.d.isPaused() || !!this.d.engine.outcome();
   }
 
-  private markDecision(productive: boolean) {
+  /** Central mode: true when a new planner decision should be requested now. */
+  ready(): boolean {
+    if (this.mode === 'agents') return this.readyAgents().length > 0;
+    if (this.busy.has(CENTRAL) || this.blocked()) return false;
+    if (!this.d.engine.needsDecision().needed) return false;
+    return this.backoffOver(CENTRAL);
+  }
+
+  /** Per-agent mode: the people who should decide now (fixed order: alex, maya, daniel). */
+  readyAgents(): ActorId[] {
+    if (this.mode !== 'agents' || this.blocked()) return [];
+    return ACTOR_IDS.filter((id) => !this.busy.has(id) && this.d.engine.agentNeedsDecision(id).needed && this.backoffOver(id));
+  }
+
+  /** Live mode: start every decision the engine has work for (one per person in per-agent mode). */
+  maybeDecide(): void {
+    const fail = (e: unknown) => this.d.log?.(`[orchestrator] decision failed: ${(e as Error).stack ?? e}`);
+    if (this.mode === 'agents') {
+      for (const id of this.readyAgents()) void this.decideFor(id).catch(fail);
+      return;
+    }
+    if (!this.ready()) return;
+    void this.decideOnce().catch(fail);
+  }
+
+  private markDecision(key: string, productive: boolean) {
     this.ingestNew();
-    this.lastDecision = { simTime: this.simTime(), seq: this.lastSeq, productive };
+    this.lastDecision.set(key, { simTime: this.simTime(), seq: this.lastSeq, productive });
   }
 
   /** Abort in-flight work; any late response is discarded (episode reset). */
   dispose(): void {
     this.disposed = true;
     this.controller.abort();
-    this.releaseHeld?.();
+    this.resume();
   }
 
-  /** Paused → resumed: apply a held response against the current state. */
+  /** Paused → resumed: apply held responses against the current state. */
   resume(): void {
-    const r = this.releaseHeld;
-    this.releaseHeld = null;
-    r?.();
+    const held = this.held;
+    this.held = [];
+    for (const r of held) r();
   }
 
+  /** Central mode: one planner decision. */
   async decideOnce(): Promise<void> {
-    if (this.inFlight || this.disposed) return;
-    const { engine, provider } = this.d;
-    if (engine.outcome()) return;
-    this.inFlight = true;
+    await this.run([null]);
+  }
+
+  /** Per-agent mode: one person's own decision. */
+  async decideFor(actor: ActorId): Promise<void> {
+    await this.run([actor]);
+  }
+
+  /** Headless per-agent step: open decisions for these people in order, ask the model for all of them in parallel,
+   *  then apply the answers in the same order (deterministic for a given set of answers). */
+  async decideAgents(actors: ActorId[]): Promise<void> {
+    await this.run(actors);
+  }
+
+  private async run(who: (ActorId | null)[]): Promise<void> {
+    const keys = who.map((a) => a ?? CENTRAL).filter((k) => !this.busy.has(k));
+    if (!keys.length || this.disposed || this.d.engine.outcome()) return;
+    for (const k of keys) this.busy.add(k);
     try {
-      const decisionId = engine.beginDecision();
-      this.d.recordInput({ tick: this.d.getTick(), type: 'begin', decisionId });
+      const open = keys.map((k) => this.open(k === CENTRAL ? null : (k as ActorId)));
+      const answers = await Promise.all(open.map((o) => this.ask(o)));
+      for (let i = 0; i < open.length; i++) await this.settle(open[i], answers[i]);
+    } finally {
+      for (const k of keys) this.busy.delete(k);
+    }
+  }
+
+  /** Start a decision: count it, build the right view, show a placeholder row. */
+  private open(actor: ActorId | null): OpenDecision {
+    const { engine } = this.d;
+    const decisionId = engine.beginDecision();
+    this.d.recordInput({ tick: this.d.getTick(), type: 'begin', decisionId });
+    this.decisionIndex++;
+    const idx = this.decisionIndex;
+    const rowId = `${engine.episodeId}:${decisionId}`;
+    const signal = this.controller.signal;
+    const deadlineMs = this.d.deadlineMs;
+    let req: DecideRequest;
+    let simTime: number;
+    if (actor) {
+      const view = engine.agentView(actor);
+      engine.markAgentViewed(actor);
+      this.d.recordInput({ tick: this.d.getTick(), type: 'view', actor });
+      simTime = view.sim_time;
+      req = {
+        system: this.agentSystems[actor],
+        agent: { actor, view, user: agentUserContent(view) },
+        map: this.d.map,
+        tools: agentToolsFor(actor, view),
+        signal,
+        deadlineMs,
+      };
+    } else {
       const view = engine.plannerView();
       engine.markViewed();
       this.d.recordInput({ tick: this.d.getTick(), type: 'view' });
-      this.decisionIndex++;
-      const idx = this.decisionIndex;
+      simTime = view.sim_time;
+      req = { system: this.system, view, map: this.d.map, harness: this.d.harness, tools: toolsFor(this.d.harness, view, this.d.map), signal, deadlineMs };
+    }
+    const who = actor ? ACTOR_PROFILES[actor].name : null;
+    const base: TraceRow = {
+      id: rowId,
+      episodeId: engine.episodeId,
+      kind: 'decision',
+      decisionId,
+      origin: who ? `${this.model} → ${who} (own decision) → …` : `${this.planner} → …`,
+      ...(actor ? { actor } : {}),
+      status: 'proposed',
+      summary: who ? `${who} is thinking…` : `Awaiting ${this.planner} decision…`,
+      simTime,
+      wallTime: Date.now(),
+      provider: this.providerTag(),
+    };
+    this.emit(base);
+    return { base, idx, actor, req };
+  }
 
-      const rowId = `${engine.episodeId}:${decisionId}`;
-      const base: TraceRow = {
-        id: rowId,
-        episodeId: engine.episodeId,
-        kind: 'decision',
-        decisionId,
-        origin: `${this.planner} → …`,
-        status: 'proposed',
-        summary: `Awaiting ${this.planner} decision…`,
-        simTime: view.sim_time,
-        wallTime: Date.now(),
-        provider: this.providerTag(),
-      };
-      this.emit(base);
+  /** Ask the model (one retry on a transport error). */
+  private async ask(o: OpenDecision): Promise<{ res: DecisionResult; retried: boolean }> {
+    let res = await this.d.provider.decide(o.req);
+    if (res.kind === 'error' && res.code !== 'ABORTED' && !this.disposed) {
+      this.patch(o.base.id, { summary: `${res.code}: ${res.message} — retrying once` });
+      res = await this.d.provider.decide(o.req);
+      return { res, retried: true };
+    }
+    return { res, retried: false };
+  }
 
-      const ask = () =>
-        provider.decide({
-          system: this.system,
-          view,
-          harness: this.d.harness,
-          tools: toolsFor(this.d.harness, view, this.d.map),
-          signal: this.controller.signal,
-          deadlineMs: this.d.deadlineMs,
-        });
-      let res: DecisionResult = await ask();
-      let retried = false;
-      if (res.kind === 'error' && res.code !== 'ABORTED' && !this.disposed) {
-        this.patch(rowId, { summary: `${res.code}: ${res.message} — retrying once` });
-        retried = true;
-        res = await ask();
-      }
-
+  /** Apply an answer unless the episode was reset; hold it while paused. */
+  private async settle(o: OpenDecision, a: { res: DecisionResult; retried: boolean }): Promise<void> {
+    let res = a.res;
+    // Per-agent mode: a person only ever acts for themselves.
+    if (o.actor && res.kind === 'tool_call') res = { ...res, calls: res.calls.map((c) => pinActor(c, o.actor!)) };
+    if (this.disposed) {
+      this.emit({ ...this.rowWithResponse(o.base, res), status: 'discarded_stale', summary: 'Response arrived after reset — discarded, not applied' });
+      return;
+    }
+    if (this.d.isPaused()) {
+      this.emit({ ...this.rowWithResponse(o.base, res), status: 'held', summary: 'Paused — response held; will be validated on resume' });
+      await new Promise<void>((resolve) => {
+        this.held.push(resolve);
+      });
       if (this.disposed) {
-        this.emit({ ...this.rowWithResponse(base, res), status: 'discarded_stale', summary: 'Response arrived after reset — discarded, not applied' });
+        this.emit({ ...this.rowWithResponse(o.base, res), status: 'discarded_stale', summary: 'Held response discarded after reset' });
         return;
       }
-
-      if (this.d.isPaused()) {
-        this.emit({ ...this.rowWithResponse(base, res), status: 'held', summary: 'Paused — response held; will be validated on resume' });
-        await new Promise<void>((resolve) => {
-          this.releaseHeld = resolve;
-        });
-        if (this.disposed) {
-          this.emit({ ...this.rowWithResponse(base, res), status: 'discarded_stale', summary: 'Held response discarded after reset' });
-          return;
-        }
-      }
-
-      this.apply(base, res, idx, retried);
-    } finally {
-      this.inFlight = false;
     }
+    this.apply(o, res, a.retried);
+  }
+
+  /** Trace origin: "Nemotron planner → Maya → move" (central) or "Nemotron → Maya (own decision) → move" (agents). */
+  private originFor(actor: ActorId | undefined, tool: string): string {
+    return this.mode === 'agents' ? `${this.model} → ${nameOf(actor)} (own decision) → ${tool}` : `${this.planner} → ${nameOf(actor)} → ${tool}`;
   }
 
   private rowWithResponse(base: TraceRow, res: DecisionResult): TraceRow {
     const row: TraceRow = { ...base, latencyMs: res.latencyMs, wallTime: Date.now() };
+    if ((res.kind === 'tool_call' || res.kind === 'no_call') && res.reasoning) row.reasoning = res.reasoning.slice(0, REASONING_MAX_CHARS);
     if (res.kind === 'tool_call' && res.calls[0]) {
       const c = res.calls[0];
       const actor = isActor(c.arguments.actor_id) ? (c.arguments.actor_id as ActorId) : undefined;
       row.tool = c.name;
       row.actor = actor;
       row.args = compactArgs(c.arguments);
-      row.origin = `${this.planner} → ${nameOf(actor)} → ${c.name}`;
+      row.origin = this.originFor(actor, c.name);
       if (typeof c.arguments.reason_summary === 'string') row.reasonSummary = c.arguments.reason_summary;
       row.parseMode = res.parseMode;
       row.usage = res.usage;
@@ -378,8 +480,11 @@ export class Orchestrator {
     return row;
   }
 
-  private apply(base: TraceRow, res: DecisionResult, idx: number, retried: boolean) {
+  private apply(o: OpenDecision, res: DecisionResult, retried: boolean) {
     const { engine } = this.d;
+    const { base, idx } = o;
+    const key = o.actor ?? CENTRAL;
+    const who = o.actor ? `${this.model} → ${nameOf(o.actor)} (own decision)` : this.planner;
     const decisionId = base.decisionId!;
     const tick = this.d.getTick();
     const simTime = this.simTime();
@@ -389,13 +494,13 @@ export class Orchestrator {
       engine.noteDecision({ decisionId, kind: 'provider_error', detail }, { latencyMs: res.latencyMs });
       this.d.recordInput({ tick, type: 'note', note: { decisionId, kind: 'provider_error', detail }, meta: { latencyMs: res.latencyMs } });
       this.consecutiveProviderFailures++;
-      this.emit({ ...this.rowWithResponse(base, res), status: 'provider_error', summary: detail, simTime, origin: `${this.planner} → (no response)` });
+      this.emit({ ...this.rowWithResponse(base, res), status: 'provider_error', summary: detail, simTime, origin: `${who} → (no response)` });
       if (this.consecutiveProviderFailures >= MAX_CONSECUTIVE_PROVIDER_FAILURES && !engine.outcome()) {
         const reason = `model unavailable: ${res.code} ${res.message}`.slice(0, 200);
         engine.end('aborted', reason);
         this.d.recordInput({ tick, type: 'end', status: 'aborted', reason });
       }
-      this.markDecision(false);
+      this.markDecision(key, false);
       return;
     }
     this.consecutiveProviderFailures = 0;
@@ -405,8 +510,8 @@ export class Orchestrator {
       const meta = { latencyMs: res.latencyMs, promptTokens: res.usage?.promptTokens, completionTokens: res.usage?.completionTokens };
       engine.noteDecision({ decisionId, kind: 'no_call', detail }, meta);
       this.d.recordInput({ tick, type: 'note', note: { decisionId, kind: 'no_call', detail }, meta });
-      this.emit({ ...this.rowWithResponse(base, res), status: 'malformed', summary: detail, simTime, origin: `${this.planner} → (no tool call)` });
-      this.markDecision(false);
+      this.emit({ ...this.rowWithResponse(base, res), status: 'malformed', summary: detail, simTime, origin: `${who} → (no tool call)` });
+      this.markDecision(key, false);
       return;
     }
 
@@ -465,7 +570,7 @@ export class Orchestrator {
         episodeId: base.episodeId,
         kind: 'decision',
         decisionId,
-        origin: `${this.planner} → ${nameOf(xActor)} → ${x.name}`,
+        origin: this.originFor(xActor, x.name),
         actor: xActor,
         tool: x.name,
         args: compactArgs(x.arguments),
@@ -476,7 +581,7 @@ export class Orchestrator {
         provider: this.providerTag(),
       });
     });
-    this.markDecision(result.ok && !NON_PROGRESS_TOOLS.has(call.name));
+    this.markDecision(key, result.ok && !NON_PROGRESS_TOOLS.has(call.name));
   }
 
   /** Pull engine events since the last call: update move rows, add engine rows and bubbles. */
@@ -595,4 +700,10 @@ export class Orchestrator {
       .actors.filter((a) => !a.lost)
       .map((a) => a.id);
   }
+}
+
+/** Per-agent mode: whatever actor_id the model wrote, the call is for the person who made it. */
+function pinActor(call: NormalizedToolCall, actor: ActorId): NormalizedToolCall {
+  if (call.arguments.actor_id === actor) return call;
+  return { ...call, arguments: { ...call.arguments, actor_id: actor } };
 }

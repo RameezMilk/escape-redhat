@@ -37,8 +37,9 @@ function providerChip(p: ProviderInfo | null, source: 'live' | 'fixture', replay
   if (p.healthy === false) return { text: `Model unreachable · ${p.label}${p.healthDetail ? ` (${p.healthDetail})` : ''}`, tone: 'bad' };
   const kind = p.endpointKind === 'self-hosted-vllm' ? 'vLLM self-hosted' : 'hosted API';
   const p50 = p.p50LatencyMs !== undefined ? ` · p50 ${(p.p50LatencyMs / 1000).toFixed(1)} s` : '';
-  const think = p.thinking ? ' · thinking on' : '';
-  return { text: `${p.label} · ${kind}${p50}${think}`, tone: p.healthy ? 'ok' : 'warn' };
+  const think = p.thinking ? ' · reasoning on' : '';
+  const who = p.mode === 'agents' ? ' · each person decides' : '';
+  return { text: `${p.label} · ${kind}${who}${p50}${think}`, tone: p.healthy ? 'ok' : 'warn' };
 }
 
 export function TopBar() {
@@ -85,7 +86,7 @@ export function TopBar() {
         </span>
         <span className="decisions" title="Planner decisions used / cap">
           decisions {snapshot?.decisions.used ?? 0}/{snapshot?.decisions.max ?? '—'}
-          {snapshot?.decisions.inFlight ? <span className="thinking"> · planner thinking…</span> : null}
+          {snapshot?.decisions.inFlight ? <span className="thinking"> · {provider?.mode === 'agents' ? 'thinking…' : 'planner thinking…'}</span> : null}
         </span>
       </div>
       <div className="tb-controls">

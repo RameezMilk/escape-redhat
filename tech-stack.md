@@ -51,6 +51,14 @@ Browser (React + Canvas) ──WebSocket──▶ Node 24 server (laptop)
 - **Zero malformed responses** and zero provider errors in every saved benchmark run.
 - **Ruleset 3 is the current game.** The high invalid-call rate there is mostly people retrying routes that fire or a dead door had already cut, plus re-entry attempts the engine refuses. v2 needs less than half the decisions and repeats a rejected call a third as often (63 vs 184). The README's Results section carries the latest numbers.
 
+### Per-agent mode: each person reasons for themselves (`PLANNER_MODE=agents`)
+
+Instead of one planner directing everyone, Alex, Maya and Daniel each get **their own Nemotron call with reasoning on** ([`apps/server/src/agentPrompt.ts`](apps/server/src/agentPrompt.ts)).
+- **Personal view only** (`engine.agentView`): what *that* person has seen, been told, or can hear in their room, plus the siren — never anyone else's private knowledge.
+- **No hard-coded instincts.** The engine's shout / back-away / pull-in-passing / no-re-entry rules are switched off (`EngineOptions.instincts=false`). Each person's prompt makes them responsible for those things instead: get away from fire, raise the alarm if you know of a fire and haven't heard the siren, warn your room, don't go back in.
+- **Parallel decisions, actor pinned.** Everyone who is ready decides at once (headless: asked in parallel, applied in a fixed order for determinism); a call is always executed for the person who made it. The trace shows `Nemotron → Maya (own decision) → move` and a collapsible "thinking" block with the model's reasoning.
+- **Measured so far (not a benchmark):** reasoning p50 2.5–3.4 s, p95 12.5–15 s per decision (~640 completion tokens, p95 ~2,900). Headless hero 2/2 verified success. With the clock running during inference people stood still for seconds next to fire (one live run: 0/3 escaped), so agents mode **holds the sim clock while anyone is thinking** by default. Prompt + 4k of thinking can exceed the 8k context; the digest drops the raw JSON and the provider retries a context-length 400 with the output budget that fits.
+
 ## 3. Brev + vLLM: the serving layer
 
 **Exact command.** See [`deploy/vllm/serve.sh`](deploy/vllm/serve.sh). The image is `vllm/vllm-openai:v0.27.1`, digest `sha256:0a51ea5b…`.

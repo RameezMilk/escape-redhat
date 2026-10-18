@@ -20,6 +20,7 @@ function fmtVal(v: unknown): string {
 
 function Details({ row, names }: { row: TraceRow; names: Map<string, string> }) {
   const [raw, setRaw] = useState(false);
+  const [thought, setThought] = useState(false);
   const err = row.result && !row.result.ok ? row.result.error : null;
   // Readable view: no evidence ids / zone codes (they remain in the raw JSON below).
   const args = Object.entries(row.args ?? {})
@@ -32,6 +33,14 @@ function Details({ row, names }: { row: TraceRow; names: Map<string, string> }) 
         <div className="trd-line">
           <span className="trd-k">stated reason</span>
           <em>{row.reasonSummary}</em>
+        </div>
+      ) : null}
+      {row.reasoning ? (
+        <div className="trd-thought">
+          <button className="trd-thought-toggle" onClick={() => setThought((t) => !t)} aria-expanded={thought}>
+            <span className="trd-k">thinking</span> {thought ? 'hide' : 'show the model’s reasoning'}
+          </button>
+          {thought ? <p className="trd-thought-text">{humanize(row.reasoning, names)}</p> : null}
         </div>
       ) : null}
       {args.length ? (
@@ -95,7 +104,7 @@ function DecisionRow({ row, thinkingLabel, names }: { row: TraceRow; thinkingLab
         <span className="tr-avatar tr-avatar-planner" aria-hidden>
           ◇
         </span>
-        <span className="tr-shimmer">{thinkingLabel}</span>
+        <span className="tr-shimmer">{row.actor ? humanize(row.summary, names) : thinkingLabel}</span>
         <span className="tr-time">{fmtSim(row.simTime)}</span>
       </li>
     );
@@ -190,6 +199,7 @@ export function TracePanel() {
   };
 
   const scripted = provider?.endpointKind === 'scripted';
+  const how = provider?.mode === 'agents' ? `each person decides for themselves${provider.thinking ? ' · reasoning on' : ''}` : 'one central planner';
   const plannerName = scripted ? 'Scripted fixture' : provider?.label ?? 'Planner';
   const thinkingLabel = `${scripted ? 'Scripted fixture' : (provider?.label ?? 'Planner').split(' ').slice(0, 1).join(' ') || 'Planner'} is deciding…`;
 
@@ -212,11 +222,11 @@ export function TracePanel() {
         </div>
         {scripted ? (
           <div className="th-sub">
-            <span className="scripted-chip">SCRIPTED — not a model</span> · one central planner · engine-validated
+            <span className="scripted-chip">SCRIPTED — not a model</span> · {how} · engine-validated
           </div>
         ) : (
           <div className="th-sub">
-            <b>{plannerName}</b> · one central planner · engine-validated
+            <b>{plannerName}</b> · {how} · engine-validated
           </div>
         )}
         <nav className="tabs" role="tablist">

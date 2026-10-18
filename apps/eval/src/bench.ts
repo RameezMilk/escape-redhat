@@ -6,6 +6,7 @@
 //
 // Flags: --split dev|test|all (dev) · --provider env|scripted (env) · --harness v1|v2 (env PLANNER_HARNESS or v2)
 //        --concurrency N (1) · --limit K · --cases id1,id2 · --max-decisions N · --thinking on|off · --out DIR
+//        --mode central|agents (central; agents = each person decides for themselves, reasoning on, no engine instincts)
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +63,7 @@ export interface BenchSummary {
     cases: number;
     provider: { id: string; label: string; model: string; endpointKind: string; thinking: boolean; baseUrl?: string };
     harness: string;
+    mode: 'central' | 'agents';
     maxDecisions: number | null;
     concurrency: number;
     clock: 'lockstep';
@@ -216,7 +218,7 @@ export function renderMarkdown(s: BenchSummary): string {
   const lines: string[] = [];
   lines.push(`# Benchmark: ${s.meta.dataset} / ${s.meta.split}`);
   lines.push('');
-  lines.push(`- Provider: **${p.label}** · model \`${p.model}\` · ${p.endpointKind}${p.endpointKind === 'scripted' ? ' (**scripted fixture, NOT a model**)' : ''} · thinking ${p.thinking ? 'on' : 'off'}`);
+  lines.push(`- Provider: **${p.label}** · model \`${p.model}\` · ${p.endpointKind}${p.endpointKind === 'scripted' ? ' (**scripted fixture, NOT a model**)' : ''} · thinking ${p.thinking ? 'on' : 'off'} · ${s.meta.mode === 'agents' ? 'each person decides for themselves (no engine instincts)' : 'one central planner'}`);
   lines.push(`- Harness: \`${s.meta.harness}\` · decision cap ${s.meta.maxDecisions ?? 'default'} · concurrency ${s.meta.concurrency} · clock ${s.meta.clock}`);
   lines.push(`- Run: ${s.meta.startedAt} → ${s.meta.finishedAt} · ${s.meta.cases} cases`);
   lines.push(`- ${s.meta.note}`);
@@ -285,10 +287,11 @@ async function main() {
   if (args.limit) cases = cases.slice(0, Number(args.limit));
   if (!cases.length) throw new Error('no cases selected');
 
-  const env: Record<string, string | undefined> = { ...process.env, PLANNER_HARNESS: harness };
+  const mode = args.mode === 'agents' ? 'agents' : 'central';
+  const env: Record<string, string | undefined> = { ...process.env, PLANNER_HARNESS: harness, PLANNER_MODE: mode };
   if (providerMode === 'scripted') env.PLANNER_PROVIDER = 'scripted';
-  if (args.thinking) env.PLANNER_THINKING = args.thinking === 'on' ? 'true' : 'false';
-  if (maxDecisions) env.PLANNER_MAX_DECISIONS = String(maxDecisions);
+  if (args.thinking) env[mode === 'agents' ? 'PLANNER_AGENT_THINKING' : 'PLANNER_THINKING'] = args.thinking === 'on' ? 'true' : 'false';
+  if (maxDecisions) env[mode === 'agents' ? 'PLANNER_AGENT_MAX_DECISIONS' : 'PLANNER_MAX_DECISIONS'] = String(maxDecisions);
   const provider = createProviderFromEnv(env);
   const info = provider.info();
 
@@ -296,7 +299,7 @@ async function main() {
   const outDir = resolve(root, args.out ?? join('results', `${stamp}-${split}-${info.endpointKind}-${harness}`));
   mkdirSync(join(outDir, 'runs'), { recursive: true });
 
-  console.log(`[bench] ${cases.length} cases · split ${split} · ${info.label} (${info.model}, ${info.endpointKind}) · harness ${harness} · concurrency ${concurrency}`);
+  console.log(`[bench] ${cases.length} cases · split ${split} · ${info.label} (${info.model}, ${info.endpointKind}) · harness ${harness} · mode ${mode} · thinking ${info.thinking ? 'on' : 'off'} · concurrency ${concurrency}`);
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
   const rows: BenchRow[] = new Array(cases.length);
@@ -313,6 +316,7 @@ async function main() {
           scenario: c,
           provider,
           harness,
+          mode,
           maxDecisions,
           episodeId: `bench-${c.caseId}-${stamp}`,
         });
@@ -337,6 +341,7 @@ async function main() {
       cases: cases.length,
       provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, thinking: info.thinking, baseUrl: info.baseUrl },
       harness,
+      mode,
       maxDecisions: maxDecisions ?? null,
       concurrency,
       clock: 'lockstep',

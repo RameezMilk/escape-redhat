@@ -23,7 +23,7 @@ describe('spreading fire', () => {
     expect(run(3)).not.toBe(run(4));
   });
 
-  it('grows at a moderate pace (median of 9 seeds: ~20–35 floor cells at 20 s, ~55–90 at 40 s)', () => {
+  it('grows quickly (median of 9 seeds: ~28–50 floor cells at 20 s, ~100–145 at 40 s)', () => {
     const at20: number[] = [];
     const at40: number[] = [];
     for (let seed = 1; seed <= 9; seed++) {
@@ -34,10 +34,31 @@ describe('spreading fire', () => {
       d.run(200);
       at40.push(floorFire(d).length);
     }
-    expect(med(at20)).toBeGreaterThanOrEqual(20);
-    expect(med(at20)).toBeLessThanOrEqual(35);
-    expect(med(at40)).toBeGreaterThanOrEqual(55);
-    expect(med(at40)).toBeLessThanOrEqual(90);
+    expect(med(at20)).toBeGreaterThanOrEqual(28);
+    expect(med(at20)).toBeLessThanOrEqual(50);
+    expect(med(at40)).toBeGreaterThanOrEqual(100);
+    expect(med(at40)).toBeLessThanOrEqual(145);
+  });
+
+  it('spreads anywhere indoors: from the hero seed (Red Hat room, south-west corner) it reaches the hallway (median ≤ 75 s) and the lobby', () => {
+    const hallway: number[] = [];
+    let lobbyBy150 = 0;
+    for (let seed = 1; seed <= 15; seed++) {
+      const d = new Driver(outside(seed), { ambient: false });
+      expect(d.place('fire', 5, 12).ok).toBe(true);
+      let hall = -1;
+      let lobby = -1;
+      for (let t = 1; t <= 1500 && (hall < 0 || lobby < 0); t++) {
+        d.run(1);
+        const cells = fireCells(d);
+        if (hall < 0 && cells.some((c) => zoneOf(c) === 'north_corridor')) hall = t;
+        if (lobby < 0 && cells.some((c) => zoneOf(c) === 'lobby')) lobby = t;
+      }
+      hallway.push(hall < 0 ? Infinity : hall / 10);
+      if (lobby > 0) lobbyBy150++;
+    }
+    expect(med(hallway)).toBeLessThanOrEqual(75);
+    expect(lobbyBy150).toBeGreaterThanOrEqual(8); // a majority of seeds within 150 s
   });
 
   it('never ignites outdoors, exits or the assembly area (walls next to them may burn), and burns out into charred debris', () => {

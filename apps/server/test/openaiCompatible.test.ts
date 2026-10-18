@@ -43,6 +43,25 @@ describe('openai-compatible provider', () => {
     expect(r.calls[0]).toMatchObject({ name: 'move', arguments: { actor_id: 'alex', destination: 'assembly', expected_revision: 3 } });
   });
 
+  it('keeps the reasoning text and retries with a smaller output budget when the prompt is too long', async () => {
+    const tooLong = new Response(
+      JSON.stringify({ error: { message: "This model's maximum context length is 8192 tokens. However, you requested 4096 output tokens and your prompt contains at least 4300 input tokens." } }),
+      { status: 400 },
+    );
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(tooLong)
+      .mockResolvedValueOnce(ok({ reasoning_content: 'Fire is close — go out east.', tool_calls: [{ id: 'c1', function: { name: 'move', arguments: '{"actor_id":"maya","destination":"assembly"}' } }] }));
+    const thinking = { ...cfg, thinking: true };
+    const r = await new OpenAICompatibleProvider(thinking, f as unknown as typeof fetch).decide(req());
+    expect(r.kind).toBe('tool_call');
+    if (r.kind !== 'tool_call') return;
+    expect(r.reasoning).toBe('Fire is close — go out east.');
+    const bodies = f.mock.calls.map((c) => JSON.parse((c as unknown as [string, RequestInit])[1].body as string));
+    expect(bodies[0].max_tokens).toBe(4096);
+    expect(bodies[1].max_tokens).toBe(8192 - 4300 - 32);
+  });
+
   it('parses a bare JSON object in content', () => {
     const calls = parseContentToolCalls('Sure:\n```json\n{"name":"check_in","arguments":{"actor_id":"maya"}}\n```');
     expect(calls[0]).toMatchObject({ name: 'check_in', arguments: { actor_id: 'maya' } });

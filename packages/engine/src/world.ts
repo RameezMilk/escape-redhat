@@ -13,6 +13,7 @@ import {
   type ActorId,
   type ActorSnapshot,
   type ActorStatus,
+  type AgentView,
   type AlarmStation,
   type DecisionMeta,
   type DecisionNote,
@@ -52,13 +53,15 @@ import { mulberry32 } from './rng.js';
 import { computeResult, type ActionLogEntry, type Interruption } from './scoring.js';
 
 export const SPEED_TILES_PER_SEC = 3;
-/** "Moderate" fire: per-tick probability that a burning cell tries to ignite one random neighbour. */
-export const FIRE_SPREAD_PER_TICK = 0.018;
+/** Per-tick probability that a burning cell tries to ignite one random neighbour. Fast enough that a fire anywhere in
+ *  a room reaches the next room or corridor within about a minute (crossing the floor is the slow part, not walls). */
+export const FIRE_SPREAD_PER_TICK = 0.03;
 /** Probability that a spread attempt onto a doorway tile succeeds (doorways slow fire). */
 export const DOOR_IGNITION_FACTOR = 0.3;
 /** Probability that a spread attempt onto a wall tile or a dead (closed) sliding door succeeds: walls hold for
- *  roughly 20–30 s next to burning floor, then the fire breaks through to the far side. */
-export const WALL_IGNITION_FACTOR = 0.12;
+ *  roughly 20–30 s next to burning floor, then the fire breaks through to the far side. Scaled with
+ *  FIRE_SPREAD_PER_TICK (the hold time goes as 1 / (spread × factor)). */
+export const WALL_IGNITION_FACTOR = 0.072;
 /** People back away by instinct from known fire within this many tiles. */
 export const FLEE_RADIUS = 3.5;
 /** People within this many tiles of a burning cell smell it, even through a wall. */
@@ -210,6 +213,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   const stallCeiling = opts.stallCeilingSimSec;
   const spreadP = opts.fireSpreadPerTick ?? FIRE_SPREAD_PER_TICK;
   const ambientOn = opts.ambient ?? true;
+  /** Hard-coded survival instincts (shout, flee, pull-on-the-way, no re-entry). Off in per-agent mode. */
+  const instinctsOn = opts.instincts ?? true;
   const seed = opts.seed ?? scenario.seed;
   const rng = mulberry32(seed);
   /** Separate stream so fire behaviour never perturbs ambient behaviour (and vice versa). */
@@ -232,6 +237,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   let routeSeq = 0;
   let decisionsUsed = 0;
   let lastViewedSeq = 0;
+  /** Per-agent mode: each person's own "seen up to" cursor. */
+  const agentSeenSeq: Record<ActorId, number> = { alex: 0, maya: 0, daniel: 0 };
   let endedAtWall: number | undefined;
   const hazards: Hazard[] = [];
   const evidence: Evidence[] = [];
@@ -494,7 +501,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     );
     if (h.kind === 'fire') alert(a);
     if (phase === 'idle') setPhase('incident');
-    if (h.kind === 'fire') shout(a, e);
+    if (h.kind === 'fire' && instinctsOn) shout(a, e);
     return e;
   }
 
@@ -813,6 +820,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (!st || st.d > ALARM_REACH) return;
     const order = orderOf(a);
     const sent = order && isAlarmDest(order.destination) ? order : null;
+    // Without instincts only a deliberate order to go to the alarm pulls it on arrival.
+    if (!sent && !instinctsOn) return;
     activateAlarm(a, st.s, sent ? 'tool' : 'instinct', sent ? { actionId: sent.actionId, decisionId: sent.decisionId } : {});
   }
 
@@ -1025,6 +1034,9 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       const a = actors[id];
       if (a.lost || a.checkedIn) continue;
       maybePullAlarm(a);
+      if (!instinctsOn) continue;
+      // The assembly area is outdoors and never burns: nobody backs off it (that would undo their check-in spot).
+      if (a.zone === 'assembly') continue;
       if (a.escort?.role === 'follower' || isMoving(a) || tick < a.nextFleeTick) continue;
       const f = followerOf(a);
       const movers = f && !f.lost ? [a.id, f.id] : [a.id];
@@ -1190,7 +1202,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     const mask: NavMask = movers.length > 1 || ACTOR_PROFILES[leader.id].usesWheelchair ? 'accessible' : 'walkable';
     const blockedKnown = knownNoGo(...movers);
     // People who are outside route around the building, never through it.
-    if (movers.some((id) => actors[id].wentOutside)) for (const i of indoorTiles) blockedKnown.add(i);
+    if (instinctsOn && movers.some((id) => actors[id].wentOutside)) for (const i of indoorTiles) blockedKnown.add(i);
     const targets = targetsFor(destination, movers, mask, blockedKnown);
     if (!targets.length) return null;
     const start = { col: leader.col, row: leader.row };
@@ -1419,6 +1431,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   /** No re-entry: someone who has made it outside is never sent back into the building (alarm or other people
    *  inside included). */
   function reentryError(actionId: string, a: ActorState, destination: string): Fail | null {
+    if (!instinctsOn) return null; // per-agent mode: each person decides for themselves whether to go back in
     const leader = leaderOf(a);
     const f = followerOf(leader);
     const movers = f && !f.lost ? [leader, f] : [leader];
@@ -2166,6 +2179,196 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     return { needed: false, reason: 'waiting for movement' };
   }
 
+  // ------------------------------------------------------------------ per-agent view (each person decides for themselves)
+  const AGENT_WAKE = new Set<WorldEventType>([
+    'observation',
+    'move_completed',
+    'move_interrupted',
+    'message_delivered',
+    'alarm_activated',
+    'assistance_requested',
+    'escort_started',
+    'assistance_fulfilled',
+    'actor_lost',
+    'fire_spread',
+  ]);
+
+  /** Zones where this person knows cells of this evidence. */
+  function myZonesOf(a: ActorState, eid: string): ZoneId[] {
+    const zones: ZoneId[] = [];
+    for (const i of a.known.get(eid) ?? []) {
+      const z = zoneOfIdx(i);
+      if (z && !zones.includes(z)) zones.push(z);
+    }
+    return zones;
+  }
+
+  /** Did this event reach this person (they did it, saw it, were told it, or it was audible to them)? */
+  function concerns(e: WorldEvent, id: ActorId): boolean {
+    const a = actors[id];
+    const d = e.data;
+    switch (e.type) {
+      case 'observation':
+      case 'move_completed':
+      case 'move_interrupted':
+        return e.actor === id || d.with === id;
+      case 'message_delivered':
+        return Array.isArray(d.recipients) && (d.recipients as string[]).includes(id);
+      case 'alarm_activated':
+        return true;
+      case 'assistance_requested':
+      case 'escort_started':
+      case 'assistance_fulfilled':
+        return d.person === id || d.helper === id;
+      case 'actor_lost':
+        return e.actor !== id && inEarshot(map, zoneAt(map, a.col, a.row), (d.zone as ZoneId | null) ?? null);
+      case 'fire_spread':
+        return a.knows.includes(String(d.evidence)) && myZonesOf(a, String(d.evidence)).includes(d.zone as ZoneId);
+      case 'checked_in':
+        return e.actor !== id && (a.checkedIn || a.zone === 'assembly');
+      default:
+        return false;
+    }
+  }
+
+  function describeForAgent(e: WorldEvent, id: ActorId): string | null {
+    const d = e.data;
+    if (e.type === 'message_delivered') {
+      return `${name(e.actor!)} told you: "${String(d.message)}"${e.evidenceIds?.length ? ` (about ${e.evidenceIds.join(', ')})` : ''}.`;
+    }
+    if (e.type === 'assistance_requested') {
+      return d.helper === id ? `${name(d.person as ActorId)} asked you for help evacuating.` : `You asked ${name(d.helper as ActorId)} for help.`;
+    }
+    if (e.type === 'alarm_activated') return `The hallway fire alarm is sounding — everyone in the building can hear the siren.`;
+    if (e.type === 'escort_started') {
+      return d.helper === id ? `You are now escorting ${name(d.person as ActorId)} — your moves take them with you.` : `${name(d.helper as ActorId)} is now escorting you — you move together with them.`;
+    }
+    return describeEvent(e);
+  }
+
+  function doingOf(a: ActorState): string | null {
+    if (a.lost) return null;
+    const leader = leaderOf(a);
+    const t = leader.task;
+    if (!t || t.kind === 'ambient') return null;
+    if (t.kind === 'instinct') return `backing away from the fire (${t.path.length} tiles left)`;
+    if (leader !== a) return `moving with ${name(leader.id)} to ${destinationName(t.destination)}, ${t.path.length} tiles left`;
+    return `moving to ${destinationName(t.destination)}, ${t.path.length} tiles left`;
+  }
+
+  function agentView(id: ActorId): AgentView {
+    const a = actors[id];
+    const z = zoneAt(map, a.col, a.row);
+    const near = (o: ActorId) => inEarshot(map, z, zoneAt(map, actors[o].col, actors[o].row));
+    const atAssembly = a.checkedIn || z === 'assembly';
+    const withMe = living().filter((o) => o !== id && near(o));
+    const myRequests = requests.filter((r) => r.person === id);
+    const escort = escorts.find((e) => e.leader === id || e.follower === id);
+    return {
+      sim_time: simTime(),
+      me: {
+        id,
+        name: name(id),
+        role: ACTOR_PROFILES[id].role,
+        zone: z,
+        place: placeName(z),
+        tile: [a.col, a.row],
+        status: statusOf(a),
+        alerted: a.alerted,
+        checked_in: a.checkedIn,
+        outside: isOutsideZone(z),
+        doing: doingOf(a),
+        uses_wheelchair: ACTOR_PROFILES[id].usesWheelchair,
+        escort: a.escort ? `${a.escort.role === 'leader' ? 'escorting' : 'escorted by'} ${a.escort.partner}` : null,
+      },
+      with_me: withMe.map((o) => ({
+        id: o,
+        name: name(o),
+        status: statusOf(actors[o]),
+        alerted: actors[o].alerted,
+        checked_in: actors[o].checkedIn,
+        doing: doingOf(actors[o]),
+      })),
+      others: ACTOR_IDS.filter((o) => o !== id && !withMe.includes(o)).map((o) => {
+        const r = actors[o];
+        const where = r.lost && near(o) ? 'lost to the fire' : r.checkedIn && atAssembly ? 'checked in at the assembly point' : 'not in sight';
+        return { id: o, name: name(o), where };
+      }),
+      hazards: a.knows.map((eid) => {
+        const e = evidenceById(eid)!;
+        const cells = a.known.get(eid) ?? new Set<number>();
+        const zones = myZonesOf(a, eid);
+        return {
+          id: eid,
+          kind: e.kind,
+          what: describeHazard(e),
+          zones,
+          places: [...new Set(zones.map((zz) => placeName(zz)))],
+          cells_known: cells.size,
+          bbox: bboxOf(cells),
+          ...(e.componentId ? { component: e.componentId } : {}),
+          ...(e.kind === 'fire' ? { spreading: true } : {}),
+        };
+      }),
+      alarm: {
+        sounding: alarm.active,
+        station: stations.map((s) => ({ id: s.id, zone: s.zone, stand: [s.stand.col, s.stand.row] as [number, number] })),
+      },
+      heard: events
+        .filter((e) => e.type === 'message_delivered' && concerns(e, id))
+        .slice(-4)
+        .map((e) => ({ from: e.actor!, topic: String(e.data.topic), evidence_ids: e.evidenceIds ?? [], message: String(e.data.message), at: e.simTime })),
+      assistance: {
+        requested_by_me: myRequests.length ? myRequests[myRequests.length - 1].helper : null,
+        requested_of_me: requests.filter((r) => r.helper === id).map((r) => r.person),
+        escorting: escort?.leader === id ? escort.follower : null,
+        escorted_by: escort?.follower === id ? escort.leader : null,
+      },
+      roster: atAssembly ? { checked_in: ACTOR_IDS.filter((o) => actors[o].checkedIn), verified: rosterVerified } : null,
+      my_routes: routes
+        .filter((r) => r.actor === id)
+        .slice(-2)
+        .map((r) => ({ route_id: r.id, destination: r.destination, zones: r.zones, knowledge_revision: r.revision })),
+      my_recent_actions: actionLog
+        .filter((l) => l.actor === id)
+        .slice(-4)
+        .map((l) => ({
+          ...(l.tool ? { tool: l.tool } : {}),
+          ...(l.args ? { args: l.args } : {}),
+          ok: l.ok,
+          summary: l.summary,
+          ...(l.errorCode ? { error_code: l.errorCode } : {}),
+          ...(l.hint ? { hint: l.hint } : {}),
+        })),
+      new_for_me: events
+        .slice(agentSeenSeq[id])
+        .filter((e) => concerns(e, id))
+        .map((e) => describeForAgent(e, id))
+        .filter((t): t is string => !!t),
+    };
+  }
+
+  function agentNeedsDecision(id: ActorId): { needed: boolean; reason: string } {
+    if (outcome) return { needed: false, reason: 'episode ended' };
+    if (phase === 'idle') return { needed: false, reason: 'no incident yet' };
+    if (decisionsUsed >= maxDecisions) return { needed: false, reason: 'decision cap reached' };
+    const a = actors[id];
+    if (a.lost) return { needed: false, reason: 'lost' };
+    if (a.checkedIn) {
+      // The warden's last job: once everyone is checked in, verify the roster.
+      if (id === 'alex' && !rosterVerified && living().every((o) => actors[o].checkedIn)) return { needed: true, reason: 'everyone checked in; roster not verified' };
+      return { needed: false, reason: 'checked in' };
+    }
+    // Someone who has noticed nothing and heard nothing just keeps working — no model call.
+    if (!a.alerted && !a.knows.length) return { needed: false, reason: 'unaware' };
+    const fresh = events
+      .slice(agentSeenSeq[id])
+      .filter((e) => AGENT_WAKE.has(e.type) && concerns(e, id) && !(e.type === 'move_interrupted' && e.data.code === 'ACTOR_LOST'));
+    if (fresh.length) return { needed: true, reason: `new for ${name(id)}: ${[...new Set(fresh.map((e) => e.type))].join(', ')}` };
+    if (!orderOf(a)) return { needed: true, reason: `${name(id)} is free to act` };
+    return { needed: false, reason: 'on the move' };
+  }
+
   // ------------------------------------------------------------------ snapshot
   function statusOf(a: ActorState): ActorStatus {
     if (a.lost) return 'lost';
@@ -2339,6 +2542,11 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     markViewed: () => {
       lastViewedSeq = events.length;
     },
+    agentView,
+    markAgentViewed: (id: ActorId) => {
+      agentSeenSeq[id] = events.length;
+    },
+    agentNeedsDecision,
     snapshot,
     get events() {
       return events;

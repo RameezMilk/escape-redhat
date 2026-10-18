@@ -1,6 +1,6 @@
 // SCRIPTED FIXTURE — not a model. A deterministic rule policy over the same PlannerView the model sees.
 // Used for UI development, tests and as a labeled offline demo; every trace row says "SCRIPTED fixture".
-import type { ActorId, NormalizedToolCall, PlannerView, ProviderInfo } from '@escape/contracts';
+import type { ActorId, AgentView, NormalizedToolCall, PlannerView, ProviderInfo } from '@escape/contracts';
 import { inEarshot, loadMap } from '@escape/engine';
 
 /** Static office map: the fixture needs room layout to know who can hear whom. */
@@ -30,6 +30,8 @@ type ViewActor = PlannerView['actors'][number];
 
 interface Memory {
   lastRemaining: number;
+  /** Per-agent mode: sim time of the last request (a drop means a new episode). */
+  lastAgentTime: number;
   lastMoveDest: Partial<Record<ActorId, string>>;
   usedRoutes: Set<string>;
   reported: Set<string>;
@@ -40,6 +42,7 @@ export interface ScriptedOptions {
   /** [min, max] simulated latency in ms (default 300–600). */
   latencyMs?: [number, number];
   seed?: number;
+  mode?: 'central' | 'agents';
 }
 
 export class ScriptedProvider implements DecisionProvider {
@@ -48,14 +51,16 @@ export class ScriptedProvider implements DecisionProvider {
   private n = 0;
   private mem: Memory = this.freshMemory();
   private latency: [number, number];
+  private mode: 'central' | 'agents';
 
   constructor(opts: ScriptedOptions = {}) {
     this.latency = opts.latencyMs ?? [300, 600];
+    this.mode = opts.mode ?? 'central';
     this.rng = mulberry32(opts.seed ?? 1017);
   }
 
   private freshMemory(): Memory {
-    return { lastRemaining: Number.POSITIVE_INFINITY, lastMoveDest: {}, usedRoutes: new Set(), reported: new Set(), consulted: new Set() };
+    return { lastRemaining: Number.POSITIVE_INFINITY, lastAgentTime: -1, lastMoveDest: {}, usedRoutes: new Set(), reported: new Set(), consulted: new Set() };
   }
 
   info(): ProviderInfo {
@@ -67,6 +72,7 @@ export class ScriptedProvider implements DecisionProvider {
       healthy: true,
       healthDetail: `deterministic rule policy; simulated latency ${this.latency[0]}–${this.latency[1]} ms`,
       thinking: false,
+      mode: this.mode,
       p50LatencyMs: this.stats.p50(),
       lastLatencyMs: this.stats.last,
     };
@@ -92,12 +98,19 @@ export class ScriptedProvider implements DecisionProvider {
     if (req.signal.aborted) return { kind: 'error', code: 'ABORTED', message: 'request aborted (episode reset)', latencyMs: delay };
     this.stats.add(delay);
 
-    const view = req.view;
-    // New episode ⇒ decision budget goes back up.
-    if (view.decisions_remaining > this.mem.lastRemaining) this.mem = this.freshMemory();
-    this.mem.lastRemaining = view.decisions_remaining;
-
-    const call = this.policy(view);
+    let call: Omit<NormalizedToolCall, 'id'>;
+    if (req.agent) {
+      // New episode ⇒ the clock went back.
+      if (req.agent.view.sim_time < this.mem.lastAgentTime) this.mem = this.freshMemory();
+      this.mem.lastAgentTime = req.agent.view.sim_time;
+      call = this.agentPolicy(req.agent.view);
+    } else {
+      const view = req.view!;
+      // New episode ⇒ decision budget goes back up.
+      if (view.decisions_remaining > this.mem.lastRemaining) this.mem = this.freshMemory();
+      this.mem.lastRemaining = view.decisions_remaining;
+      call = this.policy(view);
+    }
     if (call.name === 'move') {
       const a = call.arguments as { actor_id: ActorId; destination: string; route_id?: string };
       this.mem.lastMoveDest[a.actor_id] = a.destination;
@@ -111,6 +124,46 @@ export class ScriptedProvider implements DecisionProvider {
       latencyMs: delay,
       raw: { request: { note: 'scripted fixture: no model request' }, response: { tool: call.name, arguments: call.arguments } },
     };
+  }
+
+  /** Per-agent fixture: one person's simple, deterministic judgement from their own view only. */
+  private agentPolicy(v: AgentView): Omit<NormalizedToolCall, 'id'> {
+    const me = v.me;
+    const id = me.id;
+    const mk = (name: string, args: Record<string, unknown>): Omit<NormalizedToolCall, 'id'> => ({ name, arguments: { actor_id: id, ...args } });
+    const dist = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const fire = v.hazards.find((h) => h.kind === 'fire');
+    const deadDoor = v.hazards.find((h) => h.kind === 'electrical');
+    const st = v.alarm.station[0];
+    const lastDest = this.mem.lastMoveDest[id];
+
+    if (me.checked_in) return mk('verify_roster', { reason_summary: 'Everyone is checked in — confirm the roster.' });
+    if (me.zone === 'assembly') return mk('check_in', { reason_summary: 'At the assembly point — check in.' });
+    if (!v.alarm.sounding && (fire || me.alerted) && st && dist(me.tile, st.stand) <= 1.5) {
+      return mk('pull_alarm', { reason_summary: 'I am at the pull station and the alarm is silent.' });
+    }
+    // Warn my room once about the fire (and once about a dead door), if anyone here may not know.
+    for (const h of [fire, deadDoor]) {
+      if (!h || this.mem.reported.has(`${id}:${h.id}`) || !v.with_me.length) continue;
+      if (h.kind === 'fire' && !v.with_me.some((p) => !p.alerted)) continue;
+      this.mem.reported.add(`${id}:${h.id}`);
+      const message =
+        h.kind === 'fire'
+          ? `Fire in ${inPlace(h.zones[0] ?? null)} — get out, now!`
+          : `${theDoor(h.component)} is dead — go round another way.`.replace(/^t/, 'T');
+      return mk('notify', { recipient: 'all', topic: h.kind === 'fire' ? 'fire' : 'route_blocked', evidence_ids: [h.id], message, reason_summary: 'Warn the people in my room.' });
+    }
+    if (me.doing) return mk('observe', { reason_summary: 'Keep an eye out while moving.' });
+    // My last move stopped short (dead door, fire ahead): re-plan, then take the new route.
+    if (lastDest === 'assembly' || (lastDest === 'alarm' && v.alarm.sounding)) {
+      const r = v.my_routes[v.my_routes.length - 1];
+      if (r && !this.mem.usedRoutes.has(r.route_id) && r.destination === 'assembly') return mk('move', { destination: 'assembly', route_id: r.route_id, reason_summary: 'Take the new route out.' });
+      if (lastDest === 'assembly') return mk('plan_route', { destination: 'assembly', reason_summary: 'My way out is blocked — find another route.' });
+    }
+    if (!v.alarm.sounding && fire && !me.outside && lastDest !== 'alarm') {
+      return mk('move', { destination: 'alarm', reason_summary: 'Nobody else may know — raise the alarm on my way out.' });
+    }
+    return mk('move', { destination: 'assembly', reason_summary: 'Get out to the assembly point.' });
   }
 
   private policy(view: PlannerView): Omit<NormalizedToolCall, 'id'> {

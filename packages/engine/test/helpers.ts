@@ -21,7 +21,7 @@ export class Driver {
   engine: Engine;
   inputs: RunInputs = [];
   private n = 0;
-  constructor(public scenario: ScenarioCase = hero(), opts: { maxDecisions?: number; stallCeilingSimSec?: number; fireSpreadPerTick?: number; ambient?: boolean } = {}) {
+  constructor(public scenario: ScenarioCase = hero(), opts: { maxDecisions?: number; stallCeilingSimSec?: number; fireSpreadPerTick?: number; ambient?: boolean; instincts?: boolean } = {}) {
     this.engine = createEngine(map, scenario, { episodeId: 'test-ep', ...opts });
   }
   get tick() {

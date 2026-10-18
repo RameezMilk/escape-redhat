@@ -2,6 +2,7 @@
 // The engine is pure and deterministic: no timers, no I/O, no Math.random (seeded PRNG only).
 import type {
   ActorId,
+  AgentView,
   EpisodeOutcome,
   EpisodeResult,
   HazardKind,
@@ -29,6 +30,9 @@ export interface EngineOptions {
   fireSpreadPerTick?: number;
   /** Idle ambient wandering before people are alerted (default true). Headless experiments may turn it off. */
   ambient?: boolean;
+  /** Hard-coded survival instincts (default true): shout "Fire!" to the room, back away from fire, pull the alarm when
+   *  passing it, never re-enter. Per-agent mode turns them off — each person's own model call decides instead. */
+  instincts?: boolean;
 }
 
 export type PlacementCode =
@@ -82,6 +86,13 @@ export interface Engine {
   plannerView(): PlannerView;
   /** Marks all events up to now as seen by the planner (call right after building a view for a decision). */
   markViewed(): void;
+
+  /** Per-agent mode: one person's own view (their knowledge only). */
+  agentView(actor: ActorId): AgentView;
+  /** Marks events up to now as seen by this person (call right after building their view). */
+  markAgentViewed(actor: ActorId): void;
+  /** Whether this person should decide now (aware of the emergency and something changed, or free to act). */
+  agentNeedsDecision(actor: ActorId): { needed: boolean; reason: string };
 
   snapshot(): Snapshot;
   readonly events: readonly WorldEvent[];

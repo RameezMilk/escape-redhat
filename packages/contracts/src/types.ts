@@ -431,6 +431,58 @@ export interface PlannerView {
   new_since_last_decision: string[];
 }
 
+/**
+ * Per-agent mode: what ONE person knows right now — their own sightings, what they were told, who is in the same room,
+ * the siren. Never other people's private knowledge (unlike PlannerView, which merges the whole team's knowledge).
+ */
+export interface AgentView {
+  sim_time: number;
+  me: {
+    id: ActorId;
+    name: string;
+    role: string;
+    zone: ZoneId | null;
+    place: string;
+    tile: [number, number];
+    status: ActorStatus;
+    alerted: boolean;
+    checked_in: boolean;
+    /** Outside the building (sidewalk, plaza, assembly area). */
+    outside: boolean;
+    /** What I'm doing right now, if anything ("moving to assembly, 12 tiles left"). */
+    doing: string | null;
+    uses_wheelchair: boolean;
+    escort: string | null;
+  };
+  /** People in the same room as me (in earshot / sight). */
+  with_me: { id: ActorId; name: string; status: ActorStatus; alerted: boolean; checked_in: boolean; doing: string | null }[];
+  /** Everyone else: where I last know them to be, or "not in sight". */
+  others: { id: ActorId; name: string; where: string }[];
+  /** Hazards I have seen or been told about, with only the cells I know. */
+  hazards: {
+    id: string;
+    kind: HazardKind;
+    what: string;
+    zones: ZoneId[];
+    places: string[];
+    cells_known: number;
+    bbox: [number, number, number, number] | null;
+    component?: string;
+    spreading?: boolean;
+  }[];
+  alarm: { sounding: boolean; station: { id: string; zone: ZoneId; stand: [number, number] }[] };
+  /** Messages spoken to me. */
+  heard: { from: ActorId; topic: string; evidence_ids: string[]; message: string; at: number }[];
+  /** Buddy/assistance arrangements involving me. */
+  assistance: { requested_by_me: ActorId | null; requested_of_me: ActorId[]; escorting: ActorId | null; escorted_by: ActorId | null };
+  /** Only visible at the assembly point: who has checked in there. */
+  roster: { checked_in: ActorId[]; verified: boolean } | null;
+  my_routes: { route_id: string; destination: string; zones: ZoneId[]; knowledge_revision: number }[];
+  my_recent_actions: { tool?: string; args?: Record<string, unknown>; ok: boolean; summary: string; error_code?: string; hint?: string }[];
+  /** What changed for me since my last decision. */
+  new_for_me: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Trace (server → web): every real proposal, result and engine event
 // ---------------------------------------------------------------------------
@@ -458,6 +510,8 @@ export interface ProviderInfo {
   healthy: boolean | null;
   healthDetail?: string;
   thinking: boolean;
+  /** 'central' = one planner directs everyone; 'agents' = each person decides for themselves. */
+  mode?: 'central' | 'agents';
   p50LatencyMs?: number;
   lastLatencyMs?: number;
 }
@@ -478,6 +532,8 @@ export interface TraceRow {
   summary: string;
   result?: ToolResult;
   reasonSummary?: string;
+  /** Per-agent mode with reasoning on: the model's own thinking for this decision (trimmed). */
+  reasoning?: string;
   evidenceIds?: string[];
   simTime: number;
   wallTime: number;

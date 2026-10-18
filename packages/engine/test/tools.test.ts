@@ -185,10 +185,11 @@ describe('check-in, roster and outcomes', () => {
     okData(d.call('notify', { actor_id: 'maya', recipient: 'all', topic: 'fire', evidence_ids: ['E1'], message: 'Fire!' }));
     okData(d.call('move', { actor_id: 'alex', destination: 'assembly' }));
     okData(d.call('move', { actor_id: 'daniel', destination: 'assembly' }));
-    expect(d.until(() => d.lost('maya'), 3000)).toBe(true);
+    // Check in on arrival: the building's south wall can be burning near the assembly point later on.
     expect(d.until(() => d.idle('alex') && d.idle('daniel'), 3000)).toBe(true);
     okData(d.call('check_in', { actor_id: 'alex' }));
     okData(d.call('check_in', { actor_id: 'daniel' }));
+    expect(d.until(() => d.lost('maya'), 3000)).toBe(true);
     const v = okData(d.call('verify_roster', { actor_id: 'alex' }));
     expect(v).toMatchObject({ complete: true, lost: ['maya'] });
     expect(d.engine.outcome()!.status).toBe('partial');

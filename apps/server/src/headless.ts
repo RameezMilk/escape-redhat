@@ -3,7 +3,7 @@
 // reported separately in the result metrics. There is no gameplay timer; a stall ceiling (sim seconds
 // since the incident) only stops runs where nothing can progress any more.
 import type { CreateEngine, EpisodeResult, MapData, ScenarioCase, TraceRow } from '@escape/contracts';
-import { readPlannerConfig, type Harness, type PlannerConfig } from './config.js';
+import { readPlannerConfig, type Harness, type PlannerConfig, type PlannerMode } from './config.js';
 import { loadMapFile } from './data.js';
 import { Orchestrator } from './orchestrator.js';
 import { OpenAICompatibleProvider } from './providers/openaiCompatible.js';
@@ -25,6 +25,8 @@ export interface HeadlessOptions {
   scenario: ScenarioCase;
   provider: DecisionProvider;
   harness: Harness;
+  /** 'central' (default) or 'agents' (each person decides; engine instincts off). */
+  mode?: PlannerMode;
   maxDecisions?: number;
   /** Safety stop (sim seconds since the incident) for runs that can no longer progress. Default 900. */
   stallCeilingSimSec?: number;
@@ -44,9 +46,12 @@ export async function runEpisodeHeadless(
   const map = opts.map ?? loadMapFile(opts.scenario.mapId);
   const create: CreateEngine = opts.createEngine ?? (await import('@escape/engine')).createEngine;
   const episodeId = opts.episodeId ?? `bench-${opts.scenario.caseId}-${Date.now().toString(36)}`;
-  const maxDecisions = opts.maxDecisions ?? readPlannerConfig().maxDecisions;
+  const mode: PlannerMode = opts.mode ?? 'central';
+  const maxDecisions = opts.maxDecisions ?? readPlannerConfig({ PLANNER_MODE: mode }).maxDecisions;
   const stallCeilingSimSec = opts.stallCeilingSimSec ?? DEFAULT_STALL_CEILING_SIM_SEC;
-  const engine = create(map, opts.scenario, { episodeId, maxDecisions, stallCeilingSimSec });
+  // Per-agent mode: no hard-coded instincts — each person's own model call decides.
+  const instincts = mode !== 'agents';
+  const engine = create(map, opts.scenario, { episodeId, maxDecisions, stallCeilingSimSec, instincts });
 
   let tick = 0;
   const rows = new Map<string, TraceRow>();
@@ -62,7 +67,8 @@ export async function runEpisodeHeadless(
     mapHash: map.hash,
     provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, baseUrl: info.baseUrl, thinking: info.thinking },
     harness: opts.harness,
-    engineOptions: { maxDecisions, stallCeilingSimSec },
+    mode,
+    engineOptions: { maxDecisions, stallCeilingSimSec, instincts },
     clock: 'lockstep',
   });
 
@@ -72,6 +78,7 @@ export async function runEpisodeHeadless(
     map,
     scenario: opts.scenario,
     harness: opts.harness,
+    mode,
     deadlineMs: opts.deadlineMs ?? readPlannerConfig().deadlineMs,
     getTick: () => tick,
     isPaused: () => false,
@@ -88,8 +95,11 @@ export async function runEpisodeHeadless(
   const tickLimit = stallGuardTicks(stallCeilingSimSec);
   let decisionsGuard = 0;
   while (!engine.outcome()) {
-    if (orch.ready()) {
-      await orch.decideOnce();
+    const agents = mode === 'agents' ? orch.readyAgents() : [];
+    if (mode === 'agents' ? agents.length > 0 : orch.ready()) {
+      // Per-agent: everyone ready decides "at the same moment" (asked in parallel, applied in a fixed order).
+      if (mode === 'agents') await orch.decideAgents(agents);
+      else await orch.decideOnce();
       if (++decisionsGuard > maxDecisions * 3) engine.end('incomplete', 'headless guard: too many decision attempts');
     } else {
       engine.step();
@@ -112,7 +122,7 @@ export function createProviderFromEnv(
   overrides?: Partial<PlannerConfig> & { scripted?: ScriptedOptions },
 ): DecisionProvider {
   const cfg = { ...readPlannerConfig(env), ...overrides };
-  if (cfg.provider === 'scripted') return new ScriptedProvider(overrides?.scripted);
+  if (cfg.provider === 'scripted') return new ScriptedProvider({ ...overrides?.scripted, mode: cfg.mode });
   return new OpenAICompatibleProvider(cfg);
 }
 

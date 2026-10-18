@@ -118,8 +118,11 @@ export class Session {
     this.counter++;
     const episodeId = `ep-${Date.now().toString(36)}-${this.counter}`;
     const maxDecisions = this.d.planner.maxDecisions;
+    const mode = this.d.planner.mode ?? 'central';
+    // Per-agent mode: no hard-coded instincts — each person's own model call decides.
+    const instincts = mode !== 'agents';
     // Live game: no time limit and no stall ceiling — only the decision cap acts as a safety stop.
-    this.engine = this.d.createEngine(this.d.map, scenario, { episodeId, maxDecisions });
+    this.engine = this.d.createEngine(this.d.map, scenario, { episodeId, maxDecisions, instincts });
     this.tick = 0;
     this.paused = false;
     this.ended = false;
@@ -140,7 +143,8 @@ export class Session {
       mapHash: this.d.map.hash,
       provider: { id: info.id, label: info.label, model: info.model, endpointKind: info.endpointKind, baseUrl: info.baseUrl, thinking: info.thinking },
       harness: this.d.planner.harness,
-      engineOptions: { maxDecisions },
+      mode,
+      engineOptions: { maxDecisions, instincts },
       clock: 'live',
     });
 
@@ -150,6 +154,7 @@ export class Session {
       map: this.d.map,
       scenario,
       harness: this.d.planner.harness,
+      mode,
       deadlineMs: this.d.planner.deadlineMs,
       getTick: () => this.tick,
       isPaused: () => this.paused,

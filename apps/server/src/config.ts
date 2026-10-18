@@ -3,6 +3,8 @@
 import type { ProviderInfo } from '@escape/contracts';
 
 export type Harness = 'v1' | 'v2';
+/** 'central' = one planner call directs everyone; 'agents' = each person makes their own call (reasoning on). */
+export type PlannerMode = 'central' | 'agents';
 
 export interface PlannerConfig {
   provider: 'openai-compatible' | 'scripted';
@@ -22,6 +24,7 @@ export interface PlannerConfig {
   deadlineMs: number;
   maxDecisions: number;
   harness: Harness;
+  mode: PlannerMode;
 }
 
 export interface ServerConfig {
@@ -56,6 +59,8 @@ export function readPlannerConfig(env: Env = process.env): PlannerConfig {
           ? 'hosted-api'
           : 'self-hosted-vllm';
   const harness = (env.PLANNER_HARNESS ?? 'v2').trim() === 'v1' ? 'v1' : 'v2';
+  const mode: PlannerMode = (env.PLANNER_MODE ?? 'central').trim() === 'agents' ? 'agents' : 'central';
+  const agents = mode === 'agents';
   return {
     provider,
     baseUrl,
@@ -63,16 +68,23 @@ export function readPlannerConfig(env: Env = process.env): PlannerConfig {
     apiKey: (env.PLANNER_API_KEY ?? '').trim(),
     endpointKind,
     label: (env.PLANNER_LABEL ?? 'Nemotron 3.5 Lightning 30B-A3B').trim(),
-    thinking: bool(env.PLANNER_THINKING, false),
+    // Per-agent mode has its own switches so the central settings in .env stay as they are.
+    thinking: agents ? bool(env.PLANNER_AGENT_THINKING, true) : bool(env.PLANNER_THINKING, false),
     templateKwargs: bool(env.PLANNER_TEMPLATE_KWARGS, endpointKind === 'self-hosted-vllm'),
-    freezeWhileThinking: bool(env.PLANNER_FREEZE_WHILE_THINKING, endpointKind === 'hosted-api'),
+    // Per-agent mode reasons for ~3 s (p95 ~13 s) per decision: holding the clock keeps inference time from costing
+    // lives, so people are judged on their decisions. PLANNER_AGENT_FREEZE_WHILE_THINKING=false restores real-time pressure.
+    freezeWhileThinking: agents
+      ? bool(env.PLANNER_AGENT_FREEZE_WHILE_THINKING, true)
+      : bool(env.PLANNER_FREEZE_WHILE_THINKING, endpointKind === 'hosted-api'),
     temperature: num(env.PLANNER_TEMPERATURE, 0.6),
     topP: num(env.PLANNER_TOP_P, 0.95),
     maxTokens: num(env.PLANNER_MAX_TOKENS, 1024),
     deadlineMs: num(env.PLANNER_DEADLINE_MS, 20000),
     // Safety stop only (there is no gameplay timer). Matches the engine default.
-    maxDecisions: num(env.PLANNER_MAX_DECISIONS, 60),
+    // Three people deciding for themselves make roughly 3× the calls.
+    maxDecisions: agents ? num(env.PLANNER_AGENT_MAX_DECISIONS, 150) : num(env.PLANNER_MAX_DECISIONS, 60),
     harness,
+    mode,
   };
 }
 
@@ -87,5 +99,5 @@ export function readServerConfig(env: Env = process.env): ServerConfig {
 /** Safe-to-log description (never includes the key). */
 export function describePlanner(c: PlannerConfig): string {
   if (c.provider === 'scripted') return 'SCRIPTED fixture (not a model)';
-  return `${c.label} · ${c.model} @ ${c.baseUrl} (${c.endpointKind}, thinking ${c.thinking ? 'on' : 'off'}, key ${c.apiKey ? 'set' : 'MISSING'})`;
+  return `${c.label} · ${c.model} @ ${c.baseUrl} (${c.endpointKind}, ${c.mode === 'agents' ? 'each person decides' : 'central planner'}, thinking ${c.thinking ? 'on' : 'off'}, key ${c.apiKey ? 'set' : 'MISSING'})`;
 }
