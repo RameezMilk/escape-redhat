@@ -12,7 +12,7 @@
   },
   "map": {
     "id": "office-v2",
-    "hash": "c6b01aff5926cb6b",
+    "hash": "74d3e8adcb552d29",
     "source": "data/maps/office-v2.ascii + data/maps/office-v2.spec.ts (data/maps/builder.ts)"
   },
   "method": "Seeded sampling of spawns (map.spawnSpots), 2×2 fire seeds from fire-location families (dev/test disjoint), second fire seeds (multi_fire), and electrical failures on interior sliding doors chosen against oracle shortest routes; solvability labels from a full-knowledge grid search at placement time (Daniel on wheelchair-clearance tiles). Fire spread happens later in the engine (seeded, stochastic). No real-world measurements are included.",
@@ -32,7 +32,7 @@
   "inputs": {
     "demo-hero.json": "8aa97a7c5432c76fb75def7fccce3234e07679f4dda112a5503280657d8d2364",
     "hero-story.json": "c0fd3dee8732e07921843954d3d7191cac6b6856af66dcc93fbcdabed5fd1a54",
-    "office-v2.json": "2c84c0964501e3bd2ba2394b0172629ee5bacbc3f716e1b8fc898e1cd621cbc2"
+    "office-v2.json": "c6ac0b46361cd0dc713585323037add5b0fd09e19b252819c0a0cc12b1d36e77"
   },
   "outputs": {
     "cases.dev.jsonl": "7ba9d519eb21b6877129e07422535213ea0d90a8ff3d76ac6508630e522a1d25",

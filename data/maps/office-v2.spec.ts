@@ -124,7 +124,7 @@ const spec: MapSpec = {
     { type: 'BIN', col: 3, row: 17 },
     // Reception lobby — front desk, waiting area
     { type: 'RECEPTION_DESK', col: 25, row: 15 },
-    { type: 'PC_BACK', col: 27, row: 15 },
+    { type: 'PC_BACK', col: 25, row: 15 },
     { type: 'SOFA_FRONT', col: 36, row: 14 },
     { type: 'COFFEE_TABLE', col: 36, row: 15 },
     { type: 'LARGE_PLANT', col: 39, row: 13 },

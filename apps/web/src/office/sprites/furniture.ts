@@ -60,7 +60,7 @@ function receptionDesk(): SpriteData {
   r.rect(1, 11, 62, 2, RH);
   r.rect(1, 14, 62, 1, NV);
   const label = 'RECEPTION';
-  r.text(label, Math.round((64 - textWidth(label)) / 2), 19, '#e9e6df');
+  r.text(label, 64 - textWidth(label) - 5, 19, '#e9e6df'); // right of the monitor that stands on the left end
   r.rect(1, 29, 62, 3, '#1c1f24');
   r.box(0, 4, 64, 28, '#15171b');
   return r.sprite();

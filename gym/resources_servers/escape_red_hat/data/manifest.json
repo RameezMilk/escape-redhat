@@ -1,7 +1,7 @@
 {
   "generated_by": "gym/make_tasks.ts",
   "source": "data/scenarios/cases.{dev,test}.jsonl (escape-office-scenarios-v1)",
-  "map_hash": "c6b01aff5926cb6b",
+  "map_hash": "74d3e8adcb552d29",
   "files": {
     "dev_v1.jsonl": {
       "rows": 16,

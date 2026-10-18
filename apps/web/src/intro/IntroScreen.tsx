@@ -125,11 +125,11 @@ export function IntroScreen({ onEnterStart, onDone }: Props) {
         <p className="intro-sub">an AI evacuation drill · one Nemotron planner · {countWord(ACTOR_IDS.length)} people · your hazards</p>
       </header>
       <button type="button" className="intro-prompt" onClick={enter}>
-        <span className="blink">▶</span> CLICK THE GLOWING FLOOR <span className="blink">◀</span>
+        <span className="blink">▶</span> CLICK THE GLOWING GROUND FLOOR <span className="blink">◀</span>
       </button>
       {tip && (
         <div className="intro-tip" style={{ left: tip.x + 14, top: tip.y - 30 }}>
-          HACK FLOOR · ENTER
+          GROUND FLOOR · ENTER
         </div>
       )}
       <footer className="intro-foot">Fictional interior · not affiliated with or endorsed by Red Hat or NVIDIA · press Enter to start</footer>

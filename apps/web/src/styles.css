@@ -568,19 +568,18 @@ kbd {
 }
 .tabs {
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 0 2px;
   margin: 10px -2px 0;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 .tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  padding: 6px 8px 7px;
+  padding: 5px 6px 6px;
   font: 600 12.5px var(--ui);
   color: var(--muted);
   cursor: pointer;
@@ -1127,8 +1126,14 @@ kbd {
   color: var(--gold);
 }
 .roster {
-  width: 230px;
+  width: 280px;
   flex: none;
+}
+/* Five people: two columns so the alarm / buddy / roster lines still fit the palette row. */
+.roster-people {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 12px;
 }
 .roster-row {
   display: flex;

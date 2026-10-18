@@ -1,17 +1,37 @@
-// Rehearsal helper: acts as the presenter's second move in the hero scenario (ruleset 2).
-// Waits until Alex (escorting Daniel) — or, if there is no escort, anyone — is in the NVIDIA lobby heading for the
-// exits, then drops an Electrical failure on the south sliding door (to the east exit), exactly what a presenter
-// would drag in by hand. The trace shows it as a presenter placement.
-//   node scripts/auto-electrical.mjs [ws://localhost:8787/ws] [col] [row]
-const url = process.argv[2] ?? 'ws://localhost:8787/ws';
-const col = Number(process.argv[3] ?? 26); // south_door tiles: (26,14), (27,14)
-const row = Number(process.argv[4] ?? 14);
+// Rehearsal helper: acts as the presenter's second move. Waits until someone is moving through a given zone (default:
+// the main hallway) on their way out, then drops an Electrical failure on a sliding door (default: the reception
+// door, on the way to the main entrance) — exactly what a presenter would drag in by hand. The trace shows it as a
+// presenter placement. Door tiles come from the current map (data/maps/<id>.json).
+//   node scripts/auto-electrical.mjs [--door reception_door] [--when-zone hallway] [--url ws://localhost:8787/ws]
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const args = process.argv.slice(2);
+const opt = (name, fallback) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
+};
+const url = opt('url', 'ws://localhost:8787/ws');
+const doorId = opt('door', 'reception_door');
+const whenZone = opt('when-zone', 'hallway');
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ids = readFileSync(join(root, 'packages/contracts/src/map-ids.generated.ts'), 'utf8');
+const mapId = /DEFAULT_MAP_ID = '([^']+)'/.exec(ids)?.[1];
+const map = JSON.parse(readFileSync(join(root, 'data/maps', `${mapId}.json`), 'utf8'));
+const door = map.components.find((c) => c.id === doorId);
+if (!door) {
+  console.error(`no sliding door "${doorId}" on ${mapId}; doors: ${map.components.map((c) => c.id).join(', ')}`);
+  process.exit(2);
+}
+const { col, row } = door.tiles[0];
 let done = false;
 
 const ws = new WebSocket(url);
 ws.addEventListener('open', () => {
   ws.send(JSON.stringify({ type: 'hello' }));
-  console.log(`waiting for the evacuation to reach the lobby; will fail the sliding door at (${col},${row})`);
+  console.log(`waiting for someone moving through ${whenZone}; will cut power to ${doorId} (${col},${row})`);
 });
 ws.addEventListener('message', (ev) => {
   const msg = JSON.parse(String(ev.data));
@@ -22,11 +42,8 @@ ws.addEventListener('message', (ev) => {
     return;
   }
   if (msg.type !== 'snapshot' || done) return;
-  const actors = msg.snapshot.actors;
-  const alex = actors.find((a) => a.id === 'alex');
-  const escorting = alex?.escort?.partner === 'daniel' && alex.zone === 'lobby' && alex.task?.kind === 'move';
-  const anyoneHeadingOut = !actors.some((a) => a.escort) && actors.some((a) => a.zone === 'lobby' && a.task?.kind === 'move' && !a.lost);
-  if (escorting || anyoneHeadingOut) {
+  const headingOut = msg.snapshot.actors.some((a) => a.zone === whenZone && a.task?.kind === 'move' && !a.lost);
+  if (headingOut) {
     done = true;
     ws.send(JSON.stringify({ type: 'place', kind: 'electrical', col, row }));
   }

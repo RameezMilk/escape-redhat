@@ -83,26 +83,28 @@ export function Palette() {
       <div className="palette-help">
         <div className="help-title">How to play</div>
         <ol>
-          <li>Drag a card onto the office (or click it, then click a tile). Place as many as you like.</li>
+          <li>Drag a card onto the office, or click it and then a tile.</li>
           <li>
-            Keys: <kbd>F</kbd> fire · <kbd>E</kbd> electrical failure · arrows move · <kbd>Enter</kbd> place · <kbd>Esc</kbd> cancel · <kbd>P</kbd> pause.
+            Keys: <kbd>F</kbd> fire · <kbd>E</kbd> power cut · arrows move · <kbd>Enter</kbd> place · <kbd>Esc</kbd> cancel · <kbd>P</kbd> pause.
           </li>
-          <li>Start a fire, then cut power to a sliding door on the route people are using.</li>
+          <li>Start a fire, then cut power to a door on someone's way out.</li>
         </ol>
       </div>
       <div className="roster">
         <div className="help-title">Roster</div>
-        {ACTOR_ORDER.map((id) => {
-          const a = snapshot?.actors.find((x) => x.id === id);
-          const state = !a ? '—' : a.lost ? '✖ lost' : a.checkedIn ? '✓ checked in' : a.zone === 'assembly' ? 'at assembly' : a.alerted ? 'alerted' : 'unaware';
-          return (
-            <div key={id} className={`roster-row ${a?.lost ? 'is-lost' : ''}`} style={{ ['--actor' as string]: ACTOR_VIEW[id].color }}>
-              <span className="dot" />
-              <span className="rname">{ACTOR_VIEW[id].name}</span>
-              <span className="rstate">{state}</span>
-            </div>
-          );
-        })}
+        <div className="roster-people">
+          {ACTOR_ORDER.map((id) => {
+            const a = snapshot?.actors.find((x) => x.id === id);
+            const state = !a ? '—' : a.lost ? '✖ lost' : a.checkedIn ? '✓ checked in' : a.zone === 'assembly' ? 'at assembly' : a.alerted ? 'alerted' : 'unaware';
+            return (
+              <div key={id} className={`roster-row ${a?.lost ? 'is-lost' : ''}`} style={{ ['--actor' as string]: ACTOR_VIEW[id].color }}>
+                <span className="dot" />
+                <span className="rname">{ACTOR_VIEW[id].name}</span>
+                <span className="rstate">{state}</span>
+              </div>
+            );
+          })}
+        </div>
         <div className={`roster-row sub ${alarm?.active ? 'alarm-on' : ''}`}>
           {alarm?.active
             ? `🚨 alarm raised${alarm.by ? ` by ${ACTOR_VIEW[alarm.by].name}` : ''}${alarm.atSimTime !== undefined ? ` at ${alarm.atSimTime.toFixed(1)} s` : ''}`

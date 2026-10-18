@@ -2,6 +2,10 @@
 // Everything is drawn with integer rects on a low-res canvas and scaled up with nearest-neighbour, so it matches
 // the office's pixel style. Original artwork; the sign is a simple fedora silhouette + pixel wordmark.
 
+import { ACTOR_IDS } from '@escape/contracts';
+
+import { ACTOR_VIEW } from '../office/actors';
+
 export interface Rect {
   x: number;
   y: number;
@@ -107,7 +111,7 @@ function fedora(ctx: CanvasRenderingContext2D, x: number, y: number, color: stri
  */
 export function drawTowerScene(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, hover: boolean): TowerLayout {
   ctx.imageSmoothingEnabled = false;
-  const ground = H - 18; // street level
+  const ground = H - 24; // street level (the street and the far sidewalk below it)
   const cx = Math.floor(W / 2);
 
   // --- sky (stepped bands = pixel dithering feel)
@@ -176,7 +180,6 @@ export function drawTowerScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   const tx = cx - Math.floor(tw / 2) - 6;
   const bodyBottom = ground - 26; // podium below
   const tTop = bodyBottom - floors * floorH;
-  const glowIdx = 6; // counted from top: a floor toward the middle
   const curtainW = 20;
   const lit = mulberry32(42);
   const pulse = 0.5 + 0.5 * Math.sin(t * 3.2);
@@ -192,7 +195,7 @@ export function drawTowerScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     // lit office windows (warm), with a slow flicker
     for (let x = tx + 4; x < tx + tw - curtainW - 3; x += 5) {
       const r = lit();
-      if (f !== glowIdx && r < 0.16 && (r > 0.02 || Math.floor(t * 0.7 + x) % 3 !== 0)) rect(ctx, C.warm, x, y + 4, 4, 3);
+      if (r < 0.16 && (r > 0.02 || Math.floor(t * 0.7 + x) % 3 !== 0)) rect(ctx, C.warm, x, y + 4, 4, 3);
     }
     // curtain-wall column on the right
     rect(ctx, f % 2 ? C.curtain : C.curtainLight, tx + tw - curtainW, y, curtainW, floorH);
@@ -201,40 +204,6 @@ export function drawTowerScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
   rect(ctx, '#e3ded6', tx, tTop - 2, tw, 2); // roof slab
   rect(ctx, C.white, tx - 1, tTop, 1, floors * floorH); // left edge highlight
-
-  // glowing floor
-  const gy = tTop + glowIdx * floorH;
-  const glow: Rect = { x: tx, y: gy, w: tw, h: floorH };
-  const a = (hover ? 0.55 : 0.28) + (hover ? 0.25 : 0.22) * pulse;
-  ctx.fillStyle = `rgba(255, 210, 120, ${(a * 0.45).toFixed(3)})`;
-  ctx.fillRect(tx - 6, gy - 4, tw + 12, floorH + 8);
-  ctx.fillStyle = `rgba(255, 225, 150, ${(a * 0.7).toFixed(3)})`;
-  ctx.fillRect(tx - 3, gy - 2, tw + 6, floorH + 4);
-  rect(ctx, C.concrete, tx, gy, tw - curtainW, 3);
-  rect(ctx, hover ? '#fffbe8' : C.warmHi, tx, gy + 3, tw, 5);
-  for (let x = tx + 3; x < tx + tw; x += 5) rect(ctx, '#e9c27a', x, gy + 3, 1, 5);
-  // tiny silhouettes of the three characters in the lit floor
-  for (const [dx, col] of [
-    [44, '#d0602e'],
-    [52, '#7a4fb0'],
-    [70, '#2d8f86'],
-  ] as const) {
-    rect(ctx, col, tx + dx, gy + 4, 2, 4);
-    rect(ctx, '#3b2a22', tx + dx, gy + 3, 2, 1);
-  }
-
-  // bobbing pixel arrow + label pointing at the glowing floor (from the right)
-  const bob = Math.round(Math.sin(t * 5) * 2);
-  const ax0 = tx + tw + 10 + bob;
-  const ay0 = gy + Math.floor(floorH / 2);
-  ctx.fillStyle = '#ffd27a';
-  for (let i = 0; i < 5; i++) ctx.fillRect(ax0 + i, ay0 - i, 1, i * 2 + 1); // ◀ head
-  ctx.fillRect(ax0 + 5, ay0 - 1, 9, 3); // shaft
-  ctx.fillStyle = '#1a0709';
-  ctx.fillRect(ax0 + 14, ay0 - 1, 1, 3);
-  rect(ctx, '#1a0709', ax0 + 17, ay0 - 4, 21, 9);
-  rect(ctx, '#ffd27a', ax0 + 18, ay0 - 3, 19, 7);
-  pixelText(ctx, 'ENTER', ax0 + 18, ay0 - 2, '#1a0709');
 
   // rooftop frame (glass box at the top right in the photos)
   rect(ctx, '#8e989f', tx + 6, tTop - 22, 22, 20);
@@ -264,10 +233,55 @@ export function drawTowerScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   rect(ctx, '#58646b', cx - 12, bodyBottom + 16, 16, 10); // entrance
   rect(ctx, C.warm, cx - 10, bodyBottom + 18, 12, 1);
 
+  // --- the GLOWING GROUND FLOOR (the storefront podium): the floor everyone escapes from
+  const glow: Rect = { x: pdx, y: bodyBottom, w: pdw, h: 26 };
+  const a = (hover ? 0.55 : 0.28) + (hover ? 0.25 : 0.22) * pulse;
+  ctx.fillStyle = `rgba(255, 210, 120, ${(a * 0.45).toFixed(3)})`;
+  ctx.fillRect(pdx - 6, bodyBottom - 4, pdw + 12, 30);
+  ctx.fillStyle = `rgba(255, 225, 150, ${(a * 0.7).toFixed(3)})`;
+  ctx.fillRect(pdx - 3, bodyBottom - 2, pdw + 6, 28);
+  for (let x = pdx + 4; x < pdx + pdw - 8; x += 14) {
+    rect(ctx, hover ? '#fffbe8' : C.warmHi, x + 3, bodyBottom + 5, 9, 8);
+    rect(ctx, hover ? '#fffbe8' : C.warmHi, x + 3, bodyBottom + 16, 9, 8);
+    rect(ctx, '#e9c27a', x + 7, bodyBottom + 5, 1, 19);
+  }
+  rect(ctx, hover ? '#fff4c8' : '#ffe2a0', cx - 12, bodyBottom + 16, 16, 10); // lit entrance
+  rect(ctx, '#58646b', cx - 5, bodyBottom + 16, 1, 10);
+  // tiny silhouettes of the people inside, in their colours
+  ACTOR_IDS.forEach((id, i) => {
+    const sx = pdx + 22 + i * 24 + (i % 2) * 3;
+    rect(ctx, ACTOR_VIEW[id].color, sx, bodyBottom + 19, 2, 5);
+    rect(ctx, '#3b2a22', sx, bodyBottom + 18, 2, 1);
+  });
+
+  // bobbing pixel arrow + label pointing at the glowing ground floor (from the right)
+  const bob = Math.round(Math.sin(t * 5) * 2);
+  const ax0 = pdx + pdw + 8 + bob;
+  const ay0 = bodyBottom + 13;
+  ctx.fillStyle = '#ffd27a';
+  for (let i = 0; i < 5; i++) ctx.fillRect(ax0 + i, ay0 - i, 1, i * 2 + 1); // ◀ head
+  ctx.fillRect(ax0 + 5, ay0 - 1, 9, 3); // shaft
+  ctx.fillStyle = '#1a0709';
+  ctx.fillRect(ax0 + 14, ay0 - 1, 1, 3);
+  rect(ctx, '#1a0709', ax0 + 17, ay0 - 4, 21, 9);
+  rect(ctx, '#ffd27a', ax0 + 18, ay0 - 3, 19, 7);
+  pixelText(ctx, 'ENTER', ax0 + 18, ay0 - 2, '#1a0709');
+
   // --- street level
   rect(ctx, C.sidewalk, 0, ground, W, 4);
-  rect(ctx, C.street, 0, ground + 4, W, H - ground - 4);
-  for (let x = 0; x < W; x += 16) rect(ctx, C.line, x, ground + 10, 8, 1);
+  rect(ctx, C.street, 0, ground + 4, W, 14);
+  rect(ctx, C.sidewalk, 0, ground + 18, W, H - ground - 18); // far sidewalk
+  // a zebra crossing to the far side and the bus stop where everyone meets (right of the centred prompt button)
+  const zx = cx + 78;
+  for (let x = 0; x < W; x += 16) if (x + 8 < zx || x > zx + 16) rect(ctx, C.line, x, ground + 10, 8, 1);
+  for (let x = zx; x < zx + 16; x += 3) rect(ctx, '#e8e8e0', x, ground + 5, 2, 12);
+  rect(ctx, '#6b7178', zx + 22, ground + 9, 1, 10); // stop pole
+  rect(ctx, '#f4f4f4', zx + 20, ground + 7, 5, 4);
+  rect(ctx, '#1e5aa8', zx + 20, ground + 7, 5, 2);
+  rect(ctx, '#39414a', zx + 28, ground + 13, 18, 1); // shelter roof
+  rect(ctx, '#a8d8ea', zx + 29, ground + 14, 16, 5);
+  rect(ctx, '#5b6570', zx + 28, ground + 14, 1, 5);
+  rect(ctx, '#5b6570', zx + 45, ground + 14, 1, 5);
   // streetlights
   for (let x = 20; x < W; x += 70) {
     rect(ctx, '#4a4d52', x, ground - 14, 1, 14);
@@ -282,7 +296,7 @@ export function drawTowerScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     const span = W + 40;
     let x = ((t * speed + i * 97) % span) - 20;
     if (dir < 0) x = W - x;
-    const y = dir > 0 ? ground + 6 : ground + 12;
+    const y = dir > 0 ? ground + 6 : ground + 13;
     rect(ctx, col, x, y, 9, 3);
     rect(ctx, '#2a2d31', x + 2, y - 1, 5, 1);
     rect(ctx, '#1d1f22', x + 1, y + 3, 2, 1);

@@ -22,7 +22,7 @@ The submission deadline is **Sun Oct 18, 11:00 a.m. ET**; that is also code free
    - `PLANNER_ENDPOINT_KIND=self-hosted-vllm`
    - `PLANNER_THINKING=false`
    - `DEMO_CASE=demo-hero`
-4. `npm run dev`, then open http://localhost:5173 at **1920×1080** (also check 1440×900).
+4. `npm run dev`, then open http://localhost:5173 at **1920×1080** (also check 1440×900). The whole ground floor and the street fit the stage, so sprites are drawn a little smaller than on the old one-room map.
    - Browser zoom 100%.
    - Hide bookmarks.
    - Silence notifications.
@@ -35,17 +35,17 @@ The submission deadline is **Sun Oct 18, 11:00 a.m. ET**; that is also code free
 
 | t | Action | What to point at |
 |---|---|---|
-| 0:00 | Start screen → click the glowing floor. Calm office: Alex at the warden desk in the lobby, Maya and Daniel in the Red Hat room | "Three characters. One Nemotron planner decides for all of them through tools." Point out the single red pull station in the hallway and the sliding doors |
-| 0:05 | Drag **Fire** into the Red Hat room near Maya (green ghost = valid) | The fire starts spreading tile by tile |
-| 0:07 | Maya sees it and shouts "Fire!" — Daniel (same room) hears it; both back away from the flames | Trace: "instinct" rows (shout, backs away). "People react on instinct — that's the engine, not the model. Alex in the lobby hears nothing." |
-| 0:10 | Nemotron moves them out; someone's way out passes the hallway pull station, and they pull it (instinct) — or the model sends someone there with `pull_alarm` | Siren and red strobes: "the alarm is the only way to reach the lobby, and it doesn't say where the fire is" |
-| 0:20 | Alex is alerted by the siren; Nemotron routes him out | Tool pills: `move` rows with one-line plain-English summaries |
-| 0:30 | When people head through the **lobby** toward the east exit, drag **⚡ Electrical failure** onto the **south sliding door** (or run `node scripts/auto-electrical.mjs` beforehand) | The door jams shut with sparks |
-| 0:33 | The move stops safely — the trace says why ("the south door is dead") | The failed row, then the "↻ recovered" badge on the next row |
-| 0:35 | Re-plan via the lobby connector, the north hallway and the west exit, away from the fire; nobody goes back inside | The alternate route on the map; the fire climbing the walls behind them |
-| 1:00 | check_in × survivors → Alex **verify_roster** → success (or partial, if someone was lost) | "Only the roster verification can end it — and nobody is assumed safe." |
+| 0:00 | Start screen → click the glowing **ground floor**. Calm office: Alex (the warden) and Maya at the cubicles, Daniel visiting the Red Hat conference room, Rosa at the front desk, Kenji in the GPU server room | "Five people, one floor, one model deciding through tools." Point out the two red pull stations (main hallway, reception), the sliding doors, and the bus stop across the street where everyone meets |
+| 0:05 | Drag **Fire** anywhere inside — e.g. into the cubicles beside Maya, or the GPU server room by Kenji (green ghost = valid) | The fire starts spreading tile by tile |
+| 0:07 | Whoever sees it shouts "Fire!" — people in the same room hear it and back away; nobody in the other rooms does | Trace: "instinct" rows (shout, backs away). "That's the engine, not the model. The other rooms hear nothing." |
+| 0:10 | Nemotron sends someone to the nearest pull station (or someone passes one on the way out and pulls it by instinct) | Siren and red strobes: "the alarm is the only way to reach the other rooms, and it doesn't say where the fire is" |
+| 0:20 | Daniel, Rosa and Kenji are alerted by the siren; Nemotron routes everyone out — main entrance, west exit or the kitchen back exit, away from the fire | Tool pills: `move` rows with one-line plain-English summaries |
+| 0:30 | When someone crosses the main hallway toward reception, drag **⚡ Electrical failure** onto the **reception door** (or run `node scripts/auto-electrical.mjs` beforehand; `--door` / `--when-zone` pick another) | The door jams shut with sparks |
+| 0:33 | The move stops safely — the trace says why ("the reception door is dead") | The failed row, then the "↻ recovered" badge on the next row |
+| 0:35 | Re-plan through the cubicles and the reception side door, or the west exit; nobody goes back inside | The alternate route on the map; the fire climbing the walls behind them |
+| 1:00 | Everyone crosses at the crosswalk to the bus stop → check_in × survivors → Alex **verify_roster** → success (or partial) | "Only the roster verification can end it — and nobody is assumed safe." |
 | 1:10 | Debrief: source-linked lessons + metrics | Alarm (1910.165 / 1910.38(d)), routes and jammed doors, accountability, with OSHA citations |
-| optional | Reset, drop a fire right next to someone in a closed-off room | The disintegration and a `partial` outcome — why early alarm matters |
+| optional | Reset, cut power to the GPU server-room door, then start a fire inside | The room has one door: Kenji is trapped — a `partial` outcome, and why early alarm and second exits matter |
 
 If the model takes a different valid path, narrate what it actually did. Don't redo takes until it matches a script.
 
