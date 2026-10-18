@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-"Escape from Red Hat": a pixel-art office-evacuation exercise (NVIDIA × Red Hat Small Models Hack). A deterministic TypeScript engine owns the world (spreading fire, electric sliding doors, one hallway fire-alarm pull station, three people: Alex the warden, Maya, Daniel who uses a wheelchair). NVIDIA Nemotron 3.5 Lightning 30B-A3B, self-hosted on vLLM (Brev H100), chooses validated tool calls. Two decision modes:
-- `central` (default, benchmarked, used by the Gym API): one planner call directs all three people from a merged team view.
+"Escape from Red Hat": a pixel-art office-evacuation exercise (NVIDIA × Red Hat Small Models Hack). A deterministic TypeScript engine owns the world: the office-v2 ground floor (GPU server room, Red Hat conference room, kitchen, main hallway, cubicles, reception; a street with a crosswalk and the bus-stop assembly point across it), spreading fire, seven electric sliding doors, three manual exits, two fire-alarm pull stations (hallway, reception), and five people: Alex the warden, Maya, Daniel who uses a wheelchair, Rosa the receptionist and Kenji the IT engineer. NVIDIA Nemotron 3.5 Lightning 30B-A3B, self-hosted on vLLM (Brev H100), chooses validated tool calls. Two decision modes:
+- `central` (default, benchmarked, used by the Gym API): one planner call directs all five people from a merged team view.
 - `agents` (`PLANNER_MODE=agents`): each person makes their own reasoning call from their own personal view; the engine's hard-coded survival instincts are off.
 
 `README.md` (quick start, results, limitations) and `tech-stack.md` (serving/tool-calling details with measured numbers) are the user-facing docs.
@@ -30,7 +30,7 @@ npx vitest run apps/server -t "replays identically"      # by test name
 npm run smoke -w @escape/server -- --recovery --n 10     # real endpoint: one tool-call round trip, recovery check, latency
 npm run bench -- --split dev --provider env --harness v2 --concurrency 4 --out results/<dir>   # --mode agents, --thinking on|off, --cases a,b, --limit K
 npm run replay -- runs/<episodeId>.jsonl                  # re-simulate a saved run; exit 1 on divergence
-npm run data:map                 # rebuild data/maps/office-v1.json from office-v1.ascii
+npm run data:map                 # rebuild data/maps/office-v2.json from office-v2.ascii + office-v2.spec.ts, and packages/contracts/src/map-ids.generated.ts
 npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.jsonl (+ provenance)
 ```
 
@@ -43,9 +43,9 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
   - **Latency is almost all reasoning decode:** about 0.3 s plus 4.5 ms per completion token on the H100. Uncapped, the median was 715 tokens (3.5 s).
   - **Reasoning controls:** vLLM 0.27.1 honours the `thinking_token_budget` request field. The chat template's `reasoning_effort` / `low_effort` flags had no reliable effect, and turning thinking off makes the model pick `observe` almost every time.
   - **Wasted decisions:** about three-quarters of uncapped decisions moved no one (`observe`, `plan_route`, rejected calls). That is the next latency lever after the cap.
-- **Web URL parameters.** `?intro=0` skips the start screen. `?fixture=1` streams canned UI data with no server.
-- **Bench limitation.** `npm run bench` only loads the `dev` and `test` splits. `demo-hero` is split `demo`, and its fire and power-cut events are `manual` (the presenter drags them in), so they never fire headless.
-- **Rehearsal helpers.** `scripts/auto-electrical.mjs` cuts the south door's power when the evacuation reaches the lobby. `scripts/watch-trace.mjs` tails the trace.
+- **Web URL parameters.** `?intro=0` skips the start screen. `?fixture=1` streams canned UI data with no server. `?gallery=1` shows every procedural sprite (furniture, decor, outfits) for visual review.
+- **Bench limitation.** `npm run bench` only loads the `dev` and `test` splits. `demo-hero` is split `demo` and has no events (the presenter places the fire and the power cut live), so it is never benchmarked; `dev-00-hero` is its scripted stand-in (`hero-story.json`).
+- **Rehearsal helpers.** `scripts/auto-electrical.mjs` cuts the reception door's power once someone is moving through the main hallway (`--door`, `--when-zone`, `--url`; door tiles come from the current map). `scripts/watch-trace.mjs` tails the trace.
 - **Gym.** NeMo Gym is a Python proxy: see `gym/README.md`.
 - **vLLM serving.** See `deploy/vllm/`.
 
@@ -54,8 +54,10 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
 **`packages/contracts`** holds every type and protocol shared by engine, server, web and eval:
 - `types.ts`: `PlannerView` (team view), `AgentView` (one person's view), `TraceRow`, `WorldEvent`, `ProviderInfo`, `Snapshot`.
 - `tools.ts`: `TOOL_DEFS`, the OpenAI tool schemas sent to the model, plus `TOOL_ARG_SCHEMAS`, the strict zod validators the engine applies.
-- `engine-api.ts`: the `Engine` interface, `EngineOptions` and `ACTOR_PROFILES`.
+- `engine-api.ts`: the `Engine` interface, `EngineOptions` and `ACTOR_PROFILES` (roles come from the profiles: `WARDEN_ID` and `ASSISTANCE` = {person, buddy} are derived, never hard-coded).
 - `protocol.ts`: the WebSocket messages.
+- `map-ids.generated.ts` (written by `npm run data:map`; don't edit): `ZONE_IDS`, `DOOR_IDS`, `ALARM_STATION_IDS`, `DEFAULT_MAP_ID`.
+- `furniture.ts`: `CUSTOM_FURNITURE`, the footprint table for the procedural furniture, read by both the map builder and the web catalog.
 
 **`packages/engine`** is pure and deterministic: no I/O, no timers, no `Math.random`. It uses seeded `mulberry32`, with a separate RNG stream for fire spread. Almost everything is in `world.ts` `createEngine`.
 - **Step order:** `step()` runs scheduled events → fire → losses → perception (sight, smoke through walls, the 15 s smell) → instincts → movement → losses → ambient → end checks.
@@ -65,7 +67,8 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
   - `plannerView()` merges everyone's knowledge; `agentView(id)` is strictly personal.
   - Each view has its own wake logic and "seen" cursor: `needsDecision` / `markViewed` for the team view, `agentNeedsDecision` / `markAgentViewed` per person.
 - **Instincts:** `EngineOptions.instincts` (default true) gates shout, flee, pulling the alarm in passing, and the no-re-entry block.
-- **Other modules:** `scoring.ts` (outcomes, metrics, debrief); `placement.ts` (`isFlammable`, placement validation); `map.ts` (`roomsOf` / `inEarshot`; voice reaches the same room only); `places.ts` (human place names).
+- **Route choice** (both modes, not an instinct): someone in an exit doorway or already outside who is sent somewhere outside walks around the building, never back through it. On the ground floor the indoor way from the west exit to the bus stop is shorter than the sidewalk, so without this rule people were routed back toward the fire.
+- **Other modules:** `scoring.ts` (outcomes, metrics, debrief); `placement.ts` (`isFlammable`, placement validation); `map.ts` (`roomsOf` / `inEarshot`; voice reaches the same room only; rooms come from zone kinds); `places.ts` (`placesFor(map)`: human place, door and station names, outside/exit/non-flammable checks, the id-leak pattern, all read from the map); `routes.ts` (`routeBriefing(map)` for `consult_plan`).
 
 **`apps/server`** runs Fastify plus a WebSocket:
 - **`session.ts`:** the live loop (100 ms ticks), pause, placement, and replay of saved runs.
@@ -87,8 +90,8 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
 **`apps/eval`** contains `bench.ts` (dataset runs to `results/<dir>/summary.{md,json}` plus run logs), `replay.ts` and a compare tool.
 
 **`data/`** holds:
-- the map, whose source of truth is `office-v1.ascii` plus the furniture list in `build-map.ts`;
-- the synthetic scenario dataset, built by `generator.ts` with `DATASET_CARD.md` and `provenance.json`;
+- the map: `maps/office-v2.ascii` (tiles, zone letters) plus `office-v2.spec.ts` (zone names and kinds, doors, pull stations, spawns, furniture, decor), built by the generic `maps/builder.ts`. office-v1 is retired (git tag `office-v1-final`);
+- the synthetic scenario dataset `escape-office-scenarios-v3`, built by `generator.ts` (per-map recipe in `SPECS`) with `DATASET_CARD.md` and `provenance.json`;
 - paraphrased public knowledge cards (OSHA) used by `consult_plan` and the debrief.
 
 ## Invariants that are easy to break
@@ -96,17 +99,18 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
 - **Replay determinism.**
   - Any input that changes the engine other than `step()` must go through `recordInput`: `begin`, `view` (with `actor` in agents mode), `tool`, `note`, `place`, `end`.
   - Any new `EngineOptions` field must be written to the run header and passed through `replayEngineOptions` in `runlog.ts`, or replays diverge.
+- **The map is the single source of truth.** Zone, door and station names, which zones are outside, exits or non-flammable, and the id lists all come from the map JSON. To add or rename a place, edit the spec/ASCII and run `npm run data:map` (then `npm run data:scenarios` and `npx tsx gym/make_tasks.ts`); never add a hand-kept name table. Moving furniture changes the map hash in `provenance.json` even when the cases stay the same.
 - **Engine API changes.** New `Engine` methods need stubs in `apps/server/test/fakeEngine.ts`.
-- **Viewer-facing text** (trace engine rows, bubbles, debrief) must never contain evidence ids (`E1`), zone ids (`rh_room`), action ids (`A-007`) or coordinates; tests check this with an `ID_LEAK` regex. Planner-facing text keeps the ids, because the model needs them for `evidence_ids` and `route_id`.
+- **Viewer-facing text** (trace engine rows, bubbles, debrief) must never contain evidence ids (`E1`), zone ids (`rh_room`), action ids (`A-007`) or coordinates; tests check this with `idLeakRegex(map)` (`apps/server/test/idLeak.ts`). Planner-facing text keeps the ids, because the model needs them for `evidence_ids` and `route_id`.
 - **Honesty conventions.**
   - Engine instinct rows carry the origin `Instinct (engine — not the model)` and must never be attributed to the model.
   - Scripted runs are always labelled as fixtures.
   - Numbers in `README.md` / `tech-stack.md` come only from measured runs saved under `results/`. Fire tuning or rule changes invalidate earlier tables until they are re-measured.
-- **Fire tuning** lives in the constants at the top of `world.ts` (`FIRE_SPREAD_PER_TICK`, `WALL_IGNITION_FACTOR`, `DOOR_IGNITION_FACTOR`). `packages/engine/test/fire.test.ts` pins the growth bands, the 20–30 s wall delay and reach times from the hero seed.
+- **Fire tuning** lives in the constants at the top of `world.ts` (`FIRE_SPREAD_PER_TICK`, `WALL_IGNITION_FACTOR`, `DOOR_IGNITION_FACTOR`). `packages/engine/test/fire.test.ts` pins the growth bands, the wall delay and room-to-room reach times, using the setups in `packages/engine/test/fireSetups.ts` (`FIRE_SITES`).
   - Wall hold time scales as 1 / (spread × wall factor). To change the spread speed without changing how long walls hold, scale the wall factor inversely.
-  - Before re-pinning, measure the new medians with the same seeds and setups as the tests.
+  - Before re-pinning, measure the new medians with the same seeds and setups as the tests: `npx tsx scripts/measure-fire.ts`.
   - A retune also flips seeded outcomes in other engine tests (`tools.test.ts`, `agents.test.ts`).
   - Run headers do not record the fire constants, so every run log recorded before a retune diverges on replay.
-- **The hero scenario** is `data/scenarios/demo-hero.json` (fire at (5,12), power cut on the south door at (26,14)). The integration tests build their own timed copy of it (`apps/server/test/*.integration.test.ts`); after editing scenarios, run `npm run data:scenarios`.
-  - `runs/demo-hero.jsonl` (the runbook's backup replay) predates the current map and fire, so it no longer replays. Re-record it from a live run.
+- **The hero scenario.** `data/scenarios/demo-hero.json` holds the five demo spawns and no events: the presenter places hazards live. `hero-story.json` is the scripted story (fire in the cubicles at t = 1 s at (10,17); the reception door at (31,12) loses power when anyone enters the hallway). `heroStoryCase` combines them into `dev-00-hero` for the bench and the integration tests (`apps/server/test/*.integration.test.ts`). After editing scenarios, run `npm run data:scenarios`.
+  - `runs/demo-hero.jsonl` (the runbook's backup replay) is a live agents-mode run on office-v2. Any engine change that alters behaviour (fire tuning, routing) makes it diverge on replay: re-record it from a live run.
 - **Secrets.** `.env` holds `PLANNER_API_KEY` (the vLLM key) and `NVIDIA_HOSTED_API_KEY`. Keys stay server-side; the browser never receives them.

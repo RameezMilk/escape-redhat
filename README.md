@@ -2,13 +2,15 @@
 
 **A pixel-art workplace evacuation exercise where you change the emergency and watch AI-controlled characters respond.**
 
-- **The setting.** A fictional Red Hat conference room connects to an NVIDIA-themed lobby, two ground-level exits and an assembly point.
-- **The model.** A single small open model, **NVIDIA Nemotron 3.5 Lightning 30B-A3B** served with **vLLM**, picks real, validated tool calls for three characters — either as one *central planner* (default, benchmarked) or, with `PLANNER_MODE=agents`, as **three separate reasoning calls, one per person**, each seeing only what that person knows:
+- **The setting.** A fictional office ground floor: a green NVIDIA GPU server room, a Red Hat conference room, a kitchen, the main hallway, cubicles and a reception lobby, joined by seven electric sliding doors, with three manual exits. Outside is a street; everyone meets across it, at the bus stop.
+- **The model.** A single small open model, **NVIDIA Nemotron 3.5 Lightning 30B-A3B** served with **vLLM**, picks real, validated tool calls for five characters — either as one *central planner* (default, benchmarked) or, with `PLANNER_MODE=agents`, as **five separate reasoning calls, one per person**, each seeing only what that person knows:
   - Alex, the warden;
   - Maya, an employee;
-  - Daniel, a visitor who uses a wheelchair.
+  - Daniel, a visitor who uses a wheelchair;
+  - Rosa, the receptionist at the front desk;
+  - Kenji, the IT engineer who works in the GPU server room.
 - **What you do.** Drag in one or more **fires** — they spread from tile to tile — and **⚡ electrical failures** that jam an interior sliding door shut.
-- **What you see.** Fire spreads tile by tile, climbs walls and works its way through the building. People react like people: whoever sees or smells it shouts "Fire!" to their own room, anyone close backs away from the flames, someone heading out past the **hallway fire-alarm pull station** pulls it (siren and strobes reach every room), and nobody goes back inside once out. These *instincts* are engine rules, labelled as such. **The model** does the planning: it decides who goes where and by which exit, sends someone to the alarm when people elsewhere are still unaware, re-routes around jammed doors, can honour Daniel's buddy arrangement, and verifies everyone at the assembly point. Anyone the fire reaches is **lost** (they disintegrate). A live trace tells the story in plain language, with every model call shown.
+- **What you see.** Fire spreads tile by tile, climbs walls and works its way through the building. People react like people: whoever sees or smells it shouts "Fire!" to their own room, anyone close backs away from the flames, someone heading out past one of the two **fire-alarm pull stations** (main hallway, reception) pulls it (siren and strobes reach every room), and nobody goes back inside once out. These *instincts* are engine rules, labelled as such. **The model** does the planning: it decides who goes where and by which exit, sends someone to the alarm when people elsewhere are still unaware, re-routes around jammed doors, can honour Daniel's buddy arrangement, and verifies everyone at the assembly point. Anyone the fire reaches is **lost** (they disintegrate). A live trace tells the story in plain language, with every model call shown.
 - **What the engine guarantees.** A deterministic, seeded engine owns the world, including the fire. The model can't walk anyone into fire they know about or declare success; only a verified roster can. There is no time limit: the run ends when every survivor is accounted for, or when everyone is lost.
 
 Main track: **Tool-Calling**. Built at the NVIDIA × Red Hat Small Models Hack, Raleigh, Oct 17–18 2026.
@@ -31,7 +33,7 @@ Requirements: Node ≥ 20 (tested on 24) and npm. A GPU is only needed to self-h
 ```bash
 npm ci
 cp .env.example .env          # PLANNER_PROVIDER=scripted works with no key
-npm run data:map              # rebuild data/maps/office-v1.json (already committed)
+npm run data:map              # rebuild data/maps/office-v2.json (already committed)
 npm run dev                   # server :8787 + web :5173
 open http://localhost:5173
 ```
@@ -87,7 +89,7 @@ flowchart LR
 **Tools the model can call:** `observe`, `consult_plan`, `notify`, `plan_route`, `move`, `request_assistance`, `assist`, `check_in`, `verify_roster`, `pull_alarm`.
 
 - `notify` is spoken: it reaches only people in the same room (a doorway joins the two rooms it connects; outside is one area). Anyone elsewhere is not reached, and a call with nobody in earshot is rejected with `OUT_OF_RANGE`. People already shout "Fire!" to their own room by instinct, so the model uses `notify` for route news and for people it meets in person.
-- `pull_alarm` only works for someone standing at the single pull station in the north corridor (`move` to destination `"alarm"`). It is the only way to alert people in other rooms, but, like a real alarm, says nothing about *where* the fire is. People who pass the station on their way out pull it by instinct.
+- `pull_alarm` only works for someone standing at a pull station — one in the main hallway, one in reception (`move` to destination `"alarm"` goes to the nearest). It is the only way to alert people in other rooms, but, like a real alarm, says nothing about *where* the fire is. People who pass the station on their way out pull it by instinct.
 - Once someone is outside, `move` and `plan_route` back into the building are rejected (`NOT_AUTHORIZED`): nobody goes back into a burning building.
 - Invalid calls return structured errors and never change the world. Codes include `ROUTE_UNAVAILABLE`, `STALE_STATE`, `ACTOR_BUSY`, `OUT_OF_RANGE`, `ASSISTANCE_NOT_ACCEPTED` and `NOT_AUTHORIZED`.
 - The planner sees each character's observations and reports, but never fire cells or jammed doors nobody has seen.
@@ -135,24 +137,24 @@ Development fallback with the same weights: the hosted NVIDIA API Catalog (see e
 | `PLANNER_MAX_TOKENS` | `1024` | per decision (raise if thinking is on) |
 | `PLANNER_DEADLINE_MS` | `30000` | per-decision timeout (hosted catalog needs ~120000) |
 | `PLANNER_FREEZE_WHILE_THINKING` | auto | live mode: hold the sim clock during inference (default on for hosted APIs) |
-| `PLANNER_MAX_DECISIONS` | `60` | per-episode decision cap — a safety stop, not a game rule (there is no time limit) |
+| `PLANNER_MAX_DECISIONS` | `100` | per-episode decision cap — a safety stop, not a game rule (there is no time limit) |
 | `PLANNER_HARNESS` | `v2` | prompt/harness version (`v1` = baseline) |
 | `PLANNER_MODE` | `central` | `agents` = each person makes their own reasoning call from their own view; engine instincts off |
-| `PLANNER_AGENT_THINKING` / `PLANNER_AGENT_THINKING_BUDGET` / `PLANNER_AGENT_MAX_DECISIONS` / `PLANNER_AGENT_FREEZE_WHILE_THINKING` | `true` / `128` / `150` / `true` | agents-mode settings (the central ones are left alone); the budget caps reasoning tokens per decision (vLLM `thinking_token_budget`, `0` = no cap) |
+| `PLANNER_AGENT_THINKING` / `PLANNER_AGENT_THINKING_BUDGET` / `PLANNER_AGENT_MAX_DECISIONS` / `PLANNER_AGENT_FREEZE_WHILE_THINKING` | `true` / `128` / `250` / `true` | agents-mode settings (the central ones are left alone); the budget caps reasoning tokens per decision (vLLM `thinking_token_budget`, `0` = no cap) |
 | `PORT` | `8787` | server port |
 | `DEMO_CASE` | `demo-hero` | scenario loaded on start/reset |
 
 ### 3. Run the hero scenario
 
-1. `npm run dev`, then open http://localhost:5173. On the start screen, click the glowing floor of the (pixel-art) tower or press Enter; add `?intro=0` to the URL to skip it. Check that the top bar shows **Nemotron · self-hosted vLLM** and that the model is healthy.
+1. `npm run dev`, then open http://localhost:5173. On the start screen, click the glowing ground floor of the (pixel-art) tower or press Enter; add `?intro=0` to the URL to skip it. Check that the top bar shows **Nemotron · self-hosted vLLM** and that the model is healthy.
 2. Watch the idle office. No model calls happen before an incident.
-3. Drag **Fire** into the Red Hat room near Maya. It starts spreading, and given time it climbs the walls and moves into the next rooms.
-4. Maya sees it and shouts "Fire!" (instinct), so Daniel, in the same room, hears it and both back away from the flames. Alex, in the lobby, hears nothing. Follow the trace: Nemotron moves them out and gets someone to the **hallway fire-alarm pull station** (a person whose way out passes it pulls it on the way). The siren and red strobes are what alert Alex.
-5. When people head through the NVIDIA lobby toward the east exit, drag **⚡ Electrical failure** onto the **south sliding door** (between the lobby and the east exit).
-6. Their move stops safely and the trace shows why ("the south door is dead"). Nemotron re-plans through the lobby connector, the north hallway and the west exit, away from the fire. Nobody goes back inside. Everyone checks in, and Alex runs `verify_roster`.
+3. Drag **Fire** into the cubicles beside Maya. It starts spreading, and given time it climbs the walls and moves into the next rooms.
+4. Maya sees it and shouts "Fire!" (instinct), so Alex, in the same room, hears it and both back away from the flames. Daniel (Red Hat room), Rosa (reception) and Kenji (server room) hear nothing. Follow the trace: Nemotron moves people out and gets someone to a **fire-alarm pull station** (a person whose way out passes one pulls it on the way). The siren and red strobes are what alert the other rooms.
+5. When someone crosses the main hallway toward reception, drag **⚡ Electrical failure** onto the **reception door** (between the hallway and the reception lobby, on the way to the main entrance).
+6. Their move stops safely and the trace shows why ("the reception door is dead"). Nemotron re-plans through the cubicles and the reception side door, or out of the west exit and along the sidewalk, away from the fire. Nobody goes back inside. Everyone crosses at the crosswalk to the bus stop and checks in, and Alex runs `verify_roster`.
 7. Read the debrief. Use **Reset** to start again. To see losses, drop a fire right next to someone who hasn't been alerted.
 
-Rehearsal helper: `node scripts/auto-electrical.mjs` drops the electrical failure on cue (step 5) so a solo presenter can run the hero scenario.
+Rehearsal helper: `node scripts/auto-electrical.mjs` drops the electrical failure on cue (step 5) so a solo presenter can run the hero scenario (`--door` and `--when-zone` pick another door or trigger).
 
 **Replay a saved run** (labeled **REPLAY** in the UI): `npm run replay -- runs/demo-hero.jsonl`. This re-applies the recorded decisions without calling the model.
 
@@ -162,31 +164,38 @@ Rehearsal helper: `node scripts/auto-electrical.mjs` drops the electrical failur
 
 | Data | Type | Provenance and licence | How it is used |
 |---|---|---|---|
-| `data/scenarios/` **escape-office-scenarios-v2** | **Synthetic**, generated during the event (2026-10-17) | `generator.ts` v2, master seed 20261017. Families: fire_only, multi_fire, fire_then_door, independent, trapped. Method, fields and limits are in [`DATASET_CARD.md`](data/scenarios/DATASET_CARD.md); hashes in `provenance.json`. CC BY 4.0 | The app boots `demo-hero`. The benchmark runs and scores 16 dev and 16 held-out test cases (test uses fire locations never seen in dev) |
-| `data/maps/office-v1` | Synthetic (authored) | `office-v1.ascii` plus `build-map.ts`, with 4 interior electric sliding doors and 1 fire-alarm pull station (north corridor). Furniture footprints come from the vendored Pixel Agents manifests | Shared by the engine (navigation truth) and the renderer |
+| `data/scenarios/` **escape-office-scenarios-v3** | **Synthetic**, generated during the event (2026-10-17/18) | `generator.ts` v3, master seed 20261017. Families: fire_only, multi_fire, fire_then_door, independent, trapped. Method, fields and limits are in [`DATASET_CARD.md`](data/scenarios/DATASET_CARD.md); hashes in `provenance.json`. CC BY 4.0 | The app boots `demo-hero`. The benchmark runs and scores 16 dev and 16 held-out test cases (test uses fire locations never seen in dev) |
+| `data/maps/office-v2` | Synthetic (authored) | `office-v2.ascii` plus `office-v2.spec.ts`, built by `data/maps/builder.ts`: 44×29 tiles, six rooms, 7 interior electric sliding doors, 3 manual exits, 2 fire-alarm pull stations (main hallway, reception), a street with a crosswalk and a bus-stop assembly point. GPU racks, cubicles, the reception desk, the kitchen and the bus shelter are original procedural pixel art; other furniture footprints come from the vendored Pixel Agents manifests | Shared by the engine (navigation truth) and the renderer |
 | `data/knowledge/` | Paraphrased public sources | 29 CFR 1910.36(d)(1), 1910.37(a)(3), 1910.38(c)–(f), 1910.165 (U.S. government works); OSHA *Getting Started* guidance; NC DOL EAP pages. Each card has a source URL, checked 2026-10-17. The site plan is **fictional** | `consult_plan` answers and the debrief's cited lessons |
 
 **Considered but not integrated:** LEMTA evacuation drills, Jülich bottleneck trajectories, NIST stair egress, and Raleigh building footprints. Reasons are in the dataset card. No real measurement is presented as describing this office.
 
 ## Results
 
-**Current game (room-limited voice, one hallway alarm, survival instincts, fire that burns through walls).** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) on our vLLM 0.27.1, one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 60 (safety stop), lockstep clock, concurrency 4, **one run per case** — temperature > 0 *and* a seeded stochastic fire, so differences of 1–2 cases can be noise. Raw summaries and replayable run logs: [`results/2026-10-17-ruleset3-vllm-h100/`](results/2026-10-17-ruleset3-vllm-h100/).
+**Current game: the office-v2 ground floor, five people.** Measured on 2026-10-18 with **Nemotron 3.5 Lightning 30B-A3B (BF16) on our vLLM 0.27.1, one Brev H100 80GB**, temperature 0.6, decision cap 100 (safety stop), lockstep clock, **one run per case** — temperature > 0 *and* a seeded stochastic fire, so differences of 1–2 cases can be noise. Central planner: thinking off, concurrency 4. Per-agent mode: reasoning on, capped at 128 tokens per decision, concurrency 1 (the server was still on `--max-num-seqs 4`, so running several five-person episodes at once would mostly have measured queueing). Raw summaries and replayable run logs (`runs.tar.gz`): [`results/2026-10-18-office-v2-vllm-h100/`](results/2026-10-18-office-v2-vllm-h100/).
 
-> **Not yet re-measured:** these numbers were taken before the fire was made to spread faster (spread probability 0.018 → 0.024 per tick, walls still holding ~20–30 s), so fire now reaches the hallway in a little over a minute and the lobby in about a minute and a half. Expect lower success rates until re-run.
+**Held-out test split** (16 cases: 14 normal + 2 trapped-by-design; fire rooms never used while tuning — the GPU server room, the main hallway and reception):
 
-**Per-agent mode (`PLANNER_MODE=agents`) — early, not benchmarked.** Each person is their own Nemotron call (reasoning on) from their own view; no engine instincts. Observed on 2026-10-17, same vLLM server, hero map, with reasoning **uncapped** and a faster fire (0.03 per tick) — reasoning is now capped at 128 tokens per decision by default, not yet re-measured:
-- Headless (clock held during inference), fire at t=1 s + power cut on the south door: **2 of 2 runs verified success** (36.0 s and 36.6 s of sim time). Maya decided to pull the hallway alarm herself in both, 4.7 s and 6.7 s after first seeing the fire. Reasoning latency p50 2.5–3.4 s, p95 12.5–15 s; ~640 completion tokens per decision (p95 ~2,900).
-- Live, **real-time clock** (sim keeps running while people think), fire placed in the Red Hat room's north-west corner + power cut: **0 of 3 escaped** — people stood still for seconds per decision while the fire spread. This is why agents mode holds the clock during inference by default.
-- Live, **clock held**: Maya warned the room and pulled the alarm 6.0 s after seeing the fire; Alex re-planned around the dead door; Alex and Maya checked in; Daniel was left with no step-free route (dead south door, burning Red Hat room) after a run of look-arounds and a route through the lobby.
+| Decision mode / harness | Verified success, normal cases | False success, trapped cases | People escaped | People lost | Mean reward | Invalid-call rate | Repeated identical invalid calls | Decisions / episode | Decision p50 / p95 |
+|---|---|---|---|---|---|---|---|---|---|
+| Central, v1 baseline — static tools, raw state JSON | 6/14 | 0/2 | 57/80 | 8 | −1.00 | 47.4% (671/1416) | 193 | 88.5 | 699 / 1053 ms |
+| **Central, v2 — state digest, per-turn action masking, recovery hints** | **14/14** | **0/2** | **78/80** | 2 (trapped cases only) | **+0.63** | 31.5% (143/454) | **33** | **28.4** | 703 / 984 ms |
+| Per-agent — five reasoning calls, personal views, no engine instincts | 12/14 | 0/2 | 76/80 | 4 | +0.56 | 9.2% (84/917) | 8 | 57.7 | 1050 / 1737 ms |
 
-**Held-out test split** (16 cases: 14 normal + 2 trapped-by-design; fire locations never used while tuning; same model, server and config for both harnesses):
+- **Dev split** (tuning split; the v2 harness and the agent prompt were tuned on office-v1's dev split, and for this map only adapted — place names, exits, examples — not re-tuned on results): central v2 15/15 normal successes, 79/80 escaped; per-agent 15/15, 79/80 escaped.
+- **Baseline → v2 on the test split:** 6/14 → 14/14, people lost on normal cases 6 → 0, a third of the decisions, a sixth of the repeated invalid calls, and the alarm pulled 13.6 s after the first sighting instead of 45.4 s. Per-case comparison: [`compare-test-v1-vs-v2.md`](results/2026-10-18-office-v2-vllm-h100/compare-test-v1-vs-v2.md).
+- **No false successes** in any run, and **zero provider errors**. Malformed responses: 0 for the central planner; 10 of about 1,700 per-agent decisions (4 dev, 6 test), each recorded and followed by a fresh decision.
+- **Per-agent mode** reaches about the same outcomes with no engine instincts and far fewer rejected calls, but makes about twice as many decisions per episode, and each one takes about 1.1 s instead of 0.7 s (reasoning). It has not been compared with the central planner beyond this one run per case.
+- **Prompt size:** central v2 prompts are about 5.2–5.4K tokens (median), at most 6.2K; per-agent prompts about 3.1–3.2K, at most 3.8K, plus up to 128 reasoning tokens. About 2–3% of per-agent calls keep reasoning in the visible reply after the cap and run to ~1,000 completion tokens; they still parse.
+
+**History: office-v1, three people (ruleset 3: room-limited voice, one hallway alarm, survival instincts, fire that burns through walls).** Measured on 2026-10-17 on the same server, thinking off, decision cap 60, concurrency 4, one run per case, before the fire was made to spread faster. Raw summaries: [`results/2026-10-17-ruleset3-vllm-h100/`](results/2026-10-17-ruleset3-vllm-h100/). Held-out test split (14 normal + 2 trapped):
 
 | Harness | Verified success, normal cases | False success, trapped cases | People escaped | People lost | Mean reward | Invalid-call rate | Repeated identical invalid calls | Decisions / episode | Decision p50 / p95 |
 |---|---|---|---|---|---|---|---|---|---|
-| v1 baseline — static tools, raw state JSON | 6/14 | 0/2 | 23/48 | 1 | −1.00 | 50.9% (441/866) | 184 | 54.1 | 713 / 1117 ms |
-| **v2 — state digest (urgent first, earshot, outside), per-turn action masking, recovery hints** | **11/14** | **0/2** | **37/48** | 2 | 0.00 | 51.9% (200/385) | **63** | **24.1** | 720 / 1174 ms |
+| v1 baseline | 6/14 | 0/2 | 23/48 | 1 | −1.00 | 50.9% (441/866) | 184 | 54.1 | 713 / 1117 ms |
+| v2 | 11/14 | 0/2 | 37/48 | 2 | 0.00 | 51.9% (200/385) | 63 | 24.1 | 720 / 1174 ms |
 
-v2 was tuned on the **dev** split only (dev, v2: 14/15 normal successes, 0/1 false success, 44/48 escaped, alarm pulled in 11/16 runs); the test split was run once per harness after tuning stopped. Both harnesses still have a high invalid-call rate — mostly people retrying routes the fire or a dead door had already cut, plus re-entry attempts the engine refuses; v2 needs less than half the decisions and repeats a rejected call a third as often. Per-case comparison: [`compare-test-v1-vs-v2.md`](results/2026-10-17-ruleset3-vllm-h100/compare-test-v1-vs-v2.md). Earlier rule sets (history): ruleset 2 [`results/2026-10-17-ruleset2-vllm-h100/`](results/2026-10-17-ruleset2-vllm-h100/) (v1 6/14 → v2 9/14), ruleset 1 below.
+v2 was tuned on the dev split only (dev, v2: 14/15 normal successes, 0/1 false success, 44/48 escaped); the test split was run once per harness after tuning stopped. Per-case comparison: [`compare-test-v1-vs-v2.md`](results/2026-10-17-ruleset3-vllm-h100/compare-test-v1-vs-v2.md). Earlier rule sets (history): ruleset 2 [`results/2026-10-17-ruleset2-vllm-h100/`](results/2026-10-17-ruleset2-vllm-h100/) (v1 6/14 → v2 9/14), ruleset 1 below. Per-agent mode was not benchmarked on office-v1; a few hand runs with uncapped reasoning took 2.5–3.4 s per decision (p95 12.5–15 s), and a live run with the clock running during inference lost everyone, which is why per-agent mode holds the clock while anyone is thinking.
 
 **Ruleset 1 (history: static fire + "blocker", 240 s limit, buddy arrangement required).** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) served by our vLLM 0.27.1 on one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 40, lockstep clock, concurrency 4, **one run per case** (temperature > 0, so differences of 1–2 cases can be noise). Raw summaries and replayable run logs: [`results/2026-10-17-vllm-h100/`](results/2026-10-17-vllm-h100/).
 
@@ -216,13 +225,13 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 
 **Nemotron 3.5 Lightning 30B-A3B** is the only generative model (30B total parameters ≤ the 33B cap; no draft, critic or router model).
 - It is the central planner: each decision is one native tool call for one named character, executed by a deterministic engine that validates it against world truth.
-- Why it: a small open model with native tool calling whose 3B-active MoE keeps a decision at ~0.6–0.7 s on one H100 — fast enough for a live scene.
+- Why it: a small open model with native tool calling whose 3B-active MoE keeps a central decision at ~0.7 s on one H100 — fast enough for a live scene.
 - How we optimised it (measured above): a compact planner view; strict schemas; structured errors with actionable hints; thinking off; and the **v2 harness** — a short state digest (who is in danger near known fire, waiting, busy; open items), per-turn **action masking** (each tool's `actor_id` options list only people who can act now), and wake-ups only on genuinely new information. Held-out v1 → v2 (current rules): 6/14 → 11/14 verified successes, 23 → 37 of 48 people escaped, 54 → 24 decisions per episode, 184 → 63 repeated rejected calls; earlier rule sets: 6/14 → 9/14 and 5/14 → 12/14.
 
 **vLLM 0.27.1** serves the model on one Brev H100 (80GB HBM3) through the OpenAI-compatible API — it is the only path the submitted demo and results use.
 - Native tool calls via the `qwen3_coder` parser (100% of measured responses parsed natively; 0 malformed), reasoning separation via `nemotron_v3`.
-- Configured for this workload, not copied blindly: BF16 card recipe + `--max-model-len 8192` (prompts ≈ 3.7K tokens), `--max-num-seqs 8` (five people decide in parallel in agents mode), prefix caching (system prompt + tools are a shared ~3K-token prefix), API key, bound to localhost and reached through `brev port-forward`.
-- Measured: decision latency p50 ≈ 0.6–0.7 s, p95 ≈ 1.0–1.2 s; weights 58.9 GiB, KV cache 9.3 GiB. Throughput and cache numbers: [`deploy/vllm/MODEL_MANIFEST.md`](deploy/vllm/MODEL_MANIFEST.md).
+- Configured for this workload, not copied blindly: BF16 card recipe + `--max-model-len 8192` (central prompts ≈ 5.3K tokens median, at most 6.2K, on the five-person ground floor), `--max-num-seqs 8` (five people decide in parallel in agents mode), prefix caching (system prompt + tools are a shared ~3K-token prefix), API key, bound to localhost and reached through `brev port-forward`.
+- Measured on the office-v2 benchmark: central decision latency p50 ≈ 0.70–0.73 s, p95 ≈ 1.0 s; per-agent (reasoning capped at 128 tokens) p50 ≈ 1.05–1.12 s, p95 ≈ 1.7–2.2 s. Weights 58.9 GiB, KV cache 9.3 GiB. Throughput and cache numbers: [`deploy/vllm/MODEL_MANIFEST.md`](deploy/vllm/MODEL_MANIFEST.md).
 - We use upstream vLLM because Red Hat AI Inference 3.5.1 packages vLLM 0.24.0, older than this model requires (0.27.1).
 
 **NeMo Gym 0.6.0** (released 2026-09-09): [`gym/`](gym/) wraps this same engine as a Resources Server — tasks from the dataset's dev/test splits, the tools as Gym tool routes (ruleset 2 adds `pull_alarm`; task rows are regenerated with `gym/make_tasks.ts`), and `verify()` returning the engine's reward (+1 verified success with procedures, 0 incomplete, −1 critical violation). It runs through the real nemo-gym classes (tests pass); full Gym rollout collection against our vLLM is documented there. The baseline-vs-final numbers above come from our own bench runner over the same engine and scoring. **The improvement is a prompt/harness improvement, not RL — no model weights were trained.**
@@ -230,10 +239,10 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 ## Known limitations and next steps
 
 **Limitations:**
-- One fictional single-level map with three characters, four interior sliding doors and one hallway pull station.
+- One fictional single-level map (the office-v2 ground floor) with five characters, seven interior sliding doors, three exits and two pull stations.
 - The fire is a simple seeded cellular spread (each burning tile occasionally ignites a random neighbour; doorways and walls slow it, walls burn through after a while; tiles burn out into impassable debris). It is not fire science: no smoke plume, heat, toxicity, ventilation or injury model — "lost" is a game state.
 - Perception, smelling smoke through a nearby wall, earshot (same room only), the alarm and — in central mode only — the survival instincts (shout, back away, pull the alarm on the way out, no re-entry) are simple deterministic rules, shown in the trace as instincts rather than model decisions. In per-agent mode the instincts are off and each person decides those things themselves. The alarm reaches everyone instantly.
-- Default mode: a central planner controls all three characters. Per-agent mode (`PLANNER_MODE=agents`) gives each person their own reasoning call and view, but it is early: a handful of runs, not benchmarked, and we make no claim yet that it is better than the central planner. Uncapped, its reasoning took ~3 s per decision (p95 ~13 s); it now caps reasoning at 128 tokens per decision (`PLANNER_AGENT_THINKING_BUDGET`; not yet re-measured) and still holds the sim clock while anyone thinks.
+- Default mode: a central planner controls all five characters. Per-agent mode (`PLANNER_MODE=agents`) gives each person their own reasoning call and view. It has one benchmark run per case (12/14 normal test successes vs the central planner's 14/14) and we make no claim that it is better than the central planner. It caps reasoning at 128 tokens per decision (`PLANNER_AGENT_THINKING_BUDGET`) and by default holds the sim clock while anyone thinks.
 - Benchmark: 32 synthetic cases, a single run per case, temperature > 0, and a seeded stochastic fire. Treat differences of one or two cases as noise. The v2 harness was tuned on dev; it narrows the tool menu each turn (action masking), which is part of what is being measured.
 - Educational value is a hypothesis; no learning outcomes were measured. Not compliance training; no building-code claims.
 - Replays re-apply recorded decisions. A fresh run with the same seed can make different model choices.
