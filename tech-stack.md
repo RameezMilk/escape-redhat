@@ -44,10 +44,12 @@ Browser (React + Canvas) ──WebSocket──▶ Node 24 server (laptop)
 | 1 | **v2** | **12/14** | **9.6%** | **28.0** | 670 / 1148 ms | [test-v2](results/2026-10-17-vllm-h100/test-v2/summary.md) |
 | 2: spreading fire, doors, alarm | v1 | 6/14 (26/48 people out) | 33.5% | 51.0 | 709 / 1147 ms | [test-v1](results/2026-10-17-ruleset2-vllm-h100/test-v1/summary.md) |
 | 2 | **v2** | **9/14 (33/48 people out)** | 41.4% | **29.1** | 649 / 1219 ms | [test-v2](results/2026-10-17-ruleset2-vllm-h100/test-v2/summary.md) |
+| 3 (current): + room-limited voice, one hallway alarm, instincts, burning walls | v1 | 6/14 (23/48 people out) | 50.9% | 54.1 | 713 / 1117 ms | [test-v1](results/2026-10-17-ruleset3-vllm-h100/test-v1/summary.md) |
+| 3 | **v2** | **11/14 (37/48 people out)** | 51.9% | **24.1** | 720 / 1174 ms | [test-v2](results/2026-10-17-ruleset3-vllm-h100/test-v2/summary.md) |
 
 - **No false successes.** Neither harness ever produced a false success on the trapped-by-design cases.
-- **Zero malformed responses** and zero provider errors across all 3,330 tool calls in the seven saved benchmark runs.
-- **The game has moved on since these runs:** room-limited voice, survival instincts and burning walls. The README's Results section always carries the latest re-measured numbers.
+- **Zero malformed responses** and zero provider errors in every saved benchmark run.
+- **Ruleset 3 is the current game.** The high invalid-call rate there is mostly people retrying routes that fire or a dead door had already cut, plus re-entry attempts the engine refuses. v2 needs less than half the decisions and repeats a rejected call a third as often (63 vs 184). The README's Results section carries the latest numbers.
 
 ## 3. Brev + vLLM: the serving layer
 

@@ -168,16 +168,16 @@ Rehearsal helper: `node scripts/auto-electrical.mjs` drops the electrical failur
 
 ## Results
 
-**Ruleset 2 (current game: spreading fire, electrical sliding-door failures, fire alarms, losses, no time limit).** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) on our vLLM 0.27.1, one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 60 (safety stop), lockstep clock, concurrency 4, **one run per case** — temperature > 0 *and* a seeded stochastic fire, so differences of 1–2 cases can be noise. Raw summaries and replayable run logs: [`results/2026-10-17-ruleset2-vllm-h100/`](results/2026-10-17-ruleset2-vllm-h100/).
+**Current game (room-limited voice, one hallway alarm, survival instincts, fire that burns through walls).** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) on our vLLM 0.27.1, one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 60 (safety stop), lockstep clock, concurrency 4, **one run per case** — temperature > 0 *and* a seeded stochastic fire, so differences of 1–2 cases can be noise. Raw summaries and replayable run logs: [`results/2026-10-17-ruleset3-vllm-h100/`](results/2026-10-17-ruleset3-vllm-h100/).
 
 **Held-out test split** (16 cases: 14 normal + 2 trapped-by-design; fire locations never used while tuning; same model, server and config for both harnesses):
 
-| Harness | Verified success, normal cases | False success, trapped cases | People escaped | People lost (normal cases) | Mean reward | Invalid-call rate | Decisions / episode | Decision p50 / p95 |
-|---|---|---|---|---|---|---|---|---|
-| v1 baseline — static tools, raw state JSON | 6/14 | 0/2 | 26/48 | 8 | −0.38 | 33.5% (273/816) | 51.0 | 709 / 1147 ms |
-| **v2 — state digest (urgent/at-risk first), per-turn action masking, recovery hints** | **9/14** | **0/2** | **33/48** | **4** | **0.00** | 41.4% (193/466) | **29.1** | 649 / 1219 ms |
+| Harness | Verified success, normal cases | False success, trapped cases | People escaped | People lost | Mean reward | Invalid-call rate | Repeated identical invalid calls | Decisions / episode | Decision p50 / p95 |
+|---|---|---|---|---|---|---|---|---|---|
+| v1 baseline — static tools, raw state JSON | 6/14 | 0/2 | 23/48 | 1 | −1.00 | 50.9% (441/866) | 184 | 54.1 | 713 / 1117 ms |
+| **v2 — state digest (urgent first, earshot, outside), per-turn action masking, recovery hints** | **11/14** | **0/2** | **37/48** | 2 | 0.00 | 51.9% (200/385) | **63** | **24.1** | 720 / 1174 ms |
 
-v2 was tuned on the **dev** split only (dev, v2: 14/15 normal successes, 0/1 false success, 43/48 escaped); the test split was run once per harness after tuning stopped. Test fires (north corridor, near door B) cut escape routes far more often than dev fires, hence the gap. v2's higher invalid-call rate comes mostly from repeated `ROUTE_UNAVAILABLE` attempts by people whose routes the fire had already cut; fewer decisions overall. Per-case comparison: [`compare-test-v1-vs-v2.md`](results/2026-10-17-ruleset2-vllm-h100/compare-test-v1-vs-v2.md).
+v2 was tuned on the **dev** split only (dev, v2: 14/15 normal successes, 0/1 false success, 44/48 escaped, alarm pulled in 11/16 runs); the test split was run once per harness after tuning stopped. Both harnesses still have a high invalid-call rate — mostly people retrying routes the fire or a dead door had already cut, plus re-entry attempts the engine refuses; v2 needs less than half the decisions and repeats a rejected call a third as often. Per-case comparison: [`compare-test-v1-vs-v2.md`](results/2026-10-17-ruleset3-vllm-h100/compare-test-v1-vs-v2.md). Earlier rule sets (history): ruleset 2 [`results/2026-10-17-ruleset2-vllm-h100/`](results/2026-10-17-ruleset2-vllm-h100/) (v1 6/14 → v2 9/14), ruleset 1 below.
 
 **Ruleset 1 (history: static fire + "blocker", 240 s limit, buddy arrangement required).** Measured on 2026-10-17 with **Nemotron 3.5 Lightning 30B-A3B (BF16) served by our vLLM 0.27.1 on one Brev H100 80GB**, thinking off, temperature 0.6, decision cap 40, lockstep clock, concurrency 4, **one run per case** (temperature > 0, so differences of 1–2 cases can be noise). Raw summaries and replayable run logs: [`results/2026-10-17-vllm-h100/`](results/2026-10-17-vllm-h100/).
 
@@ -208,7 +208,7 @@ Trapped-by-design test cases (`expectLosses`) must never end in `success`.
 **Nemotron 3.5 Lightning 30B-A3B** is the only generative model (30B total parameters ≤ the 33B cap; no draft, critic or router model).
 - It is the central planner: each decision is one native tool call for one named character, executed by a deterministic engine that validates it against world truth.
 - Why it: a small open model with native tool calling whose 3B-active MoE keeps a decision at ~0.6–0.7 s on one H100 — fast enough for a live scene.
-- How we optimised it (measured above): a compact planner view; strict schemas; structured errors with actionable hints; thinking off; and the **v2 harness** — a short state digest (who is in danger near known fire, waiting, busy; open items), per-turn **action masking** (each tool's `actor_id` options list only people who can act now), and wake-ups only on genuinely new information. Held-out v1 → v2: ruleset 2 (current) 6/14 → 9/14 verified successes, 26 → 33 of 48 people escaped, losses halved, 51 → 29 decisions per episode; ruleset 1: 5/14 → 12/14.
+- How we optimised it (measured above): a compact planner view; strict schemas; structured errors with actionable hints; thinking off; and the **v2 harness** — a short state digest (who is in danger near known fire, waiting, busy; open items), per-turn **action masking** (each tool's `actor_id` options list only people who can act now), and wake-ups only on genuinely new information. Held-out v1 → v2 (current rules): 6/14 → 11/14 verified successes, 23 → 37 of 48 people escaped, 54 → 24 decisions per episode, 184 → 63 repeated rejected calls; earlier rule sets: 6/14 → 9/14 and 5/14 → 12/14.
 
 **vLLM 0.27.1** serves the model on one Brev H100 (80GB HBM3) through the OpenAI-compatible API — it is the only path the submitted demo and results use.
 - Native tool calls via the `qwen3_coder` parser (100% of measured responses parsed natively; 0 malformed), reasoning separation via `nemotron_v3`.
