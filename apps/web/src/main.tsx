@@ -12,6 +12,7 @@ import { createRoot } from 'react-dom/client';
 import { loadMap } from '@escape/engine';
 
 import { App } from './App';
+import { Gallery } from './gallery/Gallery';
 import { startFixture } from './net/fixture';
 import { connect } from './net/socket';
 import { store } from './state/store';
@@ -26,11 +27,11 @@ if (params.get('render') === 'timer') {
   window.requestAnimationFrame = ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 33)) as typeof window.requestAnimationFrame;
   window.cancelAnimationFrame = ((id: number) => window.clearTimeout(id)) as typeof window.cancelAnimationFrame;
 }
-if (params.has('fixture')) startFixture(loadMap());
+// ?gallery=1: sprite review page (no server, no office).
+const gallery = params.has('gallery');
+if (gallery) {
+  /* sprites only */
+} else if (params.has('fixture')) startFixture(loadMap());
 else connect();
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+createRoot(document.getElementById('root')!).render(<StrictMode>{gallery ? <Gallery /> : <App />}</StrictMode>);

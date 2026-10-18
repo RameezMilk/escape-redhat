@@ -21,6 +21,7 @@ import {
   drawAlarmStrobe,
   drawGhost,
   fixtureDrawables,
+  rackLedDrawables,
   hazardDrawables,
   interpolateActors,
   staticDrawables,
@@ -115,6 +116,7 @@ export function OfficeView({ map }: Props) {
         const extras: ExtraDrawable[] = [
           ...statics,
           ...fixtureDrawables(map, hazards, snap?.alarm, now, reduced),
+          ...rackLedDrawables(map, hazards, now, reduced),
           ...hazardDrawables(hazards, now, snap?.episodeId ?? '', map),
         ];
         // Losses: lost actors leave the normal character pass and play the disintegration effect instead.

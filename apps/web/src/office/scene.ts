@@ -17,6 +17,7 @@ import { CharacterState, Direction } from '../vendor/pixel-agents/webview-ui/src
 import { ACTOR_VIEW } from './actors';
 import { getDecorSprites } from './sprites/decor';
 import { getAlarmSprites, getDoorSprites } from './sprites/fixtures';
+import { RACK_LEDS } from './sprites/furniture';
 import { CELL_FLAME_HEIGHT, cellFlameFor, getBoltSprite, getCharTiles, getFireFrames, getMiniBolt, wallFlameFor } from './sprites/hazards';
 import { Raster, type SpriteData } from './sprites/raster';
 import { getWheelchairSprites } from './sprites/wheelchair';
@@ -178,6 +179,23 @@ export function staticDrawables(map: MapData): ExtraDrawable[] {
       case 'checkin_flag':
         out.push({ zY: (row + 1) * T - 0.5, draw: (c, ox, oy, z) => blit(c, d.flag, col * T, (row + 1) * T - d.flag.length, ox, oy, z) });
         break;
+      case 'sign_nvidia_logo':
+        out.push({ zY: (row + 1) * T + 0.25, draw: (c, ox, oy, z) => blit(c, d.nvidiaLogo, col * T, row * T - 10, ox, oy, z) });
+        break;
+      case 'sign_welcome':
+        out.push({ zY: (row + 1) * T + 0.25, draw: (c, ox, oy, z) => blit(c, d.welcome, col * T, row * T - 8, ox, oy, z) });
+        break;
+      case 'warden_sign':
+        out.push({ zY: (row + 1) * T + 0.25, draw: (c, ox, oy, z) => blit(c, d.warden, col * T + (T - d.warden[0].length) / 2, row * T - 8, ox, oy, z) });
+        break;
+      case 'bus_stop_sign':
+        out.push({ zY: (row + 1) * T - 0.5, draw: (c, ox, oy, z) => blit(c, d.busStop, col * T, (row + 1) * T - d.busStop.length, ox, oy, z) });
+        break;
+      case 'crosswalk':
+      case 'lane_line':
+      case 'curb':
+        out.push(groundMarking(deco.kind, col, row, deco.w ?? 1, deco.h ?? 1));
+        break;
     }
   }
   // Ground lettering under the assembly area
@@ -206,6 +224,57 @@ export function staticDrawables(map: MapData): ExtraDrawable[] {
     });
   }
   return out;
+}
+
+/** Road markings, drawn on the ground under everything else (zY −700, below the assembly outline). */
+function groundMarking(kind: 'crosswalk' | 'lane_line' | 'curb', col: number, row: number, w: number, h: number): ExtraDrawable {
+  return {
+    zY: -700,
+    draw: (c, ox, oy, z) => {
+      const x0 = ox + col * T * z;
+      const y0 = oy + row * T * z;
+      c.save();
+      if (kind === 'crosswalk') {
+        // Bars parallel to the traffic (east–west), so people walking north–south step across them.
+        c.fillStyle = 'rgba(236, 236, 228, 0.92)';
+        for (let y = 2; y < h * T; y += 6) c.fillRect(x0 + z, y0 + y * z, (w * T - 2) * z, 3 * z);
+      } else if (kind === 'lane_line') {
+        // Dashed centre line along the top edge of `row`.
+        c.fillStyle = 'rgba(242, 194, 48, 0.9)';
+        for (let x = 1; x < w * T; x += 10) c.fillRect(x0 + x * z, y0 - z, Math.min(6, w * T - x) * z, 2 * z);
+      } else {
+        // Kerb along the top edge of `row`: a light stone edge with a dark gutter below it.
+        c.fillStyle = 'rgba(196, 192, 182, 0.95)';
+        c.fillRect(x0, y0 - 2 * z, w * T * z, 2 * z);
+        c.fillStyle = 'rgba(0, 0, 0, 0.25)';
+        c.fillRect(x0, y0, w * T * z, z);
+      }
+      c.restore();
+    },
+  };
+}
+
+/** Blinking status LEDs on every GPU rack (phases hashed per LED so racks never blink in step; dark once charred). */
+export function rackLedDrawables(map: MapData, hazards: HazardSnapshot[], timeMs: number, reducedMotion: boolean): ExtraDrawable[] {
+  const racks = map.furniture.filter((f) => f.type === 'GPU_RACK');
+  if (!racks.length) return [];
+  const charred = new Set(hazards.flatMap((h) => [...h.cells, ...h.charred]).map((t) => `${t.col},${t.row}`));
+  const period = reducedMotion ? 4000 : 1300;
+  return racks.map((f, ri) => {
+    const dead = f.blocks.some((b) => charred.has(`${b.col},${b.row}`));
+    return {
+      zY: f.row * T + 32 + 0.2,
+      draw: (c, ox, oy, z) => {
+        RACK_LEDS.forEach((p, li) => {
+          const h = Math.imul(ri * 131 + li * 977 + 7, 2654435761) >>> 0;
+          const phase = (h % 1000) / 1000;
+          const on = !dead && ((timeMs / period + phase) % 1) < (h % 7 === 0 ? 0.25 : 0.7);
+          c.fillStyle = dead ? '#1a1a1a' : on ? (h % 11 === 0 ? '#ffb000' : '#a6ff00') : '#24360f';
+          c.fillRect(ox + (f.col * T + p.x) * z, oy + (f.row * T + p.y) * z, z, z);
+        });
+      },
+    };
+  });
 }
 
 // Ignition pop-in: when a cell is first seen burning (per episode), fade/scale its flame in over 250 ms.

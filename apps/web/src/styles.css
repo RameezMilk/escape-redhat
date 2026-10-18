@@ -1484,3 +1484,11 @@ kbd {
 .metrics {
   grid-template-columns: repeat(3, 1fr);
 }
+
+/* ?gallery=1 sprite review page */
+.gallery { padding: 24px; color: #e8e8ea; background: #15171c; height: 100vh; box-sizing: border-box; overflow: auto; font: 13px Inter, sans-serif; }
+.gallery h2 { font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: #9aa0aa; margin: 20px 0 10px; }
+.gallery-row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-end; }
+.gallery-item { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.gallery-item canvas { image-rendering: pixelated; background: repeating-conic-gradient(#23262d 0% 25%, #1b1e24 0% 50%) 0 0 / 16px 16px; }
+.gallery-item figcaption { color: #b8bec8; font-size: 11px; }

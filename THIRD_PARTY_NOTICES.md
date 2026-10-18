@@ -40,8 +40,18 @@ webview-ui/src/office/sprites/bubble-{permission,pet,waiting}.json
 
 These were authored here, as code-defined pixel sprites:
 - Daniel's wheelchair sprite;
-- the animated fire and the toppled-cabinet blocker;
-- the "RED HAT" and "NVIDIA" pixel signs, EXIT signs, and the assembly flag.
+- the animated fire, charred floor, sliding doors, sparks and fire-alarm pull stations;
+- the "RED HAT", "NVIDIA", "WELCOME" and "FIRE WARDEN" pixel signs, EXIT signs, evacuation plans, the assembly flag and
+  the bus-stop sign;
+- the ground-floor furniture: GPU racks (with blinking LEDs), cubicles, the reception desk, the kitchen counter,
+  fridge, vending machine, coffee machine and bus shelter, plus the road markings (`apps/web/src/office/sprites/`).
+
+Two character outfits are recoloured at load time from the Metro City sheets above (exact-colour swaps, CC0 source):
+Kenji (from `char_2`: NVIDIA-green shirt, black jacket, small logo print) and Rosa (from `char_1`: red blazer).
+
+The GPU server-room sign and Kenji's shirt print include a small hand-drawn pixel rendition of the **NVIDIA eye
+logo**. It is NVIDIA trademark artwork, drawn at the team's request as set dressing for this hackathon-themed office;
+see Trademarks below.
 
 ## Fonts (SIL Open Font License 1.1)
 

@@ -19,6 +19,9 @@ import { buildDynamicCatalog } from '../vendor/pixel-agents/webview-ui/src/offic
 import { setCarpetSprites } from '../vendor/pixel-agents/webview-ui/src/office/sprites/carpetTiles';
 import { setCharacterTemplates } from '../vendor/pixel-agents/webview-ui/src/office/sprites/spriteData';
 import { setWallSprites } from '../vendor/pixel-agents/webview-ui/src/office/wallTiles';
+import { CUSTOM_FURNITURE } from '@escape/contracts';
+import { withDerivedOutfits } from './sprites/characters';
+import { getCustomFurnitureSprites } from './sprites/furniture';
 
 interface DecodedPng {
   width: number;
@@ -110,10 +113,29 @@ async function doLoad(): Promise<void> {
     }),
   );
 
+  // Our procedural furniture (no PNGs): catalog entries from CUSTOM_FURNITURE, sprites drawn in sprites/furniture.ts.
+  const custom = getCustomFurnitureSprites();
+  const customEntries: CatalogEntry[] = Object.entries(CUSTOM_FURNITURE).map(([id, f]) => ({
+    id,
+    name: f.label,
+    label: f.label,
+    category: f.category,
+    file: '',
+    furniturePath: '',
+    width: f.width,
+    height: f.height,
+    footprintW: f.footprintW,
+    footprintH: f.footprintH,
+    isDesk: f.isDesk,
+    canPlaceOnWalls: false,
+    canPlaceOnSurfaces: 'canPlaceOnSurfaces' in f ? f.canPlaceOnSurfaces : false,
+    backgroundTiles: f.backgroundTiles,
+  }));
+
   // Load order matches Pixel Agents: characters → floors → walls → carpets → furniture catalog.
-  setCharacterTemplates(characters);
+  setCharacterTemplates(withDerivedOutfits(characters));
   setFloorSprites(floors);
   setWallSprites(walls);
   setCarpetSprites([]);
-  buildDynamicCatalog({ catalog, sprites: furnitureSprites });
+  buildDynamicCatalog({ catalog: [...catalog, ...customEntries], sprites: { ...furnitureSprites, ...custom } });
 }

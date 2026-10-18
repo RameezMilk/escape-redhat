@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ACTOR_PROFILES } from '../../packages/contracts/src/engine-api.js';
+import { CUSTOM_FURNITURE } from '../../packages/contracts/src/furniture.js';
 import type {
   ActorId,
   AlarmStation,
@@ -111,9 +112,12 @@ interface ManifestNode {
   members?: ManifestNode[];
 }
 
-/** Footprints of every Pixel Agents furniture asset (from the vendored manifests). */
+/** Footprints of every furniture asset: the vendored Pixel Agents manifests plus our procedural CUSTOM_FURNITURE. */
 export function loadFurnitureIndex(furnitureDir: string): Map<string, AssetInfo> {
   const index = new Map<string, AssetInfo>();
+  for (const [id, f] of Object.entries(CUSTOM_FURNITURE)) {
+    index.set(id, { footprintW: f.footprintW, footprintH: f.footprintH, backgroundTiles: f.backgroundTiles, category: f.category });
+  }
   let dirs: string[] = [];
   try {
     dirs = readdirSync(furnitureDir);

@@ -1,5 +1,6 @@
-// Original decor sprites: pixel signage for the fictional office. These are authored pixel treatments
-// (a generic red fedora + wordmark; a green NVIDIA wordmark only — no copied logo artwork).
+// Original decor sprites: pixel signage for the fictional office. These are authored pixel treatments: a generic red
+// fedora + wordmark, a green NVIDIA wordmark, and — in the GPU server room, at the team's request — a small hand-drawn
+// pixel rendition of the NVIDIA eye logo (trademark artwork of NVIDIA, used as set dressing; see THIRD_PARTY_NOTICES).
 // Fictional hackathon-themed office; not affiliated with or endorsed by Red Hat or NVIDIA.
 import { Raster, textWidth, type SpriteData } from './raster';
 
@@ -30,6 +31,80 @@ function nvidiaSign(): SpriteData {
   r.box(0, 0, w, 12, '#333333');
   r.text(label, 4, 3, '#76b900');
   r.rect(3, 9, w - 6, 1, '#4f7d00');
+  return r.sprite();
+}
+
+/** 16×11 pixel eye mark: a green field with a black eye swirl whose arcs open to the right, the outer arc rounding
+ *  off on the left. */
+const NVIDIA_EYE = [
+  '...GGGGGGGGGGGGG',
+  '.GGGkkkkkkGGGGGG',
+  'GGkkGGGGGGkkGGGG',
+  'GkGGGkkkkGGGkGGG',
+  'kGGGkGGGGkGGGGGG',
+  'kGGkGGkkGGGGGGGG',
+  'kGGGkGGGGkGGGGGG',
+  'GkGGGkkkkGGGkGGG',
+  'GGkkGGGGGGkkGGGG',
+  '.GGGkkkkkkGGGGGG',
+  '...GGGGGGGGGGGGG',
+];
+
+function drawEye(r: Raster, x: number, y: number) {
+  NVIDIA_EYE.forEach((row, yy) => {
+    for (let xx = 0; xx < row.length; xx++) {
+      if (row[xx] === 'G') r.set(x + xx, y + yy, '#76b900');
+      else if (row[xx] === 'k') r.set(x + xx, y + yy, '#0d0d0d');
+    }
+  });
+}
+
+/** Server-room sign: eye logo + white NVIDIA wordmark on a dark plate. */
+function nvidiaLogoSign(): SpriteData {
+  const label = 'NVIDIA';
+  const w = 3 + 16 + 4 + textWidth(label) + 4;
+  const r = new Raster(w, 15);
+  r.rect(0, 0, w, 15, '#111111');
+  r.box(0, 0, w, 15, '#333333');
+  drawEye(r, 3, 2);
+  r.text(label, 23, 5, '#f4f4f4');
+  r.rect(23, 11, textWidth(label), 1, '#76b900');
+  return r.sprite();
+}
+
+function welcomeSign(): SpriteData {
+  const label = 'WELCOME';
+  const w = textWidth(label) + 10;
+  const r = new Raster(w, 11);
+  r.rect(0, 0, w, 11, '#1b1d22');
+  r.box(0, 0, w, 11, '#3a3d44');
+  r.rect(1, 1, 2, 9, '#c4161c');
+  r.rect(w - 3, 1, 2, 9, '#76b900');
+  r.text(label, 5, 3, '#f4f4f4');
+  return r.sprite();
+}
+
+function wardenSign(): SpriteData {
+  const label = 'FIRE WARDEN';
+  const w = textWidth(label) + 4;
+  const r = new Raster(w, 9);
+  r.rect(0, 0, w, 9, '#c62828');
+  r.box(0, 0, w, 9, '#7f1414');
+  r.text(label, 2, 2, '#ffffff');
+  return r.sprite();
+}
+
+/** Bus stop pole with its sign: the evacuation landmark across the street. */
+function busStopSign(): SpriteData {
+  const r = new Raster(16, 40);
+  r.disc(8, 38, 4, 1.5, '#00000055');
+  r.rect(7, 12, 2, 26, '#6b7178');
+  r.rect(7, 12, 1, 26, '#8a9098');
+  r.rect(1, 0, 14, 13, '#f4f4f4');
+  r.box(1, 0, 14, 13, '#1e5aa8');
+  r.rect(2, 1, 12, 5, '#1e5aa8');
+  r.text('BUS', 3, 1, '#ffffff');
+  r.text('42', 5, 7, '#1e5aa8');
   return r.sprite();
 }
 
@@ -74,6 +149,10 @@ function checkinFlag(): SpriteData {
 export interface DecorSprites {
   redhat: SpriteData;
   nvidia: SpriteData;
+  nvidiaLogo: SpriteData;
+  welcome: SpriteData;
+  warden: SpriteData;
+  busStop: SpriteData;
   exit: SpriteData;
   plan: SpriteData;
   flag: SpriteData;
@@ -81,6 +160,17 @@ export interface DecorSprites {
 
 let cached: DecorSprites | null = null;
 export function getDecorSprites(): DecorSprites {
-  if (!cached) cached = { redhat: redHatSign(), nvidia: nvidiaSign(), exit: exitSign(), plan: evacPlan(), flag: checkinFlag() };
+  if (!cached)
+    cached = {
+      redhat: redHatSign(),
+      nvidia: nvidiaSign(),
+      nvidiaLogo: nvidiaLogoSign(),
+      welcome: welcomeSign(),
+      warden: wardenSign(),
+      busStop: busStopSign(),
+      exit: exitSign(),
+      plan: evacPlan(),
+      flag: checkinFlag(),
+    };
   return cached;
 }

@@ -58,10 +58,26 @@ export interface PlacedFurnitureDef {
   blocks: Tile[];
 }
 
-export type DecorKind = 'sign_redhat' | 'sign_nvidia' | 'exit_sign' | 'evac_plan' | 'checkin_flag';
+export type DecorKind =
+  | 'sign_redhat'
+  | 'sign_nvidia'
+  | 'sign_nvidia_logo'
+  | 'sign_welcome'
+  | 'warden_sign'
+  | 'exit_sign'
+  | 'evac_plan'
+  | 'checkin_flag'
+  | 'bus_stop_sign'
+  /** Ground markings over an area of `w`×`h` tiles (drawn under everything else). */
+  | 'crosswalk'
+  | 'lane_line'
+  | 'curb';
 export interface DecorDef extends Tile {
   kind: DecorKind;
   label?: string;
+  /** Area decor size in tiles (default 1). */
+  w?: number;
+  h?: number;
 }
 
 /** Pixel Agents color adjustment (see vendor components/ui/types.ts). */
