@@ -20,7 +20,8 @@ The submission deadline is **Sun Oct 18, 11:00 a.m. ET**; that is also code free
 3. `.env` set:
    - `PLANNER_PROVIDER=openai-compatible`
    - `PLANNER_ENDPOINT_KIND=self-hosted-vllm`
-   - `PLANNER_THINKING=false`
+   - `PLANNER_MODE=agents` (each person is their own Nemotron call)
+   - Start the server with `PLANNER_AGENT_FREEZE_WHILE_THINKING=false` for real-time pressure
    - `DEMO_CASE=demo-hero`
 4. `npm run dev`, then open http://localhost:5173 at **1920×1080** (also check 1440×900). The whole ground floor and the street fit the stage, so sprites are drawn a little smaller than on the old one-room map.
    - Browser zoom 100%.
@@ -37,8 +38,8 @@ The submission deadline is **Sun Oct 18, 11:00 a.m. ET**; that is also code free
 |---|---|---|
 | 0:00 | Start screen → click the glowing **ground floor**. Calm office: Alex (the warden) and Maya at the cubicles, Daniel visiting the Red Hat conference room, Rosa at the front desk, Kenji in the GPU server room | "Five people, one floor, one model deciding through tools." Point out the two red pull stations (main hallway, reception), the sliding doors, and the bus stop across the street where everyone meets |
 | 0:05 | Drag **Fire** anywhere inside — e.g. into the cubicles beside Maya, or the GPU server room by Kenji (green ghost = valid) | The fire starts spreading tile by tile |
-| 0:07 | Whoever sees it shouts "Fire!" — people in the same room hear it and back away; nobody in the other rooms does | Trace: "instinct" rows (shout, backs away). "That's the engine, not the model. The other rooms hear nothing." |
-| 0:10 | Nemotron sends someone to the nearest pull station (or someone passes one on the way out and pulls it by instinct) | Siren and red strobes: "the alarm is the only way to reach the other rooms, and it doesn't say where the fire is" |
+| 0:07 | Whoever sees it decides for themselves: warn the room, head for a pull station, or get out. Nobody in the other rooms knows yet | Trace: that person's own Nemotron call with their reasoning. "Maya only knows what Maya has seen." |
+| 0:10 | Someone chooses to pull a fire alarm | Siren and red strobes: "the alarm is the only way to reach the other rooms, and it doesn't say where the fire is" |
 | 0:20 | Daniel, Rosa and Kenji are alerted by the siren; Nemotron routes everyone out — main entrance, west exit or the kitchen back exit, away from the fire | Tool pills: `move` rows with one-line plain-English summaries |
 | 0:30 | When someone crosses the main hallway toward reception, drag **⚡ Electrical failure** onto the **reception door** (or run `node scripts/auto-electrical.mjs` beforehand; `--door` / `--when-zone` pick another) | The door jams shut with sparks |
 | 0:33 | The move stops safely — the trace says why ("the reception door is dead") | The failed row, then the "↻ recovered" badge on the next row |
@@ -56,7 +57,7 @@ If the model takes a different valid path, narrate what it actually did. Don't r
 | 0:00–0:25 | Team on camera: who we are, the problem |
 | 0:25–0:50 | Pitch: "Most evacuation material tells you the procedure. We let you change an office emergency — a spreading fire, a failed door — and watch how the alarm, route updates, assistance and accountability change the outcome." Then what's real and what's not (the fire is a game model, not fire science) |
 | 0:50–2:15 | Live core loop (above) |
-| 2:15–3:30 | Engineering: architecture diagram (README), tool validator and information boundaries (model proposes, engine decides; instincts labelled), vLLM config and measured latency/throughput ([`tech-stack.md`](tech-stack.md)), benchmark dev/test table (`results/…/summary.md`), replay (labeled) |
+| 2:15–3:30 | Engineering: architecture diagram (README), tool validator and information boundaries (model proposes, engine decides; one call per person), vLLM config and measured latency/throughput ([`tech-stack.md`](tech-stack.md)), benchmark dev/test table (`results/…/summary.md`), replay (labeled) |
 | 3:30–4:15 | Why it matters, known limitations, next steps (customer floor plans, RL fine-tuning) |
 
 ## Submission checklist (Airtable form)

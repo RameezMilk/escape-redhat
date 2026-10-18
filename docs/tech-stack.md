@@ -7,7 +7,7 @@ How *Escape from Red Hat* uses each piece of the stack, what we have measured, a
 ```
 Browser (React + Canvas) ──WebSocket──▶ Node 24 server (laptop)
                                          ├─ engine: pure TS, seeded, authoritative world + tool validator
-                                         └─ orchestrator: wake → planner view → decide → validate → execute → trace
+                                         └─ orchestrator: wake a person → their own view → decide → validate → execute → trace
                                                    │  OpenAI-compatible chat.completions + tools
                                                    ▼
                                          brev port-forward escape-nemotron --port 8001:8000
@@ -19,51 +19,33 @@ Browser (React + Canvas) ──WebSocket──▶ Node 24 server (laptop)
 - **One generative model.** Nemotron 3.5 Lightning has 30B total parameters, within the 33B cap. There is no draft, critic or router model: scoring and validation are deterministic engine code.
 - **Keys stay on the server.** The browser never talks to vLLM.
 
-## 2. Nemotron 3.5 Lightning 30B-A3B: the central planner
+## 2. Nemotron 3.5 Lightning 30B-A3B: one call per person
 
-**Its job.** On every decision the model receives a compact *planner view*: what each person has seen or been told, who is busy, and the recent results. It returns **one native tool call for one named person** (Alex, Maya, Daniel, Rosa or Kenji). The engine validates the call against true world state. Invalid calls change nothing and come back as a structured error with a hint.
+**Its job.** Each of the five people (Alex, Maya, Daniel, Rosa, Kenji) is a separate Nemotron agent ([`apps/server/src/agentPrompt.ts`](../apps/server/src/agentPrompt.ts)). When a person notices something new, they get a first-person prompt with only what they know and return **one native tool call for themselves**. The engine validates the call against true world state. Invalid calls change nothing and come back as a structured error with a hint.
 
 **Why it fits:**
-- **Small and fast.** The MoE hybrid of Mamba-2, MoE and attention layers has only 3B parameters active per token, so a central decision takes about 0.7 s on one H100. That is fast enough for a live scene with spreading fire ([model card](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16)).
+- **Small and fast.** The MoE hybrid of Mamba-2, MoE and attention layers has only 3B parameters active per token, so a decision with capped reasoning takes about 1.1 s on one H100, and five people deciding at once share one batch ([model card](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16)).
 - **Native tool calls.** The output is parsed by vLLM's `qwen3_coder` parser, and the card says the model was trained for "multi-step tool use … and structured output environments".
-- **Thinking off.** Per-request `chat_template_kwargs.enable_thinking=false` keeps latency low.
+- **Short, capped reasoning.** Reasoning is on, and each call sends vLLM's `thinking_token_budget` (128 tokens by default, `PLANNER_AGENT_THINKING_BUDGET`): vLLM ends the thinking at the budget and the model writes its tool call. In about 3% of calls the model keeps reasoning in the visible reply after the cap (up to about 1,100 completion tokens); the tool call still parses.
 
-**An honest stretch.** NVIDIA positions Lightning as the *execution layer*: frontier models plan, Lightning executes ([NVIDIA blog](https://developer.nvidia.com/blog/nvidia-nemotron-3-5-lightning-delivers-fast-accurate-specialized-task-execution-for-long-running-agents)). We deliberately stretch it into a real-time planner, and we back that with a held-out benchmark rather than vendor claims. The card's own table shows Qwen 3.6 35B-A3B ahead on most agentic rows, so we do **not** claim Lightning is the best tool-caller.
+**An honest stretch.** NVIDIA positions Lightning as the *execution layer*: frontier models plan, Lightning executes ([NVIDIA blog](https://developer.nvidia.com/blog/nvidia-nemotron-3-5-lightning-delivers-fast-accurate-specialized-task-execution-for-long-running-agents)). We stretch it into five real-time decision-makers, and we back that with a held-out benchmark rather than vendor claims. The card's own table shows Qwen 3.6 35B-A3B ahead on most agentic rows, so we do **not** claim Lightning is the best tool-caller.
 
-**How we optimise it (harness v2, all in [`apps/server/src/prompt.ts`](../apps/server/src/prompt.ts)):**
-- **A short state digest at the top of every prompt:** who is urgent near known fire, who is waiting, who can hear whom, hazards, alarm status, open items.
-- **Per-turn action masking:** each tool's `actor_id` enum lists only people who can act now, for example `pull_alarm` only when standing at the station.
-- **Recovery feedback:** every error code carries an actionable hint, and the next prompt tells the model "your last call was rejected — don't repeat it".
-- **Wake on news:** the planner is called only when something new happened, not every tick.
+**How it works:**
+- **Personal view only** (`engine.agentView`): what *that* person has seen, been told, or can hear in their room, plus the siren. Never anyone else's private knowledge.
+- **No hard-coded reflexes** (`EngineOptions.instincts=false`). Each person's prompt makes them responsible for getting away from fire, raising the alarm if they know of a fire and have not heard the siren, warning their room and not going back in.
+- **Parallel decisions, actor pinned.** Everyone who is ready decides at once (headless: asked in parallel, applied in a fixed order for determinism), and a call is always executed for the person who made it. The trace shows `Nemotron → Maya (own decision) → move` with a collapsible block of the model's reasoning.
+- **Recovery feedback and wake on news.** Every error code carries an actionable hint, and a person is called again only when something new happened to them.
 
-**Measured** (one run per case, concurrency 4, thinking off, held-out test split; v1 is the baseline harness):
+**Measured** (office-v2 ground floor, five people, one run per case, temperature 0.6, concurrency 1):
 
-| Ruleset | Harness | Verified success (normal cases) | Invalid-call rate | Decisions / episode | p50 / p95 decision latency | Source |
-|---|---|---|---|---|---|---|
-| **Current: office-v2 ground floor, five people** (ruleset 3 rules, decision cap 100) | v1 | 9/14 (57/80 people out) | 42.2% | 82.7 | 726 / 1116 ms | [test-v1](../results/2026-10-18-office-v2-vllm-h100/test-v1/summary.md) |
-| office-v2 | **v2** | **13/14 (77/80 people out)** | 32.6% | **29.9** | 730 / 1078 ms | [test-v2](../results/2026-10-18-office-v2-vllm-h100/test-v2/summary.md) |
-| office-v2, per-agent (reasoning ≤128 tokens, concurrency 1) | — | 12/14 (76/80 people out) | 11.7% | 61.1 | 1080 / 2067 ms | [agents-test](../results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md) |
-| 1: static fire + blocker | v1 | 5/14 | 26.8% | 38.2 | 668 / 1002 ms | [test-v1](../results/2026-10-17-vllm-h100/test-v1/summary.md) |
-| 1 | **v2** | **12/14** | **9.6%** | **28.0** | 670 / 1148 ms | [test-v2](../results/2026-10-17-vllm-h100/test-v2/summary.md) |
-| 2: spreading fire, doors, alarm | v1 | 6/14 (26/48 people out) | 33.5% | 51.0 | 709 / 1147 ms | [test-v1](../results/2026-10-17-ruleset2-vllm-h100/test-v1/summary.md) |
-| 2 | **v2** | **9/14 (33/48 people out)** | 41.4% | **29.1** | 649 / 1219 ms | [test-v2](../results/2026-10-17-ruleset2-vllm-h100/test-v2/summary.md) |
-| 3 (office-v1, three people; history): + room-limited voice, one hallway alarm, instincts, burning walls | v1 | 6/14 (23/48 people out) | 50.9% | 54.1 | 713 / 1117 ms | [test-v1](../results/2026-10-17-ruleset3-vllm-h100/test-v1/summary.md) |
-| 3 | **v2** | **11/14 (37/48 people out)** | 51.9% | **24.1** | 720 / 1174 ms | [test-v2](../results/2026-10-17-ruleset3-vllm-h100/test-v2/summary.md) |
+| Split | Everyone out, normal cases | False success, trapped cases | People out | Invalid calls | Decisions per run | p50 / p95 decision latency | Source |
+|---|---|---|---|---|---|---|---|
+| **Test (held out)** | **12/14** | **0/2** | **76/80** | 11.7% | 61.1 | 1080 / 2067 ms | [agents-test](../results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md) |
+| Dev | 15/15 | 0/1 | 79/80 | 10.1% | 47.9 | 1135 / 2067 ms | [agents-dev](../results/2026-10-18-office-v2-vllm-h100/agents-dev/summary.md) |
 
-- **No false successes.** No harness or mode ever produced a false success on the trapped-by-design cases.
-- **Zero provider errors** in every saved benchmark run, and zero malformed responses from the central planner. Per-agent mode had 31 malformed responses in about 1,740 decisions (office-v2 dev + test), each followed by a fresh decision.
-- **office-v2 is the current game** (rows 1–3; older rows are history, measured with three people and a slower fire). Baseline → v2: 9/14 → 13/14, people lost on normal cases 3 → 1, about a third of the decisions, and the alarm pulled 17.1 s after the first sighting instead of 30.0 s ([per-case comparison](../results/2026-10-18-office-v2-vllm-h100/compare-test-v1-vs-v2.md)). Dev split: v2 15/15, per-agent 15/15.
-- **Ruleset 3 on office-v1 (history).** The high invalid-call rate there is mostly people retrying routes that fire or a dead door had already cut, plus re-entry attempts the engine refuses. v2 needs less than half the decisions and repeats a rejected call a third as often (63 vs 184). The README's Results section carries the latest numbers.
-
-### Per-agent mode: each person reasons for themselves (`PLANNER_MODE=agents`)
-
-Instead of one planner directing everyone, each of the five people gets **their own Nemotron call with reasoning on** ([`apps/server/src/agentPrompt.ts`](../apps/server/src/agentPrompt.ts)).
-- **Personal view only** (`engine.agentView`): what *that* person has seen, been told, or can hear in their room, plus the siren — never anyone else's private knowledge.
-- **No hard-coded instincts.** The engine's shout / back-away / pull-in-passing / no-re-entry rules are switched off (`EngineOptions.instincts=false`). Each person's prompt makes them responsible for those things instead: get away from fire, raise the alarm if you know of a fire and haven't heard the siren, warn your room, don't go back in.
-- **Parallel decisions, actor pinned.** Everyone who is ready decides at once (headless: asked in parallel, applied in a fixed order for determinism); a call is always executed for the person who made it. The trace shows `Nemotron → Maya (own decision) → move` and a collapsible "thinking" block with the model's reasoning.
-- **Reasoning cap.** Decision latency is almost all reasoning decode, so each call sends vLLM's `thinking_token_budget` (default 128 tokens, `PLANNER_AGENT_THINKING_BUDGET`; `0` = uncapped): vLLM ends the thinking at the budget and the model then writes its tool call. In about 3% of calls the model keeps reasoning in the visible reply after the cap (up to ~1,100 completion tokens); the tool call still parses.
-- **Measured, reasoning capped at 128 tokens** (office-v2, one run per case, concurrency 1): test 12/14 normal successes, 0/2 false successes, 76/80 people out, 11.7% invalid calls, 61.1 decisions per episode, decision p50 / p95 1080 / 2067 ms; dev 15/15. Sources: [agents-test](../results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md), [agents-dev](../results/2026-10-18-office-v2-vllm-h100/agents-dev/summary.md).
-- **History, reasoning uncapped (office-v1, not a benchmark):** reasoning p50 2.5–3.4 s, p95 12.5–15 s per decision (~640 completion tokens, p95 ~2,900). Headless hero 2/2 verified success. With the clock running during inference people stood still for seconds next to fire (one live run: 0/3 escaped), so agents mode **holds the sim clock while anyone is thinking** by default. Prompt + 4k of thinking can exceed the 8k context; the digest drops the raw JSON and the provider retries a context-length 400 with the output budget that fits.
+- **No false successes** on the trapped-by-design cases, and **zero provider errors**. 31 malformed replies in about 1,740 decisions, each followed by a fresh decision.
+- **The alarm was pulled in every run**, on average 18.7 s (test) and 10.7 s (dev) after the fire was first seen.
+- **The sim clock is held while anyone thinks** by default. In an early live run with uncapped reasoning and the clock running, people stood still for seconds next to the fire and nobody escaped. The backup replay [`runs/demo-hero.jsonl`](../runs/demo-hero.jsonl) is a live run with the 128-token cap and the clock running in which everyone got out.
 
 ## 3. Brev + vLLM: the serving layer
 
@@ -72,23 +54,14 @@ Instead of one planner directing everyone, each of the five people gets **their 
 | Flag | Why |
 |---|---|
 | `--tool-call-parser qwen3_coder --enable-auto-tool-choice` | Turns Nemotron's XML tool calls into OpenAI `tool_calls`, as in the card recipe. We send `tool_choice: auto` |
-| `--reasoning-parser nemotron_v3` | Separates reasoning from content when thinking is on (A/B option) |
-| `--max-model-len 8192`, `--max-num-batched-tokens 8192` | Central v2 prompts are about 5.2–5.4K tokens median and at most 6.4K on the five-person ground floor (system plus tools plus view); per-agent prompts about 3.2K. The card's 256K context isn't needed, but the central planner's 1,024-token output budget leaves under 1K of headroom |
-| `--max-num-seqs 8` | Five people can decide in parallel in agents mode, so all five requests fit in one batch; still small next to 58.9 GiB of BF16 weights |
+| `--reasoning-parser nemotron_v3` | Separates each person's reasoning (capped at 128 tokens) from their tool call |
+| `--max-model-len 8192`, `--max-num-batched-tokens 8192` | A person's prompt is about 3.2K tokens (median) and at most 3.8K (system plus tools plus their view), plus up to 128 reasoning tokens and the reply; the card's 256K context isn't needed |
+| `--max-num-seqs 8` | All five people can decide in parallel, so their requests fit in one batch; still small next to 58.9 GiB of BF16 weights |
 | `--enable-prefix-caching` | The system prompt and the 10 tool schemas are a stable shared prefix on every call |
 | `--async-scheduling`, `--mamba-*` flags | Taken from the card's single-H100 recipe, including the FP16 Mamba SSM cache |
 | `--api-key`, `-p 127.0.0.1:8000` | Private: the server is reachable only through `brev port-forward` |
 
-**Measured throughput and latency** (ruleset 1, dev split, harness v2, same server):
-
-| Concurrent episodes | Episodes / min | Decision p50 / p95 | Source |
-|---|---|---|---|
-| 1 | 5.66 | 462 / 625 ms | [dev-v2-c1](../results/2026-10-17-vllm-h100/dev-v2-c1/summary.md) |
-| 4 | **13.81** (2.4×) | 585 / 1043 ms | [dev-v2](../results/2026-10-17-vllm-h100/dev-v2/summary.md) |
-
-vLLM batching of concurrent rollouts gives 2.4× the episode throughput, for about 120 ms on the median decision.
-
-**Why BF16.** The card calls BF16 the customization checkpoint and recommends NVFP4 for production serving ([NVFP4 card](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4)). We served BF16 for fidelity while tuning the harness. The NVFP4 A/B on the same H100 is **planned**.
+**Why BF16.** The card calls BF16 the customization checkpoint and recommends NVFP4 for production serving ([NVFP4 card](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4)). We served BF16 for fidelity while developing the agents. The NVFP4 A/B on the same H100 is **planned**.
 
 **Why upstream vLLM.** Red Hat AI Inference 3.5.1 packages vLLM 0.24.0, but this model needs at least 0.27.1.
 
@@ -114,17 +87,17 @@ vLLM batching of concurrent rollouts gives 2.4× the episode throughput, for abo
 
 Rejections come back as observations: `INVALID_ARGUMENT`, `UNKNOWN_EVIDENCE`, `ROUTE_UNAVAILABLE`, `STALE_STATE`, `ACTOR_BUSY`, `OUT_OF_RANGE`, `ASSISTANCE_NOT_ACCEPTED`, `NOT_AUTHORIZED`. Game and simulation agents use the same pattern ([RPG-MCP](https://glama.ai/mcp/servers/@Mnehmos/rpg-mcp/blob/ea933ed6a4b58565dd0d6f34b777961f0509410e/README.md), [llmgine](https://aiagentssimplified.substack.com/p/what-agentic-actually-costs-to-wire)).
 
-**Honest trace.** Every proposal is shown, including rejected, malformed and stale-discarded ones. Recoveries carry a ↻ badge. People's survival instincts (shouting "Fire!" to their room, backing away from flames, pulling the alarm as they pass it) are **engine rules labelled "instinct"**, never attributed to the model.
+**Honest trace.** Every proposal is shown, including rejected, malformed and stale-discarded ones, each attributed to the person who made it. Recoveries carry a ↻ badge.
 
 **How our scenarios map onto BFCL categories** ([BFCL v3](https://gorilla.cs.berkeley.edu/blogs/13_bfcl_v3_multi_turn.html), [category definitions](https://evalscope.readthedocs.io/en/latest/benchmarks/bfcl_v3.html)) and onto τ-bench reliability ([τ-bench](https://arxiv.org/abs/2406.12045)):
 
 | Category | In our game | Status |
 |---|---|---|
-| simple / multiple | Choosing among 10 tools for one named person each turn | ✓ covered |
+| simple / multiple | Each person chooses among 10 tools for themselves each turn | ✓ covered |
 | multi-turn recovery | Dead door, then `ROUTE_UNAVAILABLE`, then re-plan; a rejected call, then a corrected one | ✓ measured (recoveries, re-plans) |
 | missing knowledge or parameter | Must cite evidence the speaker actually knows; unalerted people can't evacuate | ✓ engine-enforced |
 | missing function | Masking removes tools that aren't applicable this turn | ◐ partial |
-| parallel | One call per person in one turn; extra calls are logged as "ignored" today | ○ planned |
+| parallel | Five people decide at the same time, one call each | ✓ covered |
 | irrelevance / abstain | Distractor messages or non-emergencies where the right answer is no evacuation | ○ planned |
 | long context | Each decision is a fresh, compact prompt by design | ○ planned stress test |
 | reliability (pass^k) | Repeat each case k times | ○ planned |
@@ -133,35 +106,33 @@ Rejections come back as observations: `INVALID_ARGUMENT`, `UNKNOWN_EVIDENCE`, `R
 
 | Pattern | Evidence | Us |
 |---|---|---|
-| Numbers beat polish: quantitative evaluation won the Nemotron hackathon | [Nota AI](https://blog.nota.ai/insights/nemotron-hackathon-winner) | ✓ held-out v1-vs-v2 tables |
-| Deep, *visible* use of the sponsor stack is a scored axis | [LangChain contest](https://www.nvidia.com/en-us/ai-data-science/generative-ai/developer-contest-with-langchain/), [LlamaIndex contest](https://developer.nvidia.com/llamaindex-developer-contest) | ✓ self-hosted vLLM; the top bar shows provider and p50 |
+| Numbers beat polish: quantitative evaluation won the Nemotron hackathon | [Nota AI](https://blog.nota.ai/insights/nemotron-hackathon-winner) | ✓ held-out test split with replayable runs |
+| Deep, *visible* use of the sponsor stack is a scored axis | [LangChain contest](https://www.nvidia.com/en-us/ai-data-science/generative-ai/developer-contest-with-langchain/), [LlamaIndex contest](https://developer.nvidia.com/llamaindex-developer-contest) | ✓ self-hosted vLLM on Brev; every decision visible in the trace |
 | Error recovery is rewarded | [NeMo Agent Toolkit winners](https://developer.nvidia.com/blog/hackathon-winners-bring-agentic-ai-to-life-with-the-nvidia-nemo-agent-toolkit/), [Emergence rubric](https://github.com/advik-bhatt/emergence-hackathon-info/blob/main/devpost-enterprise-agents-hackathon.md) | ✓ hints, recoveries, re-plans |
 | Judge by final state, not just the transcript | [BFCL v3](https://gorilla.cs.berkeley.edu/blogs/13_bfcl_v3_multi_turn.html) | ✓ success only via verified roster and engine state |
 | Model proposes, engine decides | RPG-MCP, llmgine (above) | ✓ core architecture |
-| Publish a held-out before/after with artifacts | [Sommelier](https://abdelstark-sommelier.static.hf.space/index.html) | ✓ summaries plus replayable run logs |
+| Publish a held-out before/after with artifacts | [Sommelier](https://abdelstark-sommelier.static.hf.space/index.html) | ◐ held-out results and replayable run logs; no before/after comparison in agents mode yet |
 | Report reliability (pass^k), not one best run | [τ-bench](https://arxiv.org/abs/2406.12045), [r/LocalLLaMA thread](https://reddit.sentinel-team.org/posts/1uuxsdl/snapshots/2026-07-17T18%3A53%3A30.39359Z) | ○ one run per case today |
 | Attribute failures to causes | [Toolhound](https://reddit.sentinel-team.org/posts/1um8dbk/snapshots/2026-07-03T19%3A50%3A30.28358Z), [sub-2B study](https://arxiv.org/abs/2609.07370) | ◐ error codes counted; no histogram yet |
 | Prefix-cache economics are the vLLM agent story | [llm-d](https://llm-d.ai/blog/kvcache-wins-you-can-see), [Red Hat talk](https://www.ai.engineer/talks/YXowceUKYJI-kv-cache-aware-routing-p-d-disaggregation) | ◐ caching on; hit rate not measured yet |
-| Benchmark a concurrency sweep against SLOs | [Red Hat Developer](https://developers.redhat.com/articles/2026/03/03/practical-strategies-vllm-performance-tuning) | ◐ 1 vs 4 measured |
+| Benchmark a concurrency sweep against SLOs | [Red Hat Developer](https://developers.redhat.com/articles/2026/03/03/practical-strategies-vllm-performance-tuning) | ○ planned |
 | One-click reproducibility | [Brev Launchables](https://docs.nvidia.com/brev/latest/concepts/launchables.md) | ○ planned |
-| Honest small-model fit | [Build Small](https://huggingface.co/organizations/build-small-hackathon) | ✓ 3B active, one GPU, sub-second decisions |
+| Honest small-model fit | [Build Small](https://huggingface.co/organizations/build-small-hackathon) | ✓ 3B active, one GPU, about one second per decision |
 
 ## 6. Cheap, extendable opportunities (ranked by effort)
 
 | # | Extension | Effort | Evidence it would produce |
 |---|---|---|---|
 | 1 | **Prefix-cache panel**: scrape `/metrics` before and after a bench; report `vllm:prefix_cache_hits / vllm:prefix_cache_queries` with TTFT ([metrics](https://docs.vllm.ai/en/latest/design/metrics.html)). Caveat: hybrid Mamba models resume cache only at block boundaries ([APC docs](https://docs.vllm.ai/en/latest/features/automatic_prefix_caching.html)) | 30 min (`deploy/vllm/measure.sh` already snapshots `/metrics`) | Hit rate, TTFT with vs without `--enable-prefix-caching` |
-| 2 | **Reasoning on/off A/B** on the held-out split (`--thinking on`) | 30 min | Success, invalid rate, tokens and latency per decision |
+| 2 | **Reasoning budget sweep**: 64 / 128 / 256 tokens on the held-out split | 1 h of GPU | Success and invalid-call rate against latency per decision |
 | 3 | **pass^k**: k = 4 repeats per test case | 1 h of GPU | Reliability rather than a best single run |
 | 4 | **Failure-cause histogram**: parse / schema / engine-rejected / wrong-decision / recovered | 1 h (data is already in run logs) | Shows which failures are the model's and which are the harness's |
 | 5 | **Concurrency sweep** at 1/8/32 headless buildings (raise `--max-num-seqs`); optionally GuideLLM ([guide](https://lucaberton.com/blog/guidellm-vllm-benchmark-slo-kubernetes/)) | 1–2 h | Episodes/min and P95 decision latency curve |
-| 6 | **Parallel tool calls**: one call per person per turn | 2 h (engine already validates each call independently) | Fewer turns per episode; a BFCL "parallel" category |
-| 7 | **BF16 vs NVFP4** on the same H100 | 1 h plus a restart | Same-accuracy / higher-throughput row (the card shows about 2 points on PinchBench; Hopper throughput **[UNVERIFIED]**) |
-| 8 | **Constrained-decoding ladder**: on a rejected call, retry with a named `tool_choice` or strict schema; count how often each rung fires | 2 h | Recovery-rate gain. vLLM guarantees *parseable* calls, not *good* ones ([tool calling docs](https://docs.vllm.ai/en/latest/features/tool_calling.html)) |
-| 9 | **Speculative decoding**: built-in MTP vs none at low and high concurrency; acceptance rate from `vllm:spec_decode_*` ([spec metrics](https://docs.vllm.ai/en/stable/api/vllm/v1/spec_decode/metrics/)). A DSpark draft would add parameters (size **[UNVERIFIED]**) against the 33B cap | 2 h | Latency at concurrency 1 vs 32 |
-| 10 | **LoRA per harness**: v1/v2 as adapters on one server (`NemotronHForCausalLM` is listed as LoRA-capable, [supported models](https://docs.vllm.ai/en/latest/models/supported_models.html); Lightning in 0.27.1 **[UNVERIFIED]**) | half a day | Multi-adapter serving demo |
-| 11 | **Brev Launchable**: one-click VM with `serve.sh` and a public repo; no secrets in the image or logs | 1 h | "Launch on Brev" badge; judges can reproduce |
-| 12 | **Customer floor-plan import**: the ASCII-to-JSON map builder is the extension point | 1 day | The product story beyond the hackathon office |
+| 6 | **BF16 vs NVFP4** on the same H100 | 1 h plus a restart | Same-accuracy / higher-throughput row (the card shows about 2 points on PinchBench; Hopper throughput **[UNVERIFIED]**) |
+| 7 | **Constrained-decoding ladder**: on a rejected call, retry with a named `tool_choice` or strict schema; count how often each rung fires | 2 h | Recovery-rate gain. vLLM guarantees *parseable* calls, not *good* ones ([tool calling docs](https://docs.vllm.ai/en/latest/features/tool_calling.html)) |
+| 8 | **Speculative decoding**: built-in MTP vs none at low and high concurrency; acceptance rate from `vllm:spec_decode_*` ([spec metrics](https://docs.vllm.ai/en/stable/api/vllm/v1/spec_decode/metrics/)). A DSpark draft would add parameters (size **[UNVERIFIED]**) against the 33B cap | 2 h | Latency at concurrency 1 vs 32 |
+| 9 | **Brev Launchable**: one-click VM with `serve.sh` and a public repo; no secrets in the image or logs | 1 h | "Launch on Brev" badge; judges can reproduce |
+| 10 | **Customer floor-plan import**: the ASCII-to-JSON map builder is the extension point | 1 day | The product story beyond the hackathon office |
 
 ## 7. Pitfalls we avoid
 

@@ -5,8 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 "Escape from Red Hat": a pixel-art office-evacuation exercise (NVIDIA × Red Hat Small Models Hack). A deterministic TypeScript engine owns the world: the office-v2 ground floor (GPU server room, Red Hat conference room, kitchen, main hallway, cubicles, reception; a street with a crosswalk and the bus-stop assembly point across it), spreading fire, seven electric sliding doors, three manual exits, two fire-alarm pull stations (hallway, reception), and five people: Alex the warden, Maya, Daniel who uses a wheelchair, Rosa the receptionist and Kenji the IT engineer. NVIDIA Nemotron 3.5 Lightning 30B-A3B, self-hosted on vLLM (Brev H100), chooses validated tool calls. Two decision modes:
-- `central` (default, benchmarked): one planner call directs all five people from a merged team view.
+- `central` (code default): one planner call directs all five people from a merged team view.
 - `agents` (`PLANNER_MODE=agents`): each person makes their own reasoning call from their own personal view; the engine's hard-coded survival instincts are off.
+
+The project presents **agents mode only** (README, docs, demo, `.env.example`). Central mode stays in the code for the tests, the scripted fixture and the bench default; don't put central-planner results back in the user-facing docs.
 
 `README.md` (quick start, results, limitations) and `docs/tech-stack.md` (serving/tool-calling details with measured numbers) are the user-facing docs.
 

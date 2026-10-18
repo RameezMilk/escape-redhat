@@ -35,16 +35,16 @@
 
 ---
 
-A deterministic TypeScript engine owns a fictional office ground floor: six rooms, seven electric sliding doors, three exits, two fire-alarm pull stations, and a street with a bus-stop assembly point. You drop fires and power cuts. **Nemotron 3.5 Lightning 30B-A3B**, self-hosted on **vLLM**, decides what Alex (the warden), Maya, Daniel (who uses a wheelchair), Rosa (reception) and Kenji (IT) do, one native tool call at a time. The engine validates every call against the true world state, and a run only succeeds when every survivor is physically at the assembly point and the warden has verified the roster.
+A deterministic TypeScript engine owns a fictional office ground floor: six rooms, seven electric sliding doors, three exits, two fire-alarm pull stations, and a street with a bus-stop assembly point. You drop fires and power cuts. Each of the five people (Alex the warden, Maya, Daniel who uses a wheelchair, Rosa at reception and Kenji in IT) is a separate **Nemotron 3.5 Lightning 30B-A3B** agent, self-hosted on **vLLM**, deciding from only what that person has seen, heard or been told. The engine validates every tool call against the true world state, and a run only succeeds when every survivor is physically at the assembly point and the warden has verified the roster.
 
 <p align="center">
   <img src="docs/images/office.png" alt="The office ground floor in the app: server room, Red Hat conference room, kitchen, hallway, cubicles, reception, the street and the bus-stop assembly point, with the Fire and Electrical Failure cards and the roster below" width="90%">
 </p>
 
-- **One small open model.** 30B total and 3B active parameters, native tool calling, about 0.7 s per decision on one H100.
-- **Two decision modes.** One central planner directs everyone (default), or each person makes their own reasoning call from only what they know (`PLANNER_MODE=agents`).
-- **Honest by construction.** Rejected calls change nothing and return an error code with a hint. Engine reflexes are labelled as such, never as model decisions. The model cannot declare success.
-- **Measured.** On held-out scenarios, the improved harness gets everyone out in 13 of 14 cases, against 9 of 14 for the baseline prompt ([results](#results)).
+- **Five independent agents.** One Nemotron call per person, each with a strictly personal view and reasoning capped at 128 tokens. All five decide in parallel, about 1.1 s per decision on one H100.
+- **No hard-coded reflexes.** Warning the room, pulling the alarm, helping Daniel and choosing an exit are each person's own decision. The engine only simulates the world: fire, doors, sight and earshot.
+- **Honest by construction.** Rejected calls change nothing and return an error code with a hint. Nobody can declare success; only the warden's verified roster can end a run as one.
+- **Measured.** On 14 held-out scenarios, everyone got out in 12, and no run ever claimed a false success ([results](#results)).
 
 ## Quick start
 
@@ -61,7 +61,7 @@ Open http://localhost:5173 and click the glowing ground floor. To use Nemotron i
 | Command | What it does |
 |---|---|
 | `npm test` | Engine and server tests (vitest) |
-| `npm run bench -- --split test --provider env --harness v2 --out results/<dir>` | Headless benchmark on a dataset split |
+| `npm run bench -- --split test --provider env --mode agents --out results/<dir>` | Headless benchmark on a dataset split |
 | `npm run replay -- runs/demo-hero.jsonl` | Re-simulate a saved run without calling the model |
 | `npm run data:map` / `npm run data:scenarios` | Rebuild the map / regenerate the scenario dataset (deterministic) |
 | `npm run build && npm start` | Production build, served by the game server |
@@ -75,7 +75,7 @@ Open http://localhost:5173 and click the glowing ground floor. To use Nemotron i
 | Simulation | Pure, deterministic TypeScript engine (seeded fire spread, doors, alarm, pathfinding, perception, scoring) |
 | Server | Node 24, Fastify, WebSocket |
 | Web | React 19, Vite, Canvas 2D (vendored Pixel Agents renderer) |
-| Evaluation | Headless benchmark, replay checker, baseline vs final comparison |
+| Evaluation | Headless benchmark and replay checker |
 
 ```mermaid
 flowchart LR
@@ -83,7 +83,7 @@ flowchart LR
     UI["Office canvas, trace panel, hazard cards"]
   end
   subgraph Server["Node server: Fastify + WebSocket"]
-    O["Orchestrator: wake, build view, decide, validate"]
+    O["Orchestrator: one decision slot per person"]
     E["Engine: world, fire, doors, alarm, tools, scoring"]
     L[("Run logs and replay")]
   end
@@ -92,12 +92,12 @@ flowchart LR
   end
   UI <-->|"snapshots, trace, hazards"| O
   O <--> E
-  O -->|"chat completions + tools"| M
+  O -->|"one tool call per person"| M
   O --> L
   B["Benchmark (apps/eval)"] --> O
 ```
 
-**One decision:** the engine wakes the planner only when someone notices something new. The model sees only what people have seen or been told and returns one tool call (`observe`, `consult_plan`, `notify`, `plan_route`, `move`, `request_assistance`, `assist`, `check_in`, `verify_roster`, `pull_alarm`). The engine executes it or rejects it with a reason.
+**One decision:** the engine wakes a person when they notice something new (a fire, a warning, the siren, a dead door). Their prompt holds only what they know, and Nemotron returns one tool call for that person (`observe`, `consult_plan`, `notify`, `plan_route`, `move`, `request_assistance`, `assist`, `check_in`, `verify_roster`, `pull_alarm`). Everyone who is ready decides at the same time; the engine executes each call or rejects it with a reason.
 
 ```
 apps/server       Fastify + WebSocket server, orchestrator, prompts, model providers
@@ -134,43 +134,41 @@ PLANNER_MODEL=escape-nemotron
 PLANNER_API_KEY=<ESCAPE_VLLM_KEY from the VM's server.env>
 PLANNER_ENDPOINT_KIND=self-hosted-vllm
 PLANNER_LABEL="Nemotron 3.5 Lightning 30B-A3B"
-PLANNER_HARNESS=v2
-PLANNER_MODE=central            # or agents: one reasoning call per person
+PLANNER_MODE=agents             # one Nemotron call per person
 ```
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PLANNER_API_KEY` | none | The vLLM `--api-key`, or an `nvapi-` key for the hosted NVIDIA API Catalog fallback |
 | `PLANNER_BASE_URL` / `PLANNER_MODEL` | vLLM tunnel | Hosted fallback: `https://integrate.api.nvidia.com/v1` and `nvidia/nemotron-3.5-lightning-30b-a3b` |
-| `PLANNER_MAX_DECISIONS` | `100` | Safety stop per run (there is no game timer) |
-| `PLANNER_AGENT_THINKING_BUDGET` | `128` | Agents mode: reasoning tokens per decision (`0` = no cap) |
-| `PLANNER_AGENT_FREEZE_WHILE_THINKING` | `true` | Agents mode: hold the sim clock while anyone thinks |
+| `PLANNER_AGENT_THINKING_BUDGET` | `128` | Reasoning tokens per decision (`0` = no cap) |
+| `PLANNER_AGENT_MAX_DECISIONS` | `250` | Safety stop per run, all five people combined (there is no game timer) |
+| `PLANNER_AGENT_FREEZE_WHILE_THINKING` | `true` | Hold the sim clock while anyone thinks; `false` for real-time pressure |
 | `DEMO_CASE` | `demo-hero` | Scenario loaded on start and reset |
 
 **3. Run the hero scenario.**
 
 1. `npm run dev` and open http://localhost:5173. The server log should report `health: OK` for the model.
-2. Drag **Fire** into the cubicles next to Maya. Maya shouts and Alex hears it; the other rooms do not.
-3. Nemotron moves people out and sends someone to a pull station. The siren alerts the other rooms.
+2. Drag **Fire** into the cubicles next to Maya. Maya sees it and decides for herself whether to warn the room, head for a pull station or get out. The other rooms know nothing yet.
+3. Each person makes their own call, shown in the trace with their reasoning. Once someone pulls an alarm, the siren reaches every room.
 4. When someone crosses the hallway toward reception, drag **Electrical Failure** onto the reception door (or run `node scripts/auto-electrical.mjs` beforehand to do it on cue).
-5. The move stops, the trace says why, and Nemotron re-routes through the west exit or the reception side door. Everyone crosses to the bus stop, checks in, and Alex verifies the roster.
+5. Their move stops, the trace says why, and they re-route through the west exit or the reception side door. Everyone crosses to the bus stop and checks in, and Alex verifies the roster.
 
 Backup: `npm run replay -- runs/demo-hero.jsonl` re-applies a recorded live run without calling the model (shown with a REPLAY badge).
 
 ## Results
 
-Held-out test split: 16 synthetic scenarios (14 normal, 2 trapped by design) with fires in rooms never used while tuning. Nemotron 3.5 Lightning on our vLLM, one H100, temperature 0.6, one run per case, measured 2026-10-18.
+Agents mode on 16 synthetic scenarios per split (14 normal, 2 trapped by design on test; 15 and 1 on dev). The held-out test split has fires in rooms never used while developing the prompt. Nemotron 3.5 Lightning on our vLLM, one H100, temperature 0.6, reasoning capped at 128 tokens, one run per case, measured 2026-10-18.
 
-| Setup | Everyone out, normal cases | False success, trapped cases | People out | Invalid calls | Decisions per run | Decision latency p50 |
+| Split | Everyone out, normal cases | False success, trapped cases | People out | Invalid calls | Decisions per run | Decision latency p50 / p95 |
 |---|---|---|---|---|---|---|
-| Central planner, baseline prompt (v1) | 9/14 | 0/2 | 57/80 | 42.2% | 82.7 | 0.73 s |
-| **Central planner, improved harness (v2)** | **13/14** | **0/2** | **77/80** | 32.6% | **29.9** | 0.73 s |
-| Agents mode, one reasoning call per person | 12/14 | 0/2 | 76/80 | 11.7% | 61.1 | 1.08 s |
+| **Test (held out)** | **12/14** | **0/2** | **76/80** | 11.7% | 61.1 | 1.08 / 2.07 s |
+| Dev | 15/15 | 0/1 | 79/80 | 10.1% | 47.9 | 1.14 / 2.07 s |
 
-- The v2 harness adds a state digest, per-turn action masking and recovery hints. It was tuned on the dev split only (dev: 15/15). It is a prompt and harness improvement; no model weights were trained.
-- No run ever claimed a false success, and there were no provider errors. Agents mode had 18 malformed replies in 977 decisions, each followed by a fresh decision.
+- Someone pulled a fire alarm in every run, on average 18.7 s (test) and 10.7 s (dev) after the fire was first seen.
+- No provider errors. 31 malformed replies in about 1,740 decisions, each followed by a fresh decision.
 - Single runs at temperature above 0 with a stochastic fire: a difference of one or two cases can be noise.
-- Raw summaries and replayable logs: [`results/2026-10-18-office-v2-vllm-h100/`](results/2026-10-18-office-v2-vllm-h100/). Earlier rule sets and serving measurements: [`results/README.md`](results/README.md), [`docs/tech-stack.md`](docs/tech-stack.md).
+- Raw summaries and replayable logs: [`agents-test`](results/2026-10-18-office-v2-vllm-h100/agents-test/summary.md), [`agents-dev`](results/2026-10-18-office-v2-vllm-h100/agents-dev/summary.md). Serving measurements: [`docs/tech-stack.md`](docs/tech-stack.md).
 
 ## Datasets and synthetic data
 
@@ -187,8 +185,8 @@ Real datasets we considered and did not use (LEMTA drills, Juelich bottleneck tr
 **Limitations**
 
 - One fictional single-floor map. The fire is a simple seeded cellular spread, not fire science: no smoke, heat or injury model.
-- Perception, earshot (same room only), the alarm and the central-mode reflexes (shout, back away, pull the alarm on the way out, no re-entry) are deterministic engine rules. Agents mode turns the reflexes off.
-- 32 synthetic cases with one run each. Agents mode has one benchmark run and no claim that it beats the central planner.
+- Perception, earshot (same room only) and the alarm are deterministic engine rules; every decision about what to do is the model's.
+- 32 synthetic cases with one run each.
 - About 3% of agents-mode calls keep reasoning past the 128-token cap and run to about 1,100 tokens, which costs latency.
 - Not compliance training and no building-code claims. Educational value is untested.
 
@@ -196,7 +194,7 @@ Real datasets we considered and did not use (LEMTA drills, Juelich bottleneck tr
 
 - Import a customer's own floor plan through the map builder.
 - More hazard types and occupants.
-- Several samples per case to tighten the baseline vs final gap.
+- Several samples per case for a tighter success estimate.
 - Per-person rewards from the engine's run logs, as groundwork for RL fine-tuning of a warden policy.
 
 ## License and attribution
