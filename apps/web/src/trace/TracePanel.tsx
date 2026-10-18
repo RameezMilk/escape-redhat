@@ -2,7 +2,7 @@
 // Condensed presentation: one line per row (person · tool pill · one-liner · status · time); click to expand details.
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ActorId, TraceRow } from '@escape/contracts';
+import { ACTOR_IDS, type ActorId, type TraceRow } from '@escape/contracts';
 
 import { ACTOR_ORDER, ACTOR_VIEW } from '../office/actors';
 import { useStore } from '../state/store';
@@ -174,7 +174,7 @@ export function TracePanel() {
 
   const counts = useMemo(() => {
     const decisions = trace.filter((r) => r.kind === 'decision');
-    const per: Record<Filter, number> = { all: trace.length, alex: 0, maya: 0, daniel: 0, engine: 0 };
+    const per = { all: trace.length, engine: 0, ...Object.fromEntries(ACTOR_IDS.map((id) => [id, 0])) } as Record<Filter, number>;
     for (const r of trace) {
       if (r.kind === 'engine') per.engine++;
       else if (r.actor) per[r.actor]++;

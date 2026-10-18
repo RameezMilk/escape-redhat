@@ -2,7 +2,7 @@
 // plus DOM overlays (name chips, speech bubbles, placement tooltip) positioned with the renderer's projection.
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ActorId, HazardKind, MapData } from '@escape/contracts';
+import { ACTOR_PROFILES, type ActorId, type HazardKind, type MapData } from '@escape/contracts';
 
 import { CHARACTER_SITTING_OFFSET_PX, CHARACTER_Z_SORT_OFFSET } from '../vendor/pixel-agents/webview-ui/src/constants';
 import { getCharacterSprite } from '../vendor/pixel-agents/webview-ui/src/office/engine/characters';
@@ -205,7 +205,7 @@ export function OfficeView({ map }: Props) {
         const headOf = (id: ActorId) => {
           const c = scene.characters.get(id)!;
           const sitting = c.state === CharacterState.TYPE ? 6 : 0;
-          return { x: c.x, y: c.y + sitting - (id === 'daniel' ? 26 : 30) };
+          return { x: c.x, y: c.y + sitting - (ACTOR_PROFILES[id].usesWheelchair ? 26 : 30) };
         };
         for (const id of order) {
           const ch = scene.characters.get(id);
@@ -340,7 +340,7 @@ export function OfficeView({ map }: Props) {
                   <span className="pair-name">
                     {' '}
                     + {ACTOR_VIEW[a.escort.partner].name}
-                    {a.escort.partner === 'daniel' ? <span className="wc"> ♿</span> : null}
+                    {ACTOR_PROFILES[a.escort.partner].usesWheelchair ? <span className="wc"> ♿</span> : null}
                   </span>
                 ) : null}
               </span>

@@ -1,3 +1,4 @@
+import { ACTOR_IDS, countWord } from '@escape/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { drawTowerScene, type Rect } from './towerScene';
@@ -121,7 +122,7 @@ export function IntroScreen({ onEnterStart, onDone }: Props) {
       />
       <header className="intro-title">
         <h1 className="arcade">ESCAPE RED HAT</h1>
-        <p className="intro-sub">an AI evacuation drill · one Nemotron planner · three people · your hazards</p>
+        <p className="intro-sub">an AI evacuation drill · one Nemotron planner · {countWord(ACTOR_IDS.length)} people · your hazards</p>
       </header>
       <button type="button" className="intro-prompt" onClick={enter}>
         <span className="blink">▶</span> CLICK THE GLOWING FLOOR <span className="blink">◀</span>

@@ -228,7 +228,7 @@ export interface HazardSnapshot {
 
 export type Phase = 'idle' | 'incident' | 'evacuating' | 'accounting' | 'ended';
 
-/** success = all 3 alive, checked in, roster verified; partial = someone lost, all survivors accounted for;
+/** success = everyone alive, checked in, roster verified; partial = someone lost, all survivors accounted for;
  *  failed = everyone lost; incomplete/unresolved = safety stop (decision cap / stall), never a time limit. */
 export type OutcomeStatus = 'success' | 'partial' | 'failed' | 'incomplete' | 'unresolved' | 'aborted';
 export interface EpisodeOutcome {
@@ -411,9 +411,9 @@ export interface PlannerView {
   };
   messages: { from: ActorId; to: string; topic: string; evidence_ids: string[]; message: string; at: number }[];
   assistance: {
-    person: 'daniel';
+    person: ActorId;
     preference: 'buddy' | 'independent';
-    buddy: 'alex';
+    buddy: ActorId;
     requested: boolean;
     accepted: boolean;
     fulfilled: boolean;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALARM_STATION_IDS, DEFAULT_MAP_ID, DOOR_IDS, TOOL_ARG_SCHEMAS, TOOL_DEFS, TOOL_NAMES, ZONE_IDS } from '@escape/contracts';
+import { ACTOR_IDS, ACTOR_PROFILES, ALARM_STATION_IDS, ASSISTANCE, DEFAULT_MAP_ID, DOOR_IDS, TOOL_ARG_SCHEMAS, TOOL_DEFS, TOOL_NAMES, WARDEN_ID, ZONE_IDS } from '@escape/contracts';
 import { loadMap } from '../src/index.js';
 
 describe('tool contract parity', () => {
@@ -29,5 +29,28 @@ describe('map-derived ids', () => {
     for (const z of map.zones) expect(z.name && z.at, z.id).toBeTruthy();
     for (const d of map.components) expect(d.name, d.id).toBeTruthy();
     for (const a of map.alarms) expect(a.name, a.id).toBeTruthy();
+  });
+});
+
+describe('actor profiles', () => {
+  it('exactly one warden; the assistance arrangement names two different people; ids never clash with zones', () => {
+    expect(ACTOR_IDS.filter((id) => ACTOR_PROFILES[id].warden)).toEqual([WARDEN_ID]);
+    expect(ACTOR_IDS).toContain(ASSISTANCE.person);
+    expect(ACTOR_IDS).toContain(ASSISTANCE.buddy);
+    expect(ASSISTANCE.person).not.toBe(ASSISTANCE.buddy);
+    for (const id of ACTOR_IDS) {
+      expect((ZONE_IDS as readonly string[]).includes(id), id).toBe(false);
+      const s: string = id;
+      expect(s === 'all' || s === 'alarm' || s.startsWith('alarm_'), id).toBe(false);
+      expect(ACTOR_PROFILES[id].ambient.length, id).toBeGreaterThan(0);
+    }
+  });
+
+  it('every person has spawn and activity spots on the map', () => {
+    const map = loadMap();
+    for (const id of ACTOR_IDS) {
+      expect(map.spawnSpots[id]?.length, id).toBeGreaterThan(0);
+      expect(map.activitySpots[id]?.length, id).toBeGreaterThan(0);
+    }
   });
 });

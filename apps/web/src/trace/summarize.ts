@@ -1,6 +1,6 @@
 // Presentation helpers for the trace panel: tool colour groups, one-line summaries, status glyphs and engine-event icons.
 // Pure functions of a TraceRow — nothing here invents data; every line is derived from the row's args/result/summary.
-import type { TraceRow } from '@escape/contracts';
+import { ACTOR_IDS, ACTOR_PROFILES, type TraceRow } from '@escape/contracts';
 import { stationName } from '@escape/engine';
 
 import { humanize, ZONE_NAMES } from './humanize';
@@ -24,7 +24,7 @@ export function toolGroup(tool?: string): ToolGroup {
   return (tool && TOOL_GROUP[tool]) || 'other';
 }
 
-const NAMES: Record<string, string> = { alex: 'Alex', maya: 'Maya', daniel: 'Daniel', all: 'everyone in earshot' };
+const NAMES: Record<string, string> = { ...Object.fromEntries(ACTOR_IDS.map((id) => [id, ACTOR_PROFILES[id].name])), all: 'everyone in earshot' };
 const nameOf = (id: unknown) => (typeof id === 'string' ? (NAMES[id] ?? id) : '?');
 const pretty = (s: unknown) => (typeof s === 'string' ? (ZONE_NAMES[s] ?? NAMES[s] ?? s.replace(/_/g, ' ')) : String(s ?? ''));
 

@@ -87,7 +87,7 @@ export function readPlannerConfig(env: Env = process.env): PlannerConfig {
     maxTokens: num(env.PLANNER_MAX_TOKENS, 1024),
     deadlineMs: num(env.PLANNER_DEADLINE_MS, 20000),
     // Safety stop only (there is no gameplay timer). Matches the engine default.
-    // Three people deciding for themselves make roughly 3× the calls.
+    // Everyone deciding for themselves makes roughly one planner's calls per person.
     maxDecisions: agents ? num(env.PLANNER_AGENT_MAX_DECISIONS, 150) : num(env.PLANNER_MAX_DECISIONS, 60),
     harness,
     mode,

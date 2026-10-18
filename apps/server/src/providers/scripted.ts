@@ -1,6 +1,6 @@
 // SCRIPTED FIXTURE — not a model. A deterministic rule policy over the same PlannerView the model sees.
 // Used for UI development, tests and as a labeled offline demo; every trace row says "SCRIPTED fixture".
-import type { ActorId, AgentView, NormalizedToolCall, PlannerView, ProviderInfo, ZoneId } from '@escape/contracts';
+import { ACTOR_PROFILES, ASSISTANCE, WARDEN_ID, type ActorId, type AgentView, type NormalizedToolCall, type PlannerView, type ProviderInfo, type ZoneId } from '@escape/contracts';
 import { inEarshot, isOutsideZone, loadMap } from '@escape/engine';
 
 /** Static office map: the fixture needs room layout to know who can hear whom. */
@@ -226,36 +226,39 @@ export class ScriptedProvider implements DecisionProvider {
     }
 
     // 2. Accountability (survivors only).
-    const alex = A.alex && !A.alex.lost ? A.alex : undefined;
-    if (alive.length && alive.every((a) => a.checked_in) && !view.roster.verified && alex) {
-      return mk('verify_roster', { actor_id: 'alex', reason_summary: 'Everyone still alive is checked in; warden verifies the roster.' });
+    const warden = A[WARDEN_ID] && !A[WARDEN_ID].lost ? A[WARDEN_ID] : undefined;
+    if (alive.length && alive.every((a) => a.checked_in) && !view.roster.verified && warden) {
+      return mk('verify_roster', { actor_id: WARDEN_ID, reason_summary: 'Everyone still alive is checked in; warden verifies the roster.' });
     }
     const toCheck = alive.find((a) => a.zone === 'assembly' && !a.checked_in && !busy(a));
     if (toCheck) return mk('check_in', { actor_id: toCheck.id });
 
-    // 3. Optional buddy arrangement: only when Daniel prefers it AND Alex is close; otherwise Daniel goes on his own.
-    const daniel = A.daniel && !A.daniel.lost ? A.daniel : undefined;
-    const escortActive = !!(alex?.escort || daniel?.escort) || daniel?.status === 'escorted';
-    const buddyClose = !!alex && !!daniel && dist(alex.tile, daniel.tile) <= 6;
+    // 3. Optional buddy arrangement: only when the assisted person prefers it AND their buddy is close; otherwise they
+    //    go on their own.
+    const { person: pid, buddy: bid } = ASSISTANCE;
+    const helper = A[bid] && !A[bid].lost ? A[bid] : undefined;
+    const person = A[pid] && !A[pid].lost ? A[pid] : undefined;
+    const escortActive = !!(helper?.escort || person?.escort) || person?.status === 'escorted';
+    const buddyClose = !!helper && !!person && dist(helper.tile, person.tile) <= 6;
     const buddy =
       view.assistance.preference === 'buddy' &&
       !view.assistance.fulfilled &&
-      !!alex?.alerted &&
-      !alex.checked_in &&
-      !!daniel &&
-      !daniel.checked_in &&
-      daniel.zone !== 'assembly' &&
+      !!helper?.alerted &&
+      !helper.checked_in &&
+      !!person &&
+      !person.checked_in &&
+      person.zone !== 'assembly' &&
       (escortActive || view.assistance.requested || buddyClose);
-    if (buddy && daniel?.alerted && !busy(daniel) && !view.assistance.requested) {
-      return mk('request_assistance', { actor_id: 'daniel', helper_id: 'alex', reason_summary: 'Daniel asks for the pre-arranged buddy guidance.' });
+    if (buddy && person?.alerted && !busy(person) && !view.assistance.requested) {
+      return mk('request_assistance', { actor_id: pid, helper_id: bid, reason_summary: `${ACTOR_PROFILES[pid].name} asks for the pre-arranged buddy guidance.` });
     }
-    if (buddy && view.assistance.requested && !view.assistance.accepted && !escortActive && alex && daniel) {
-      const d = dist(alex.tile, daniel.tile);
-      if (d <= 1.5 && !busy(alex) && !busy(daniel)) {
-        return mk('assist', { actor_id: 'alex', person_id: 'daniel', reason_summary: 'Start the agreed escort.' });
+    if (buddy && view.assistance.requested && !view.assistance.accepted && !escortActive && helper && person) {
+      const d = dist(helper.tile, person.tile);
+      if (d <= 1.5 && !busy(helper) && !busy(person)) {
+        return mk('assist', { actor_id: bid, person_id: pid, reason_summary: 'Start the agreed escort.' });
       }
-      if (!busy(alex) && this.mem.lastMoveDest.alex !== 'daniel') {
-        return mk('move', { actor_id: 'alex', destination: 'daniel', reason_summary: 'Go to Daniel for the buddy arrangement.' });
+      if (!busy(helper) && this.mem.lastMoveDest[bid] !== pid) {
+        return mk('move', { actor_id: bid, destination: pid, reason_summary: `Go to ${ACTOR_PROFILES[pid].name} for the buddy arrangement.` });
       }
     }
 
@@ -264,7 +267,7 @@ export class ScriptedProvider implements DecisionProvider {
     for (const a of alive) {
       if (!a.alerted || a.checked_in || busy(a) || a.zone === 'assembly') continue;
       if (a.status === 'escorted') continue; // follower moves with the leader
-      if (buddy && !escortActive && (a.id === 'daniel' || a.id === 'alex') && view.assistance.requested) continue; // handled above
+      if (buddy && !escortActive && (a.id === pid || a.id === bid) && view.assistance.requested) continue; // handled above
       const route = [...view.routes]
         .reverse()
         .find((r) => r.actor === a.id && r.destination === 'assembly' && !this.mem.usedRoutes.has(r.route_id));
@@ -287,7 +290,7 @@ export class ScriptedProvider implements DecisionProvider {
     }
 
     // 5. Nothing actionable right now (people are moving): ground in the plan once, then monitor.
-    const watcher = alex ?? alive[0] ?? view.actors[0];
+    const watcher = warden ?? alive[0] ?? view.actors[0];
     if (!this.mem.consulted.has('routes')) {
       this.mem.consulted.add('routes');
       return mk('consult_plan', { actor_id: watcher.id, section: 'routes', reason_summary: 'Check the routes section while people move.' });

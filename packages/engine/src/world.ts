@@ -8,6 +8,9 @@
 import {
   ACTOR_IDS,
   ACTOR_PROFILES,
+  ASSISTANCE,
+  countWord,
+  WARDEN_ID,
   TOOL_ARG_SCHEMAS,
   TOOL_NAMES,
   type ActorId,
@@ -80,12 +83,6 @@ const SMOKE_DELAY_SEC = 15;
 const NEARBY_RADIUS = 6;
 const DUPLICATE_NOTIFY_WINDOW_SEC = 5;
 const FIRE_ADJACENT_EXTRA_COST = 4;
-
-const AMBIENT_LINES: Record<ActorId, string[]> = {
-  alex: ['Badge printer is jammed again…', 'Who booked the lobby for 4pm?', 'Checking the visitor list.', 'Coffee refill time.'],
-  maya: ['These slides need one more chart.', 'Has anyone seen my stylus?', 'Demo dry-run in ten!', 'Ooh, snacks arrived.'],
-  daniel: ['Nice office — where is the whiteboard?', 'Wi-Fi password, anyone?', 'Taking notes for the team.', 'This chair has great wheels… oh wait.'],
-};
 
 const MOORE: readonly [number, number][] = [
   [-1, -1],
@@ -238,7 +235,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   let decisionsUsed = 0;
   let lastViewedSeq = 0;
   /** Per-agent mode: each person's own "seen up to" cursor. */
-  const agentSeenSeq: Record<ActorId, number> = { alex: 0, maya: 0, daniel: 0 };
+  const agentSeenSeq = Object.fromEntries(ACTOR_IDS.map((id) => [id, 0])) as Record<ActorId, number>;
   let endedAtWall: number | undefined;
   const hazards: Hazard[] = [];
   const evidence: Evidence[] = [];
@@ -577,7 +574,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       return;
     }
     const lost = ACTOR_IDS.filter((id) => actors[id].lost);
-    if (actors.alex.lost && lost.length && alive.every((id) => actors[id].checkedIn)) {
+    if (actors[WARDEN_ID].lost && lost.length && alive.every((id) => actors[id].checkedIn)) {
       endEpisode(
         'partial',
         `${alive.map(name).join(' and ')} reached the assembly point and checked in; ${lost.map(name).join(' and ')} ${lost.length > 1 ? 'were' : 'was'} lost to the fire (no warden left to verify the roster).`,
@@ -851,7 +848,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       const spot = map.spawnSpots[a.id].find((s) => s.col === a.col && s.row === a.row);
       a.pose = spot?.pose ?? 'stand';
       a.dir = spot?.dir ?? 'down';
-      if (rng.next() < 0.35) emit('ambient_line', { text: rng.pick(AMBIENT_LINES[a.id]), authored: true }, { actor: a.id });
+      if (rng.next() < 0.35) emit('ambient_line', { text: rng.pick(ACTOR_PROFILES[a.id].ambient), authored: true }, { actor: a.id });
       return;
     }
     emit(
@@ -1619,10 +1616,10 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     }
     if (!path.length) {
       const next = isActorId(args.destination)
-        ? args.destination === 'daniel' && leader.id === 'alex'
-          ? requests.some((r) => r.person === 'daniel' && r.helper === 'alex')
-            ? 'Daniel has asked for help: call assist (alex → daniel).'
-            : 'Daniel has not asked for help yet: Daniel calls request_assistance with helper_id "alex".'
+        ? args.destination === ASSISTANCE.person && leader.id === ASSISTANCE.buddy
+          ? requests.some((r) => r.person === ASSISTANCE.person && r.helper === ASSISTANCE.buddy)
+            ? `${name(ASSISTANCE.person)} has asked for help: call assist (${ASSISTANCE.buddy} → ${ASSISTANCE.person}).`
+            : `${name(ASSISTANCE.person)} has not asked for help yet: ${name(ASSISTANCE.person)} calls request_assistance with helper_id "${ASSISTANCE.buddy}".`
           : null
         : null;
       return { ok: true, actionId, status: 'completed', data: { destination: args.destination, already_there: true, at: [leader.col, leader.row], next } };
@@ -1698,8 +1695,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (!requests.some((r) => r.person === person.id && r.helper === helper.id)) {
       counters.assistWithoutConsentAttempts++;
       const hint =
-        person.id === 'daniel' && scenario.danielPreference === 'independent'
-          ? 'Daniel prefers to evacuate independently and has not asked for help; respect that.'
+        person.id === ASSISTANCE.person && scenario.danielPreference === 'independent'
+          ? `${name(person.id)} prefers to evacuate independently and has not asked for help; respect that.`
           : `${name(person.id)} must request_assistance(helper_id='${helper.id}') first (consent).`;
       return fail(actionId, 'ASSISTANCE_NOT_ACCEPTED', `${name(person.id)} has not requested assistance from ${name(helper.id)}.`, hint);
     }
@@ -1726,7 +1723,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     const lost = ACTOR_IDS.filter((id) => actors[id].lost);
     const outstanding = ACTOR_IDS.filter((id) => !actors[id].checkedIn && !actors[id].lost);
     const required = scenario.danielPreference === 'buddy';
-    const fulfilled = escorts.some((e) => (e.leader === 'daniel' || e.follower === 'daniel') && e.fulfilled);
+    const fulfilled = escorts.some((e) => (e.leader === ASSISTANCE.person || e.follower === ASSISTANCE.person) && e.fulfilled);
     return { checkedIn, outstanding, lost, required, fulfilled };
   }
 
@@ -1752,11 +1749,11 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
   }
 
   function toolVerifyRoster(actionId: string, args: ToolArgs['verify_roster']): ToolResult | Fail {
-    if (args.actor_id !== 'alex') return fail(actionId, 'NOT_AUTHORIZED', 'Only the warden (alex) verifies the roster.', "Use actor_id 'alex'.");
-    if (!actors.alex.checkedIn) return fail(actionId, 'OUT_OF_RANGE', 'The warden must be checked in at the assembly point to verify the roster.', "check_in alex at 'assembly' first.");
+    if (args.actor_id !== WARDEN_ID) return fail(actionId, 'NOT_AUTHORIZED', `Only the warden (${WARDEN_ID}) verifies the roster.`, `Use actor_id '${WARDEN_ID}'.`);
+    if (!actors[WARDEN_ID].checkedIn) return fail(actionId, 'OUT_OF_RANGE', 'The warden must be checked in at the assembly point to verify the roster.', `check_in ${WARDEN_ID} at 'assembly' first.`);
     const rs = rosterState();
     const complete = rs.outstanding.length === 0;
-    emit('roster_verified', { complete, checked_in: rs.checkedIn, outstanding: rs.outstanding, lost: rs.lost, assistance_required: rs.required, assistance_fulfilled: rs.fulfilled }, { actor: 'alex', actionId });
+    emit('roster_verified', { complete, checked_in: rs.checkedIn, outstanding: rs.outstanding, lost: rs.lost, assistance_required: rs.required, assistance_fulfilled: rs.fulfilled }, { actor: WARDEN_ID, actionId });
     if (complete) {
       rosterVerified = true;
       if (rs.lost.length) {
@@ -1765,7 +1762,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
           `${rs.checkedIn.map(name).join(' and ')} reached the assembly point and the warden verified the roster; ${rs.lost.map(name).join(' and ')} ${rs.lost.length > 1 ? 'were' : 'was'} lost to the fire.`,
         );
       } else {
-        endEpisode('success', 'All three are physically checked in at the assembly point and the warden verified the roster.');
+        endEpisode('success', `All ${countWord(ACTOR_IDS.length)} are physically checked in at the assembly point and the warden verified the roster.`);
       }
     } else {
       counters.prematureVerifyAttempts++;
@@ -2135,11 +2132,11 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
         .slice(-6)
         .map((e) => ({ from: e.actor!, to: String(e.data.to), topic: String(e.data.topic), evidence_ids: e.evidenceIds ?? [], message: String(e.data.message), at: e.simTime })),
       assistance: {
-        person: 'daniel',
+        person: ASSISTANCE.person,
         preference: scenario.danielPreference,
-        buddy: 'alex',
-        requested: requests.some((r) => r.person === 'daniel'),
-        accepted: escorts.some((e) => e.follower === 'daniel' || e.leader === 'daniel'),
+        buddy: ASSISTANCE.buddy,
+        requested: requests.some((r) => r.person === ASSISTANCE.person),
+        accepted: escorts.some((e) => e.follower === ASSISTANCE.person || e.leader === ASSISTANCE.person),
         fulfilled: rs.fulfilled,
       },
       roster: { checked_in: rs.checkedIn, verified: rosterVerified, lost: rs.lost },
@@ -2175,7 +2172,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     // People who were never told still need the planner (e.g. the reporter evacuated without notifying anyone).
     const unalerted = alive.filter((id) => !actors[id].alerted && !actors[id].checkedIn);
     if (unalerted.length && alive.some((id) => actors[id].alerted)) return { needed: true, reason: `not yet alerted: ${unalerted.join(', ')}` };
-    if (alive.length && alive.every((id) => actors[id].checkedIn) && !rosterVerified && !actors.alex.lost) return { needed: true, reason: 'everyone checked in; roster not verified' };
+    if (alive.length && alive.every((id) => actors[id].checkedIn) && !rosterVerified && !actors[WARDEN_ID].lost) return { needed: true, reason: 'everyone checked in; roster not verified' };
     return { needed: false, reason: 'waiting for movement' };
   }
 
@@ -2356,7 +2353,7 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
     if (a.lost) return { needed: false, reason: 'lost' };
     if (a.checkedIn) {
       // The warden's last job: once everyone is checked in, verify the roster.
-      if (id === 'alex' && !rosterVerified && living().every((o) => actors[o].checkedIn)) return { needed: true, reason: 'everyone checked in; roster not verified' };
+      if (id === WARDEN_ID && !rosterVerified && living().every((o) => actors[o].checkedIn)) return { needed: true, reason: 'everyone checked in; roster not verified' };
       return { needed: false, reason: 'checked in' };
     }
     // Someone who has noticed nothing and heard nothing just keeps working — no model call.
@@ -2442,8 +2439,8 @@ export function createEngine(map: MapData, scenario: ScenarioCase, opts: EngineO
       roster: { checkedIn: rs.checkedIn, verified: rosterVerified, lost: rs.lost },
       assistance: {
         required: rs.required,
-        requested: requests.some((r) => r.person === 'daniel'),
-        accepted: escorts.some((e) => e.follower === 'daniel' || e.leader === 'daniel'),
+        requested: requests.some((r) => r.person === ASSISTANCE.person),
+        accepted: escorts.some((e) => e.follower === ASSISTANCE.person || e.leader === ASSISTANCE.person),
         fulfilled: rs.fulfilled,
       },
       alarm: { active: alarm.active, ...(alarm.at !== undefined ? { atSimTime: alarm.at } : {}), ...(alarm.by ? { by: alarm.by } : {}), ...(alarm.stationId ? { stationId: alarm.stationId } : {}) },

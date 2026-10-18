@@ -44,6 +44,8 @@ export interface OrchestratorDeps {
 
 const isActor = (v: unknown): v is ActorId => typeof v === 'string' && (ACTOR_IDS as readonly string[]).includes(v);
 const nameOf = (a: unknown) => (isActor(a) ? ACTOR_PROFILES[a].name : '?');
+/** Abort after this many provider errors in a row in one decision slot (the central planner, or one person in
+ *  per-agent mode — parallel calls that time out together count once per person, not three times at once). */
 const MAX_CONSECUTIVE_PROVIDER_FAILURES = 3;
 /** After an unproductive decision (observe/consult_plan/rejected/no call/provider error) with no new
  *  meaningful events, wait this many simulated seconds before asking again (prevents spinning). */
@@ -140,7 +142,7 @@ export function describeEvent(e: WorldEvent, map?: MapData, ctx: DescribeContext
       const status = str(d.status);
       if (status === 'success') return '🏁 Everyone made it out';
       if (status === 'failed') return '🏁 Nobody made it out';
-      if (status === 'partial') return `🏁 Partial — ${ctx.escaped ?? '?'} of 3 escaped`;
+      if (status === 'partial') return `🏁 Partial — ${ctx.escaped ?? '?'} of ${ACTOR_IDS.length} escaped`;
       return `🏁 Stopped — ${humanize(str(d.reason) ?? status ?? 'safety stop', ctx.book)}`;
     }
     default:
@@ -220,7 +222,8 @@ export class Orchestrator {
   private held: (() => void)[] = [];
   private rows = new Map<string, TraceRow>();
   private moveRows = new Map<string, string>();
-  private consecutiveProviderFailures = 0;
+  /** Provider errors in a row, per decision slot. */
+  private consecutiveProviderFailures = new Map<string, number>();
   private failureAt = new Map<ActorId, number>();
   private doorRows = new Set<string>();
   /** What each evidence id refers to — for turning stray ids into words in viewer-facing text. */
@@ -493,9 +496,10 @@ export class Orchestrator {
       const detail = `${res.code}: ${res.message}${retried ? ' (after 1 retry)' : ''}`;
       engine.noteDecision({ decisionId, kind: 'provider_error', detail }, { latencyMs: res.latencyMs });
       this.d.recordInput({ tick, type: 'note', note: { decisionId, kind: 'provider_error', detail }, meta: { latencyMs: res.latencyMs } });
-      this.consecutiveProviderFailures++;
+      const failures = (this.consecutiveProviderFailures.get(key) ?? 0) + 1;
+      this.consecutiveProviderFailures.set(key, failures);
       this.emit({ ...this.rowWithResponse(base, res), status: 'provider_error', summary: detail, simTime, origin: `${who} → (no response)` });
-      if (this.consecutiveProviderFailures >= MAX_CONSECUTIVE_PROVIDER_FAILURES && !engine.outcome()) {
+      if (failures >= MAX_CONSECUTIVE_PROVIDER_FAILURES && !engine.outcome()) {
         const reason = `model unavailable: ${res.code} ${res.message}`.slice(0, 200);
         engine.end('aborted', reason);
         this.d.recordInput({ tick, type: 'end', status: 'aborted', reason });
@@ -503,7 +507,7 @@ export class Orchestrator {
       this.markDecision(key, false);
       return;
     }
-    this.consecutiveProviderFailures = 0;
+    this.consecutiveProviderFailures.set(key, 0);
 
     if (res.kind === 'no_call') {
       const detail = `No tool call in response${res.text ? `: "${res.text.slice(0, 120)}"` : ''}`;

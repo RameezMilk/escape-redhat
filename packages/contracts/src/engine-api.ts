@@ -1,5 +1,6 @@
 // The engine boundary. packages/engine implements this; apps/server and apps/eval consume it.
 // The engine is pure and deterministic: no timers, no I/O, no Math.random (seeded PRNG only).
+import { ACTOR_IDS } from './types.js';
 import type {
   ActorId,
   AgentView,
@@ -109,24 +110,56 @@ export interface Engine {
 
 export type CreateEngine = (map: MapData, scenario: ScenarioCase, opts: EngineOptions) => Engine;
 
-/** Actor display metadata shared by engine/web. */
-export const ACTOR_PROFILES: Record<ActorId, { name: string; role: string; profile: string; usesWheelchair: boolean }> = {
+export interface ActorProfile {
+  name: string;
+  role: string;
+  profile: string;
+  usesWheelchair: boolean;
+  /** The exercise warden: the only person who can verify the roster (exactly one). */
+  warden?: true;
+  /** The buddy this person may ask for help in an evacuation (the one assistance arrangement). */
+  buddy?: ActorId;
+  /** Idle chatter before an incident. */
+  ambient: string[];
+}
+
+/** Actor metadata shared by engine, server and web. */
+export const ACTOR_PROFILES: Record<ActorId, ActorProfile> = {
   alex: {
     name: 'Alex',
     role: 'Exercise warden (employee)',
     profile: 'Calm, trained in the fictional evacuation plan, knows the layout, the pull stations and the roster. Designated buddy for visitors who ask for help.',
     usesWheelchair: false,
+    warden: true,
+    ambient: ['Badge printer is jammed again…', 'Who booked the lobby for 4pm?', 'Checking the visitor list.', 'Coffee refill time.'],
   },
   maya: {
     name: 'Maya',
     role: 'Employee',
     profile: 'Observant and empathetic; reports what she sees and helps when appropriate.',
     usesWheelchair: false,
+    ambient: ['These slides need one more chart.', 'Has anyone seen my stylus?', 'Demo dry-run in ten!', 'Ooh, snacks arrived.'],
   },
   daniel: {
     name: 'Daniel',
     role: 'Visitor (uses a wheelchair)',
     profile: 'Unfamiliar with the building. Navigates accessible routes himself; has asked for a buddy to guide him if there is an evacuation.',
     usesWheelchair: true,
+    buddy: 'alex',
+    ambient: ['Nice office — where is the whiteboard?', 'Wi-Fi password, anyone?', 'Taking notes for the team.', 'This chair has great wheels… oh wait.'],
   },
 };
+
+/** The exercise warden (verifies the roster). */
+export const WARDEN_ID: ActorId = ACTOR_IDS.find((id) => ACTOR_PROFILES[id].warden) ?? ACTOR_IDS[0];
+
+/** The assistance arrangement: `person` may ask `buddy` to guide them out (ScenarioCase.danielPreference says whether
+ *  they want to in a given case — the field name predates the profile-driven roster). */
+export const ASSISTANCE: { person: ActorId; buddy: ActorId } = (() => {
+  const person = ACTOR_IDS.find((id) => ACTOR_PROFILES[id].buddy) ?? ACTOR_IDS[ACTOR_IDS.length - 1];
+  return { person, buddy: ACTOR_PROFILES[person].buddy ?? WARDEN_ID };
+})();
+
+const NUMBER_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+/** "three", "five" — for prose about the roster size. */
+export const countWord = (n: number): string => NUMBER_WORDS[n] ?? String(n);

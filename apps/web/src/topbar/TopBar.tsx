@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
-import type { ProviderInfo, Snapshot } from '@escape/contracts';
+import { ACTOR_IDS, type ProviderInfo, type Snapshot } from '@escape/contracts';
 
 import { isMuted, onMuteChange, setMuted, startSiren, stopSiren } from '../audio/siren';
 import { send } from '../net/socket';
@@ -13,7 +13,7 @@ function outcomeLabel(s: Snapshot): string {
     case 'success':
       return 'Success';
     case 'partial':
-      return `Partial — ${escaped}/3 escaped`;
+      return `Partial — ${escaped}/${ACTOR_IDS.length} escaped`;
     case 'failed':
       return 'All lost';
     default:

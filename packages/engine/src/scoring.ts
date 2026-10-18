@@ -1,5 +1,5 @@
 // Metrics, reward and the deterministic debrief, computed from the episode's logs.
-import { ACTOR_PROFILES, type ActorId, type DebriefLesson, type EpisodeMetrics, type EpisodeOutcome, type EpisodeResult, type WorldEvent, type ZoneId } from '@escape/contracts';
+import { ACTOR_IDS, ACTOR_PROFILES, ASSISTANCE, type ActorId, type DebriefLesson, type EpisodeMetrics, type EpisodeOutcome, type EpisodeResult, type WorldEvent, type ZoneId } from '@escape/contracts';
 import { canonicalJson } from './hash.js';
 import { ruleSources } from './knowledge.js';
 import { anyStationName, atPlace, doorName, joinNames, stationName } from './places.js';
@@ -290,10 +290,10 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
       score: 3,
       l: lesson(
         'assistance',
-        "Daniel's buddy arrangement",
+        `${name(ASSISTANCE.person)}'s buddy arrangement`,
         input.roster.fulfilled
-          ? 'Daniel asked for his agreed buddy, Alex came to him, and they travelled together on wheelchair-accessible tiles to the assembly point. Consent came first; nobody carried him.'
-          : `Daniel had asked for a buddy in advance, but the escort was not completed${m.procedural.assistWithoutConsentAttempts ? ' (assistance was attempted before he had asked)' : ''}. It is optional in this exercise, but pre-arranged, consent-based assistance is good practice.`,
+          ? `${name(ASSISTANCE.person)} asked for his agreed buddy, ${name(ASSISTANCE.buddy)} came to him, and they travelled together on wheelchair-accessible tiles to the assembly point. Consent came first; nobody carried him.`
+          : `${name(ASSISTANCE.person)} had asked for a buddy in advance, but the escort was not completed${m.procedural.assistWithoutConsentAttempts ? ' (assistance was attempted before he had asked)' : ''}. It is optional in this exercise, but pre-arranged, consent-based assistance is good practice.`,
         ['EAP-ASSIST', 'GUIDE-LAYOUT-BUDDY'],
       ),
     });
@@ -302,14 +302,14 @@ function buildDebrief(input: ScoringInput, m: EpisodeMetrics, report: ActionLogE
       score: 2.5,
       l: lesson(
         'assistance',
-        "Respecting Daniel's preference",
-        `Daniel preferred to evacuate independently${m.procedural.assistWithoutConsentAttempts ? `; ${m.procedural.assistWithoutConsentAttempts} unrequested assistance attempt(s) were refused by the rules` : ''}. Assistance arrangements are individual and consent-based.`,
+        `Respecting ${name(ASSISTANCE.person)}'s preference`,
+        `${name(ASSISTANCE.person)} preferred to evacuate independently${m.procedural.assistWithoutConsentAttempts ? `; ${m.procedural.assistWithoutConsentAttempts} unrequested assistance attempt(s) were refused by the rules` : ''}. Assistance arrangements are individual and consent-based.`,
         ['EAP-ASSIST'],
       ),
     });
   }
 
-  const survivors = 3 - input.lost.length;
+  const survivors = ACTOR_IDS.length - input.lost.length;
   candidates.push({
     score: 3.5,
     l: lesson(

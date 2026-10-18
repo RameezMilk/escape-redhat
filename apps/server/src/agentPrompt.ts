@@ -2,7 +2,8 @@
 // what they personally know (engine.agentView). No hard-coded instincts run in this mode — the responsibilities below
 // are the person's own judgement, stated once in their system prompt. The central planner prompt (prompt.ts) is
 // unchanged and still used by central mode and the Gym API.
-import { ACTOR_IDS, ACTOR_PROFILES, TOOL_DEFS, type ActorId, type AgentView, type MapData, type OpenAIToolDef, type ScenarioCase } from '@escape/contracts';
+import { ACTOR_IDS, ACTOR_PROFILES, ASSISTANCE, countWord, TOOL_DEFS, WARDEN_ID, type ActorId, type AgentView, type MapData, type OpenAIToolDef, type ScenarioCase } from '@escape/contracts';
+import { joinNames } from '@escape/engine';
 import { placeName } from './places.js';
 
 const place = (z: string | null | undefined) => (z ? placeName(z) : 'somewhere unknown');
@@ -28,23 +29,19 @@ Fire spreads every second and can burn through walls into the next room. Walking
 export function buildAgentSystemPrompt(id: ActorId, map: MapData, scenario: ScenarioCase): string {
   const p = ACTOR_PROFILES[id];
   const about: string[] = [`You are ${p.name} — ${p.role}. ${p.profile}`];
-  if (id === 'alex') about.push('You are the exercise warden: when everyone is checked in at the assembly point, you confirm the roster with verify_roster (only you can).');
-  if (id === 'daniel') {
-    about.push('You use a wheelchair: your routes are step-free (the engine plans them that way).');
+  if (id === WARDEN_ID) about.push('You are the exercise warden: when everyone is checked in at the assembly point, you confirm the roster with verify_roster (only you can).');
+  if (p.usesWheelchair) about.push('You use a wheelchair: your routes are step-free (the engine plans them that way).');
+  if (id === ASSISTANCE.person) {
     about.push(
       scenario.danielPreference === 'buddy'
-        ? 'You told Alex you would like a buddy in an evacuation (request_assistance). It is optional — you can also evacuate on your own, and you never wait in danger for a buddy.'
+        ? `You told ${ACTOR_PROFILES[ASSISTANCE.buddy].name} you would like a buddy in an evacuation (request_assistance). It is optional — you can also evacuate on your own, and you never wait in danger for a buddy.`
         : 'You evacuate on your own; you have not asked anyone to be your buddy.',
     );
   }
-  if (id !== 'daniel') {
-    const others = ACTOR_IDS.filter((o) => o !== id).map((o) => `${ACTOR_PROFILES[o].name} (${ACTOR_PROFILES[o].role})`);
-    about.push(`Also in the building: ${others.join(' and ')}.`);
-  } else {
-    about.push('Also in the building: Alex (the warden) and Maya (an employee).');
-  }
+  const others = ACTOR_IDS.filter((o) => o !== id).map((o) => `${ACTOR_PROFILES[o].name} (${ACTOR_PROFILES[o].role})`);
+  about.push(`Also in the building: ${joinNames(others)}.`);
 
-  return `You are one of three people in an evacuation drill simulation ("Escape from Red Hat"). You decide ONLY for yourself. Each turn, think about what you personally see, hear and know right now — your surroundings, the hazards you know about, who is with you, whether the alarm is sounding — then call exactly ONE tool for yourself (actor_id "${id}"). A simulation engine checks every action against the real world: an impossible action is rejected with a reason and a hint and changes nothing.
+  return `You are one of ${countWord(ACTOR_IDS.length)} people in an evacuation drill simulation ("Escape from Red Hat"). You decide ONLY for yourself. Each turn, think about what you personally see, hear and know right now — your surroundings, the hazards you know about, who is with you, whether the alarm is sounding — then call exactly ONE tool for yourself (actor_id "${id}"). A simulation engine checks every action against the real world: an impossible action is rejected with a reason and a hint and changes nothing.
 
 ABOUT YOU
 ${about.join('\n')}
@@ -59,8 +56,8 @@ WHAT A RESPONSIBLE PERSON DOES (use your own judgement)
 - Once you are outside, do not go back into the building.
 - Go to the assembly point ("assembly") and check_in when you are standing in it.
 - If your way is blocked (a dead sliding door, fire ahead), plan_route to "assembly" and move with the returned route_id.${
-    id === 'alex'
-      ? '\n- As warden: if Daniel asks for help and you can reach him safely, go to him and assist; then your moves take him along. When everyone is checked in, call verify_roster.'
+    id === WARDEN_ID
+      ? `\n- As warden: if ${ACTOR_PROFILES[ASSISTANCE.person].name} asks for help and you can reach him safely, go to him and assist; then your moves take him along. When everyone is checked in, call verify_roster.`
       : ''
   }
 
@@ -169,7 +166,7 @@ export function agentToolsFor(id: ActorId, view: AgentView): OpenAIToolDef[] {
     request_assistance: !me.checked_in && me.uses_wheelchair && !view.assistance.requested_by_me,
     assist: !me.checked_in && view.assistance.requested_of_me.length > 0 && !view.assistance.escorting,
     check_in: !me.checked_in && me.zone === 'assembly',
-    verify_roster: id === 'alex' && me.checked_in,
+    verify_roster: id === WARDEN_ID && me.checked_in,
     pull_alarm: !view.alarm.sounding && !me.checked_in,
   };
   const out: OpenAIToolDef[] = [];

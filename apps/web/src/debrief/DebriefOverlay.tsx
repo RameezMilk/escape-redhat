@@ -1,4 +1,5 @@
 // Completion overlay: actual outcome (never inferred from model claims), measured metrics, three source-linked lessons.
+import { ACTOR_IDS } from '@escape/contracts';
 import { useState } from 'react';
 
 import { send } from '../net/socket';
@@ -32,7 +33,7 @@ export function DebriefOverlay() {
   }
   const m = result.metrics;
   const base = OUTCOME[result.outcome.status] ?? { title: result.outcome.status, tone: 'warn' };
-  const o = result.outcome.status === 'partial' ? { ...base, title: `Partial — ${m.procedural.escaped} of 3 escaped` } : base;
+  const o = result.outcome.status === 'partial' ? { ...base, title: `Partial — ${m.procedural.escaped} of ${ACTOR_IDS.length} escaped` } : base;
   const alarm = snapshot?.alarm;
   const alarmText = m.procedural.alarmRaised
     ? `${alarm?.by ? alarm.by[0].toUpperCase() + alarm.by.slice(1) : 'yes'}${m.procedural.alarmLatencySimSec !== null ? ` · +${m.procedural.alarmLatencySimSec.toFixed(1)} s` : ''}`
@@ -49,7 +50,9 @@ export function DebriefOverlay() {
         </div>
         <div className="metrics">
           <div>
-            <b>{m.procedural.escaped}/3</b>
+            <b>
+              {m.procedural.escaped}/{ACTOR_IDS.length}
+            </b>
             <span>escaped (checked in)</span>
           </div>
           <div>

@@ -43,11 +43,13 @@ import type {
   ZoneId,
 } from '../../packages/contracts/src/types.js';
 import { DEFAULT_MAP_ID } from '../../packages/contracts/src/map-ids.generated.js';
+import { ACTOR_IDS } from '../../packages/contracts/src/types.js';
+import { ACTOR_PROFILES } from '../../packages/contracts/src/engine-api.js';
 
 export const GENERATOR_VERSION = '2.0.0';
 export const DATASET_ID = 'escape-office-scenarios-v2';
 export const MASTER_SEED = 20261017;
-const ACTORS: ActorId[] = ['alex', 'maya', 'daniel'];
+const ACTORS: ActorId[] = [...ACTOR_IDS];
 
 /** Placement geometry (must match packages/engine/src/placement.ts; cross-checked at runtime when importable). */
 export const HAZARD_GEOMETRY = {
@@ -301,7 +303,7 @@ function solvability(g: Grid, spawns: Record<ActorId, SpawnSpot>, hazards: Place
   for (const h of hazards) for (const t of h.cells) blocked.add(g.key(t.col, t.row));
   const res: Record<'A' | 'B', Record<ActorId, Tile[] | null>> = { A: {} as never, B: {} as never };
   for (const mode of ['A', 'B'] as const) {
-    for (const a of ACTORS) res[mode][a] = g.routeToAssembly(spawns[a], g.passFn(a === 'daniel', blocked, mode));
+    for (const a of ACTORS) res[mode][a] = g.routeToAssembly(spawns[a], g.passFn(ACTOR_PROFILES[a].usesWheelchair, blocked, mode));
   }
   const solvableA = ACTORS.every((a) => res.A[a] !== null);
   const solvableB = ACTORS.every((a) => res.B[a] !== null);

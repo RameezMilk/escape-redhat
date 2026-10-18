@@ -10,7 +10,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { EpisodeResult, ScenarioCase, TraceRow } from '@escape/contracts';
+import { ACTOR_IDS, ACTOR_PROFILES, ASSISTANCE, type EpisodeResult, type ScenarioCase, type TraceRow } from '@escape/contracts';
 import { createProviderFromEnv, runEpisodeHeadless } from '../../server/src/headless.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -181,7 +181,7 @@ export function aggregate(rows: BenchRow[], latencies: number[], wallMs: number)
     falseSuccessOnTrapped: trapped.filter((r) => r.outcome === 'success').length,
     trappedCases: trapped.length,
     labelConsistent: `${ok.filter((r) => r.labelConsistent).length}/${ok.length}`,
-    peopleEscaped: `${ok.reduce((a, r) => a + r.escaped, 0)}/${ok.length * 3}`,
+    peopleEscaped: `${ok.reduce((a, r) => a + r.escaped, 0)}/${ok.length * ACTOR_IDS.length}`,
     peopleLost: ok.reduce((a, r) => a + r.lost, 0),
     peopleLostOnNormal: normal.reduce((a, r) => a + r.lost, 0),
     peopleLostOnTrapped: trapped.reduce((a, r) => a + r.lost, 0),
@@ -241,7 +241,7 @@ export function renderMarkdown(s: BenchSummary): string {
   lines.push(`| Re-planned after a route interruption | ${a.replannedAfterInterruption} |`);
   lines.push(`| Hazard reported (notify with evidence or alarm) | ${a.hazardReported} |`);
   lines.push(`| Fire alarm pulled · mean sim s after first sighting | ${a.alarmRaised} · ${fmt(a.meanAlarmLatencySimSec)} |`);
-  lines.push(`| Buddy assistance completed when Daniel asked | ${a.assistanceFulfilledWhenRequested} |`);
+  lines.push(`| Buddy assistance completed when ${ACTOR_PROFILES[ASSISTANCE.person].name} asked | ${a.assistanceFulfilledWhenRequested} |`);
   lines.push(`| Roster verified | ${a.rosterVerified} |`);
   lines.push(`| Mean decisions / episode | ${fmt(a.meanDecisions)} |`);
   lines.push(`| Mean sim time to verified success (s) | ${fmt(a.meanSimTimeToCompleteSuccess)} |`);
@@ -251,7 +251,7 @@ export function renderMarkdown(s: BenchSummary): string {
   lines.push('');
   lines.push('| Family | n | success | as expected | escaped | lost |');
   lines.push('|---|---|---|---|---|---|');
-  for (const [f, v] of Object.entries(a.byFamily)) lines.push(`| ${f} | ${v.n} | ${pct(v.success, v.n)} | ${pct(v.labelConsistent, v.n)} | ${v.escaped}/${v.n * 3} | ${v.lost} |`);
+  for (const [f, v] of Object.entries(a.byFamily)) lines.push(`| ${f} | ${v.n} | ${pct(v.success, v.n)} | ${pct(v.labelConsistent, v.n)} | ${v.escaped}/${v.n * ACTOR_IDS.length} | ${v.lost} |`);
   lines.push('');
   lines.push('## Cases');
   lines.push('');
