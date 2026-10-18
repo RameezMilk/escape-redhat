@@ -1,8 +1,9 @@
-// Generates the escape-office-scenarios dataset (synthetic, deterministic) — ruleset 2.
+// Generates the escape-office-scenarios dataset for the current map (synthetic, deterministic) — ruleset 2.
 //
 //   npm run data:scenarios
+//   npx tsx data/scenarios/generator.ts --check    # generate, compare with the files on disk, write nothing
 //
-// Inputs:  data/maps/office-v1.json (built by data/maps/build-map.ts), data/scenarios/demo-hero.json
+// Inputs:  data/maps/<DEFAULT_MAP_ID>.json (npm run data:map), data/scenarios/demo-hero.json, hero-story.json
 // Outputs: data/scenarios/cases.dev.jsonl, cases.test.jsonl, splits.json, provenance.json
 //
 // Ruleset 2 (see DATASET_CARD.md): fire SPREADS from a 2×2 seed (stochastic, seeded in the engine); an
@@ -10,17 +11,17 @@
 // there is no time limit, and people reached by the fire are lost.
 //
 // Method:
-//  1. Spawns: one seeded pick per actor from map.spawnSpots (non-overlapping; Daniel's spots are wheelchair-accessible).
-//  2. Fire seed: a valid 2×2 placement from a *fire-location family*. Dev and test use DISJOINT families
-//     (structural hold-out): dev = rh_room near door A, lobby; test = north_corridor, rh_room near door B.
+//  1. Spawns: one seeded pick per actor from map.spawnSpots (non-overlapping; wheelchair users' spots are accessible).
+//  2. Fire seed: a valid 2×2 placement from a *fire-location family* (SPECS below, per map). Dev and test use
+//     DISJOINT families (structural hold-out): test fire locations never appear in dev.
 //  3. Family extras:
-//     - multi_fire: a second seed from the split's other fire family, ≥3 tiles from every spawn, at t = 4–8 s.
+//     - multi_fire: a second seed from another of the split's fire families, ≥3 tiles from every spawn, at t = 4–8 s.
 //     - fire_then_door: an electrical failure on a sliding door that lies on someone's oracle route given the fire,
 //       chosen so an alternate route still exists; it drops when someone enters the zone before that door
 //       (mid-evacuation), or shortly after the incident for doors right next to the start room.
-//     - independent: Daniel prefers to evacuate on his own; half of these also get a door failure.
-//     - trapped: fire inside the Red Hat room and BOTH of its doors fail at t = 1 s, sealing the room's occupants in
-//       with a spreading fire → expectLosses.
+//     - independent: the assisted person (ASSISTANCE) prefers to evacuate on their own; half also get a door failure.
+//     - trapped: fire inside a sealable room (every opening is an electric door) and ALL of its doors fail at
+//       t = 1 s, sealing its occupants in with a spreading fire → expectLosses.
 //  4. Labels from a full-knowledge grid search at placement time (fire seed cells + disabled doors, Daniel on
 //     wheelchair-clearance tiles), required to agree under two clearance interpretations. Fire spread is stochastic
 //     and happens later in the engine, so these labels describe the start of the incident, not the outcome.
@@ -44,12 +45,46 @@ import type {
 } from '../../packages/contracts/src/types.js';
 import { DEFAULT_MAP_ID } from '../../packages/contracts/src/map-ids.generated.js';
 import { ACTOR_IDS } from '../../packages/contracts/src/types.js';
-import { ACTOR_PROFILES } from '../../packages/contracts/src/engine-api.js';
+import { ACTOR_PROFILES, ASSISTANCE } from '../../packages/contracts/src/engine-api.js';
+import { sealableRooms } from '../maps/builder.js';
+import { heroStoryCase, loadDemoHero, loadHeroStory } from './heroStory.js';
 
-export const GENERATOR_VERSION = '2.0.0';
-export const DATASET_ID = 'escape-office-scenarios-v2';
+export const GENERATOR_VERSION = '3.0.0';
 export const MASTER_SEED = 20261017;
 const ACTORS: ActorId[] = [...ACTOR_IDS];
+
+/** A fire-location family: 2×2 seeds whose whole footprint lies in `zone` (and inside `box`, if given). */
+export interface FireFamilyDef {
+  id: string;
+  zone: ZoneId;
+  box?: { cols: [number, number]; rows: [number, number] };
+  /** Prefer seeds someone can see at t = 1 s (false for corridors, where fires are usually smelled first). */
+  preferVisible?: boolean;
+}
+
+/** Per-map dataset recipe: fire families per split (disjoint) and the family used for trapped cases. */
+export interface MapScenarioSpec {
+  dataset: string;
+  families: Record<'dev' | 'test', FireFamilyDef[]>;
+  trapped: Record<'dev' | 'test', string>;
+}
+
+export const SPECS: Record<string, MapScenarioSpec> = {
+  'office-v1': {
+    dataset: 'escape-office-scenarios-v2',
+    families: {
+      dev: [
+        { id: 'rh_room_doorA', zone: 'rh_room' as ZoneId, box: { cols: [5, 12], rows: [0, 8] } }, // within 4 tiles of door A
+        { id: 'lobby', zone: 'lobby' as ZoneId },
+      ],
+      test: [
+        { id: 'north_corridor', zone: 'north_corridor' as ZoneId, preferVisible: false },
+        { id: 'rh_room_doorB', zone: 'rh_room' as ZoneId, box: { cols: [14, 99], rows: [7, 12] } }, // within 4 tiles of door B
+      ],
+    },
+    trapped: { dev: 'rh_room_doorA', test: 'rh_room_doorB' },
+  },
+};
 
 /** Placement geometry (must match packages/engine/src/placement.ts; cross-checked at runtime when importable). */
 export const HAZARD_GEOMETRY = {
@@ -277,26 +312,20 @@ export function validPlacement(g: Grid, p: Placed, occupied: Tile[], others: Pla
 // Families
 // ---------------------------------------------------------------------------
 
-type FireFamily = 'rh_room_doorA' | 'lobby' | 'north_corridor' | 'rh_room_doorB';
-const DEV_FIRE_FAMILIES: FireFamily[] = ['rh_room_doorA', 'lobby'];
-const TEST_FIRE_FAMILIES: FireFamily[] = ['north_corridor', 'rh_room_doorB'];
-const RH_FAMILY: Record<'dev' | 'test', FireFamily> = { dev: 'rh_room_doorA', test: 'rh_room_doorB' };
-
-function inFireFamily(g: Grid, fam: FireFamily, col: number, row: number): boolean {
+function inFireFamily(g: Grid, fam: FireFamilyDef, col: number, row: number): boolean {
   const fp = g.fireSeed(col, row);
-  const zones = new Set(fp.map((t) => g.zoneAt(t.col, t.row)));
-  const all = (z: ZoneId) => zones.size === 1 && zones.has(z);
-  switch (fam) {
-    case 'rh_room_doorA': // inside the Red Hat room, within 4 tiles of door A (8..9, 4)
-      return all('rh_room') && fp.every((t) => t.row <= 8 && t.col >= 5 && t.col <= 12);
-    case 'rh_room_doorB': // inside the Red Hat room, within 4 tiles of door B (18, 9..10)
-      return all('rh_room') && fp.every((t) => t.col >= 14 && t.row >= 7 && t.row <= 12);
-    case 'lobby':
-      return all('lobby');
-    case 'north_corridor':
-      return all('north_corridor');
-  }
+  if (!fp.every((t) => g.zoneAt(t.col, t.row) === fam.zone)) return false;
+  const b = fam.box;
+  return !b || fp.every((t) => t.col >= b.cols[0] && t.col <= b.cols[1] && t.row >= b.rows[0] && t.row <= b.rows[1]);
 }
+
+/** The electric doors that seal a room (components in the door zones next to it). */
+function sealingDoors(g: Grid, room: ZoneId): DoorComponent[] {
+  const nbrs = new Set(g.map.zoneEdges.flatMap(([a, b]) => (a === room ? [b] : b === room ? [a] : [])));
+  return g.map.components.filter((d) => nbrs.has(d.zone));
+}
+
+const shortName = (g: Grid, z: ZoneId) => (g.map.zones.find((d) => d.id === z)?.name ?? z).replace(/^the /, '');
 
 function solvability(g: Grid, spawns: Record<ActorId, SpawnSpot>, hazards: Placed[]) {
   const blocked = new Set<string>();
@@ -325,7 +354,7 @@ function sampleSpawns(g: Grid, rng: Rng): Record<ActorId, SpawnSpot> {
 
 const spawnTiles = (spawns: Record<ActorId, SpawnSpot>): Tile[] => ACTORS.map((a) => spawns[a]);
 
-function fireCandidates(g: Grid, fam: FireFamily, spawns: Record<ActorId, SpawnSpot>, others: Placed[], minDistFromSpawns = 0): Placed[] {
+function fireCandidates(g: Grid, fam: FireFamilyDef, spawns: Record<ActorId, SpawnSpot>, others: Placed[], minDistFromSpawns = 0): Placed[] {
   const out: Placed[] = [];
   for (let r = 0; r < g.map.rows; r++) {
     for (let c = 0; c < g.map.cols; c++) {
@@ -359,7 +388,7 @@ function doorTrigger(g: Grid, routes: Record<ActorId, Tile[] | null>, door: Door
 
 interface Built {
   scenario: ScenarioCase;
-  fireFamily: FireFamily | 'hero';
+  fireFamily: string;
   doors: string[];
   fireSeenBy: ActorId[];
   /** Placements to cross-check with the engine: actors given = positions known at drop time (t=1 s), else []. */
@@ -371,8 +400,8 @@ function buildCase(
   rng: Rng,
   split: 'dev' | 'test',
   family: CaseFamily,
-  fam: FireFamily,
-  otherFam: FireFamily,
+  fam: FireFamilyDef,
+  otherFam: FireFamilyDef,
   n: number,
   usedKeys: Set<string>,
 ): Built | null {
@@ -384,7 +413,7 @@ function buildCase(
     if (!fires.length) continue;
     // Prefer fires someone can see at t=1 s; corridor fires are usually only smelled (15 s rule).
     const visible = fires.filter((f) => seenBy(g, spawns, f).length > 0);
-    const fire = pick(crng, visible.length && fam !== 'north_corridor' ? visible : fires);
+    const fire = pick(crng, visible.length && fam.preferVisible !== false ? visible : fires);
     const fireOnly = solvability(g, spawns, [fire]);
     if (!fireOnly.agree || !fireOnly.solvable) continue;
 
@@ -397,7 +426,7 @@ function buildCase(
     let expectLosses = false;
     let primaryRouteBlocked = false;
     const doors: string[] = [];
-    let notes = `Fire seed (${fam}) at t=1 s.`;
+    let notes = `Fire seed (${fam.id}) at t=1 s.`;
     const danielPreference = family === 'independent' ? 'independent' : 'buddy';
 
     if (family === 'multi_fire') {
@@ -412,7 +441,7 @@ function buildCase(
       events.push({ id: 'ev-fire-2', trigger: { type: 'at_time', simTime: t }, action: { type: 'place_hazard', kind: 'fire', col: second.col, row: second.row } });
       checks.push({ p: second, actors: [], before: [fire] });
       placed.push(second);
-      notes += ` Second fire seed (${otherFam}) at t=${t} s.`;
+      notes += ` Second fire seed (${otherFam.id}) at t=${t} s.`;
     }
 
     const wantsDoor = family === 'fire_then_door' || (family === 'independent' && crng() < 0.5);
@@ -438,25 +467,29 @@ function buildCase(
     }
 
     if (family === 'trapped') {
-      // Seal the Red Hat room: fire inside + both of its doors fail at t=1 s.
-      if (!ACTORS.some((a) => g.zoneAt(spawns[a].col, spawns[a].row) === 'rh_room')) continue;
-      if (!fire.cells.every((t) => g.zoneAt(t.col, t.row) === 'rh_room')) continue;
-      for (const id of ['door_a', 'door_b']) {
-        const p = g.placedDoor(id);
+      // Seal the room: fire inside + every one of its doors fails at t=1 s.
+      const room = fam.zone;
+      if (!sealableRooms(g.map).includes(room)) throw new Error(`trapped family ${fam.id}: ${room} is not sealable`);
+      if (!ACTORS.some((a) => g.zoneAt(spawns[a].col, spawns[a].row) === room)) continue;
+      if (!fire.cells.every((t) => g.zoneAt(t.col, t.row) === room)) continue;
+      const sealing = sealingDoors(g, room);
+      for (const d of sealing) {
+        const p = g.placedDoor(d.id);
         if (!validPlacement(g, p, spawnTiles(spawns), placed)) break;
-        events.push({ id: `ev-${id}`, trigger: { type: 'at_time', simTime: 1 }, action: { type: 'place_hazard', kind: 'electrical', col: p.col, row: p.row } });
+        events.push({ id: `ev-${d.id}`, trigger: { type: 'at_time', simTime: 1 }, action: { type: 'place_hazard', kind: 'electrical', col: p.col, row: p.row } });
         checks.push({ p, actors: spawnTiles(spawns), before: [...placed] });
         placed.push(p);
-        doors.push(id);
+        doors.push(d.id);
       }
-      if (doors.length !== 2) continue;
+      if (doors.length !== sealing.length) continue;
       const all = solvability(g, spawns, placed);
       if (!all.agree || all.solvable) continue;
       solvable = false;
       expectLosses = true;
-      notes += ' Both Red Hat room doors fail at t=1 s with the fire inside: the room is sealed, so its occupants are expected to be lost. Honest outcomes: partial or failed, never success.';
+      const which = sealing.length === 1 ? `The ${shortName(g, room)} door fails` : `${sealing.length === 2 ? 'Both' : `All ${sealing.length}`} ${shortName(g, room)} doors fail`;
+      notes += ` ${which} at t=1 s with the fire inside: the room is sealed, so its occupants are expected to be lost. Honest outcomes: partial or failed, never success.`;
     }
-    if (family === 'independent') notes += ' Daniel prefers to evacuate independently (no buddy).';
+    if (family === 'independent') notes += ` ${ACTOR_PROFILES[ASSISTANCE.person].name} prefers to evacuate independently (no buddy).`;
 
     const sig = JSON.stringify([spawns, events.map((e) => e.action), danielPreference]);
     if (usedKeys.has(sig)) continue;
@@ -473,7 +506,7 @@ function buildCase(
       events,
       labels: { solvable, primaryRouteBlocked, ...(expectLosses ? { expectLosses } : {}), notes },
     };
-    return { scenario, fireFamily: fam, doors, fireSeenBy: seenBy(g, spawns, fire), checks };
+    return { scenario, fireFamily: fam.id, doors, fireSeenBy: seenBy(g, spawns, fire), checks };
   }
   return null;
 }
@@ -496,37 +529,30 @@ const PLAN: Record<'dev' | 'test', [CaseFamily, number][]> = {
   ],
 };
 
-function heroAuto(g: Grid, hero: ScenarioCase): Built {
-  // The live demo case with its manual placements turned into scheduled triggers so the benchmark can run it.
-  const fireEv = hero.events.find((e) => e.action.kind === 'fire')!;
-  const doorEv = hero.events.find((e) => e.action.kind === 'electrical')!;
-  const fire = g.placedFire(fireEv.action.col, fireEv.action.row);
-  const doorComp = g.doorNear(doorEv.action.col, doorEv.action.row);
-  if (!doorComp) throw new Error('demo-hero electrical event is not on a sliding door');
-  const door = g.placedDoor(doorComp.id);
-  const scenario: ScenarioCase = {
-    ...hero,
-    caseId: 'dev-00-hero',
-    split: 'dev',
-    family: 'hero',
-    events: [
-      { ...fireEv, trigger: { type: 'at_time', simTime: 1 } },
-      { ...doorEv, trigger: { type: 'actor_enters_zone', actor: 'any', zone: 'lobby' } },
-    ],
-    labels: { ...hero.labels, notes: `Automated version of demo-hero: fire seed at t=1 s, electrical failure on ${doorComp.id} when anyone enters the lobby.` },
-  };
-  const s = solvability(g, hero.spawns, [fire, door]);
-  if (!s.agree || !s.solvable) throw new Error('demo-hero must be solvable with both hazards present');
-  return {
-    scenario,
-    fireFamily: 'hero',
-    doors: [doorComp.id],
-    fireSeenBy: seenBy(g, hero.spawns, fire),
-    checks: [
-      { p: fire, actors: spawnTiles(hero.spawns), before: [] },
-      { p: door, actors: [], before: [fire] },
-    ],
-  };
+function heroCase(g: Grid): Built {
+  // The scripted hero story (demo-hero's people + hero-story.json's hazards), so the benchmark can run it.
+  const scenario = heroStoryCase(loadDemoHero(), loadHeroStory());
+  const placed: Placed[] = [];
+  const checks: Built['checks'] = [];
+  const doors: string[] = [];
+  for (const ev of scenario.events) {
+    if (ev.action.kind === 'fire') {
+      const p = g.placedFire(ev.action.col, ev.action.row);
+      checks.push({ p, actors: ev.trigger.type === 'at_time' && ev.trigger.simTime <= 1 ? spawnTiles(scenario.spawns) : [], before: [...placed] });
+      placed.push(p);
+    } else {
+      const comp = g.doorNear(ev.action.col, ev.action.row);
+      if (!comp) throw new Error('hero-story electrical event is not on a sliding door');
+      const p = g.placedDoor(comp.id);
+      checks.push({ p, actors: [], before: [...placed] });
+      placed.push(p);
+      doors.push(comp.id);
+    }
+  }
+  const s = solvability(g, scenario.spawns, placed);
+  if (!s.agree || !s.solvable) throw new Error('the hero story must be solvable with all its hazards present');
+  const fire = placed.find((p) => p.kind === 'fire');
+  return { scenario, fireFamily: 'hero', doors, fireSeenBy: fire ? seenBy(g, scenario.spawns, fire) : [], checks };
 }
 
 // ---------------------------------------------------------------------------
@@ -579,27 +605,32 @@ function crossCheck(eng: EngineValidator, map: MapData, built: Built): string | 
 // ---------------------------------------------------------------------------
 
 async function main() {
+  const check = process.argv.includes('--check');
   const mapPath = join(root, `data/maps/${DEFAULT_MAP_ID}.json`);
   const map = JSON.parse(readFileSync(mapPath, 'utf8')) as MapData;
   if (!map.components?.length) throw new Error('map has no sliding-door components; rebuild with npm run data:map');
+  const spec = SPECS[map.id];
+  if (!spec) throw new Error(`no scenario spec for map ${map.id} (add it to SPECS)`);
   const g = new Grid(map);
   const heroPath = join(here, 'demo-hero.json');
-  const hero = JSON.parse(readFileSync(heroPath, 'utf8')) as ScenarioCase;
+  const storyPath = join(here, 'hero-story.json');
   const eng = await loadEngineValidator();
 
   const rng = mulberry32(MASTER_SEED);
-  const out: Record<'dev' | 'test', Built[]> = { dev: [heroAuto(g, hero)], test: [] };
+  const out: Record<'dev' | 'test', Built[]> = { dev: [heroCase(g)], test: [] };
   const used = new Set<string>();
   for (const split of ['dev', 'test'] as const) {
-    const fams = split === 'dev' ? DEV_FIRE_FAMILIES : TEST_FIRE_FAMILIES;
+    const fams = spec.families[split];
+    const trappedFam = fams.find((f) => f.id === spec.trapped[split]);
+    if (!trappedFam) throw new Error(`trapped family ${spec.trapped[split]} is not a ${split} fire family`);
     let n = 1;
     for (const [family, count] of PLAN[split]) {
       for (let k = 0; k < count; k++) {
-        // Alternate fire-location families; trapped cases always burn inside the Red Hat room.
-        const order: FireFamily[] = family === 'trapped' ? [RH_FAMILY[split]] : k % 2 === 0 ? fams : [...fams].reverse();
+        // Rotate through the fire-location families; trapped cases always burn inside the sealable room.
+        const order: FireFamilyDef[] = family === 'trapped' ? [trappedFam] : [...fams.slice(k % fams.length), ...fams.slice(0, k % fams.length)];
         let built: Built | null = null;
         for (const fam of order) {
-          const other = fams.find((f) => f !== fam) ?? fam;
+          const other = fams[(fams.indexOf(fam) + 1) % fams.length];
           for (let tries = 0; tries < 5 && !built; tries++) {
             const b = buildCase(g, rng, split, family, fam, other, n, used);
             if (b && eng) {
@@ -629,12 +660,12 @@ async function main() {
     files[`cases.${split}.jsonl`] = out[split].map((b) => JSON.stringify(b.scenario)).join('\n') + '\n';
   }
   const splits = {
-    dataset: DATASET_ID,
+    dataset: spec.dataset,
     ruleset: 2,
     structural_holdout: {
       description: 'Dev and test use disjoint fire-location families; test fire placements never appear in dev.',
-      dev_fire_families: DEV_FIRE_FAMILIES,
-      test_fire_families: TEST_FIRE_FAMILIES,
+      dev_fire_families: spec.families.dev.map((f) => f.id),
+      test_fire_families: spec.families.test.map((f) => f.id),
     },
     splits: Object.fromEntries(
       (['dev', 'test'] as const).map((split) => [
@@ -656,10 +687,23 @@ async function main() {
   };
   files['splits.json'] = JSON.stringify(splits, null, 2) + '\n';
 
+  if (check) {
+    for (const [name, content] of Object.entries(files)) {
+      let current = '';
+      try {
+        current = readFileSync(join(here, name), 'utf8');
+      } catch {
+        /* missing */
+      }
+      console.log(`${current === content ? 'unchanged' : 'WOULD CHANGE'}  ${name}`);
+    }
+    console.log(`engine cross-check: ${eng ? 'on' : 'OFF'} · dev ${out.dev.length} · test ${out.test.length} cases (nothing written)`);
+    return;
+  }
   for (const [name, content] of Object.entries(files)) writeFileSync(join(here, name), content);
   const sha = (s: string) => createHash('sha256').update(s).digest('hex');
   const provenance = {
-    dataset: DATASET_ID,
+    dataset: spec.dataset,
     ruleset: 2,
     license: 'CC-BY-4.0',
     synthetic: true,
@@ -671,7 +715,11 @@ async function main() {
       'Seeded sampling of spawns (map.spawnSpots), 2×2 fire seeds from fire-location families (dev/test disjoint), second fire seeds (multi_fire), and electrical failures on interior sliding doors chosen against oracle shortest routes; solvability labels from a full-knowledge grid search at placement time (Daniel on wheelchair-clearance tiles). Fire spread happens later in the engine (seeded, stochastic). No real-world measurements are included.',
     hazard_geometry: HAZARD_GEOMETRY,
     engine_cross_check: eng ? 'every placement validated with packages/engine validatePlacement' : 'engine not importable at generation time; local checks only',
-    inputs: { 'demo-hero.json': sha(readFileSync(heroPath, 'utf8')), [`${map.id}.json`]: sha(readFileSync(mapPath, 'utf8')) },
+    inputs: {
+      'demo-hero.json': sha(readFileSync(heroPath, 'utf8')),
+      'hero-story.json': sha(readFileSync(storyPath, 'utf8')),
+      [`${map.id}.json`]: sha(readFileSync(mapPath, 'utf8')),
+    },
     outputs: Object.fromEntries(Object.entries(files).map(([k, v]) => [k, sha(v)])),
     counts: Object.fromEntries((['dev', 'test'] as const).map((s) => [s, out[s].length])),
   };

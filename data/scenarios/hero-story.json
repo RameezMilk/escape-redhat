@@ -1,0 +1,12 @@
+{
+  "mapId": "office-v1",
+  "events": [
+    { "id": "ev-fire", "trigger": { "type": "at_time", "simTime": 1 }, "action": { "type": "place_hazard", "kind": "fire", "col": 5, "row": 12 } },
+    { "id": "ev-door", "trigger": { "type": "actor_enters_zone", "actor": "any", "zone": "lobby" }, "action": { "type": "place_hazard", "kind": "electrical", "col": 26, "row": 14 } }
+  ],
+  "labels": {
+    "solvable": true,
+    "primaryRouteBlocked": true,
+    "notes": "Automated version of demo-hero: fire seed at t=1 s, electrical failure on south_door when anyone enters the lobby."
+  }
+}
