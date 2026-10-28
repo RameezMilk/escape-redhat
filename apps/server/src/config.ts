@@ -19,6 +19,9 @@ export interface PlannerConfig {
   thinkingBudget?: number;
   /** Send chat_template_kwargs (vLLM supports it; the hosted NVIDIA API Catalog hangs on it as of 2026-10-17). */
   templateKwargs?: boolean;
+  /** Send `parallel_tool_calls` with this value (OpenAI only; other servers may reject it). Absent = not sent.
+   *  false makes OpenAI return one call per decision; only the first call is ever executed. */
+  parallelToolCalls?: boolean;
   /** Live mode: hold the sim clock while a decision is in flight (for slow endpoints; sim time then excludes inference wait). */
   freezeWhileThinking?: boolean;
   temperature: number;
@@ -58,9 +61,12 @@ export function readPlannerConfig(env: Env = process.env): PlannerConfig {
       ? 'scripted'
       : kindRaw === 'hosted-api' || kindRaw === 'self-hosted-vllm'
         ? kindRaw
-        : /integrate\.api\.nvidia\.com|openrouter\.ai/.test(baseUrl)
+        : /integrate\.api\.nvidia\.com|openrouter\.ai|api\.openai\.com/.test(baseUrl)
           ? 'hosted-api'
           : 'self-hosted-vllm';
+  const parallelRaw = (env.PLANNER_PARALLEL_TOOL_CALLS ?? '').trim();
+  const parallelToolCalls =
+    parallelRaw !== '' ? bool(parallelRaw, false) : /api\.openai\.com/.test(baseUrl) ? false : undefined;
   const harness = (env.PLANNER_HARNESS ?? 'v2').trim() === 'v1' ? 'v1' : 'v2';
   const mode: PlannerMode = (env.PLANNER_MODE ?? 'central').trim() === 'agents' ? 'agents' : 'central';
   const agents = mode === 'agents';
@@ -77,6 +83,7 @@ export function readPlannerConfig(env: Env = process.env): PlannerConfig {
     // almost all reasoning decode, so it is capped. PLANNER_AGENT_THINKING_BUDGET=0 removes the cap.
     thinkingBudget: agents ? Math.max(0, Math.round(num(env.PLANNER_AGENT_THINKING_BUDGET, 128))) : 0,
     templateKwargs: bool(env.PLANNER_TEMPLATE_KWARGS, endpointKind === 'self-hosted-vllm'),
+    ...(parallelToolCalls !== undefined ? { parallelToolCalls } : {}),
     // Per-agent mode reasons for ~3 s (p95 ~13 s) per decision: holding the clock keeps inference time from costing
     // lives, so people are judged on their decisions. PLANNER_AGENT_FREEZE_WHILE_THINKING=false restores real-time pressure.
     freezeWhileThinking: agents

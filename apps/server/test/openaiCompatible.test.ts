@@ -85,6 +85,26 @@ describe('openai-compatible provider', () => {
     expect(p.info().thinkingBudget).toBeUndefined();
   });
 
+  it('targets the OpenAI API: hosted endpoint, no vLLM template kwargs, one tool call per decision', async () => {
+    const openai = readPlannerConfig({ PLANNER_PROVIDER: 'openai-compatible', PLANNER_BASE_URL: 'https://api.openai.com/v1', PLANNER_MODEL: 'gpt-4.1', PLANNER_API_KEY: 'k', PLANNER_MODE: 'agents', PLANNER_AGENT_THINKING: 'false' });
+    expect(openai.endpointKind).toBe('hosted-api');
+    const f = vi.fn(async () => ok({ tool_calls: [{ id: 'c', function: { name: 'observe', arguments: '{"actor_id":"maya"}' } }] }));
+    await new OpenAICompatibleProvider(openai, f as unknown as typeof fetch).decide(req());
+    const body = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body).toMatchObject({ model: 'gpt-4.1', parallel_tool_calls: false, max_tokens: openai.maxTokens });
+    expect(body.chat_template_kwargs).toBeUndefined();
+    expect(body.thinking_token_budget).toBeUndefined();
+  });
+
+  it('leaves parallel_tool_calls out for self-hosted vLLM unless configured', async () => {
+    const f = vi.fn(async () => ok({ tool_calls: [{ id: 'c', function: { name: 'observe', arguments: '{"actor_id":"maya"}' } }] }));
+    await new OpenAICompatibleProvider(cfg, f as unknown as typeof fetch).decide(req());
+    const body = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(cfg.endpointKind).toBe('self-hosted-vllm');
+    expect(body.parallel_tool_calls).toBeUndefined();
+    expect(readPlannerConfig({ PLANNER_PROVIDER: 'openai-compatible', PLANNER_PARALLEL_TOOL_CALLS: 'false' }).parallelToolCalls).toBe(false);
+  });
+
   it('parses a bare JSON object in content', () => {
     const calls = parseContentToolCalls('Sure:\n```json\n{"name":"check_in","arguments":{"actor_id":"maya"}}\n```');
     expect(calls[0]).toMatchObject({ name: 'check_in', arguments: { actor_id: 'maya' } });

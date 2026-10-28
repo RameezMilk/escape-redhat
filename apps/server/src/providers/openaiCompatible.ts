@@ -125,6 +125,7 @@ export class OpenAICompatibleProvider implements DecisionProvider {
     };
     if (withTemplateKwargs) body.chat_template_kwargs = { enable_thinking: this.cfg.thinking };
     if (budget) body.thinking_token_budget = budget;
+    if (this.cfg.parallelToolCalls !== undefined) body.parallel_tool_calls = this.cfg.parallelToolCalls;
     const rawRequest = { url: `${this.cfg.baseUrl}/chat/completions`, body };
 
     const timeout = AbortSignal.timeout(req.deadlineMs);

@@ -12,11 +12,11 @@ Fill this in at deploy time with what actually ran. Never paste API keys.
 | Parameters | 30B total / 3B active (hybrid Mamba-2 + MoE + attention), per model card |
 | Served name | `nemotron-3.5-lightning` |
 
-## Parameter accounting (event rule: ≤ 33B total across all generative models)
+## Parameter accounting (hackathon constraint: ≤ 33B total across all generative models)
 
 | Model | Role | Total params | Counted |
 |---|---|---|---|
-| Nemotron 3.5 Lightning 30B-A3B | the only generative model: central planner | 30B | yes |
+| Nemotron 3.5 Lightning 30B-A3B | the only generative model: every decision | 30B | yes |
 | Speculative draft model | none | 0 | — |
 | Verifier / critic / router model | none (scoring is deterministic engine code) | 0 | — |
 | **Total** | | **30B ≤ 33B** | |
