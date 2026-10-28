@@ -19,6 +19,20 @@ Browser (React + Canvas) ──WebSocket──▶ Node 24 server (laptop)
 - **One generative model.** Nemotron 3.5 Lightning has 30B total parameters, within the 33B cap. There is no draft, critic or router model: scoring and validation are deterministic engine code.
 - **Keys stay on the server.** The browser never talks to vLLM.
 
+## Model profiles: hosted GPT-4.1 vs self-hosted Nemotron
+
+The server reaches the model through one OpenAI-compatible adapter (`apps/server/src/providers/openaiCompatible.ts`), so
+the model is a `.env` choice ([`deploy/README.md`](../deploy/README.md)):
+
+| | Hosted OpenAI GPT-4.1 (live demo default) | Self-hosted Nemotron on vLLM (measured results) |
+|---|---|---|
+| Request differences | `parallel_tool_calls: false`; no vLLM-only fields | `chat_template_kwargs`, `thinking_token_budget: 128` |
+| Reasoning text in the trace | None (no reasoning channel) | Yes |
+| What changes in behaviour | Same prompts, tools and validation; a different model makes different choices | — |
+| Measured here | Not yet: smoke-tested only | Everything in sections 2–4 and `results/` |
+
+Everything below this section describes the self-hosted Nemotron setup and its measurements.
+
 ## 2. Nemotron 3.5 Lightning 30B-A3B: one call per person
 
 **Its job.** Each of the five people (Alex, Maya, Daniel, Rosa, Kenji) is a separate Nemotron agent ([`apps/server/src/agentPrompt.ts`](../apps/server/src/agentPrompt.ts)). When a person notices something new, they get a first-person prompt with only what they know and return **one native tool call for themselves**. The engine validates the call against true world state. Invalid calls change nothing and come back as a structured error with a hint.
@@ -102,12 +116,11 @@ Rejections come back as observations: `INVALID_ARGUMENT`, `UNKNOWN_EVIDENCE`, `R
 | long context | Each decision is a fresh, compact prompt by design | ○ planned stress test |
 | reliability (pass^k) | Repeat each case k times | ○ planned |
 
-## 5. Winning patterns, and where we stand
+## 5. Design patterns, and where we stand
 
 | Pattern | Evidence | Us |
 |---|---|---|
-| Numbers beat polish: quantitative evaluation won the Nemotron hackathon | [Nota AI](https://blog.nota.ai/insights/nemotron-hackathon-winner) | ✓ held-out test split with replayable runs |
-| Deep, *visible* use of the sponsor stack is a scored axis | [LangChain contest](https://www.nvidia.com/en-us/ai-data-science/generative-ai/developer-contest-with-langchain/), [LlamaIndex contest](https://developer.nvidia.com/llamaindex-developer-contest) | ✓ self-hosted vLLM on Brev; every decision visible in the trace |
+| Numbers beat polish: quantitative evaluation over demos | [Nota AI](https://blog.nota.ai/insights/nemotron-hackathon-winner) | ✓ held-out test split with replayable runs |
 | Error recovery is rewarded | [NeMo Agent Toolkit winners](https://developer.nvidia.com/blog/hackathon-winners-bring-agentic-ai-to-life-with-the-nvidia-nemo-agent-toolkit/), [Emergence rubric](https://github.com/advik-bhatt/emergence-hackathon-info/blob/main/devpost-enterprise-agents-hackathon.md) | ✓ hints, recoveries, re-plans |
 | Judge by final state, not just the transcript | [BFCL v3](https://gorilla.cs.berkeley.edu/blogs/13_bfcl_v3_multi_turn.html) | ✓ success only via verified roster and engine state |
 | Model proposes, engine decides | RPG-MCP, llmgine (above) | ✓ core architecture |

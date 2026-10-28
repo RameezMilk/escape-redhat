@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-"Escape from Red Hat": a pixel-art office-evacuation exercise (NVIDIA × Red Hat Small Models Hack). A deterministic TypeScript engine owns the world: the office-v2 ground floor (GPU server room, Red Hat conference room, kitchen, main hallway, cubicles, reception; a street with a crosswalk and the bus-stop assembly point across it), spreading fire, seven electric sliding doors, three manual exits, two fire-alarm pull stations (hallway, reception), and five people: Alex the warden, Maya, Daniel who uses a wheelchair, Rosa the receptionist and Kenji the IT engineer. NVIDIA Nemotron 3.5 Lightning 30B-A3B, self-hosted on vLLM (Brev H100), chooses validated tool calls. Two decision modes:
+"Escape from Red Hat": a pixel-art office-evacuation exercise (NVIDIA × Red Hat Small Models Hack). A deterministic TypeScript engine owns the world: the office-v2 ground floor (GPU server room, Red Hat conference room, kitchen, main hallway, cubicles, reception; a street with a crosswalk and the bus-stop assembly point across it), spreading fire, seven electric sliding doors, three manual exits, two fire-alarm pull stations (hallway, reception), and five people: Alex the warden, Maya, Daniel who uses a wheelchair, Rosa the receptionist and Kenji the IT engineer. An LLM chooses validated tool calls: OpenAI GPT-4.1 is the live-demo default (`.env.example` profile A); NVIDIA Nemotron 3.5 Lightning 30B-A3B, self-hosted on vLLM (Brev H100), is profile B and produced every measured number in the docs. Two decision modes:
 - `central` (code default): one planner call directs all five people from a merged team view.
 - `agents` (`PLANNER_MODE=agents`): each person makes their own reasoning call from their own personal view; the engine's hard-coded survival instincts are off.
 
@@ -17,10 +17,11 @@ The project presents **agents mode only** (README, docs, demo, `.env.example`). 
 npm workspaces monorepo; run everything from the repo root. Node ≥ 20.
 
 ```bash
-npm install                      # .npmrc pins resolution to packages published before 2026-10-03 (hackathon 2-week reuse rule) — don't override it
+npm ci                           # install exact versions from package-lock.json
 npm run dev                      # server (tsx watch, :8787) + web (Vite, :5173; proxies /ws and /api to :8787)
 npm run start                    # server only; it also serves the built web/dist
 npm run build                    # web production build
+npm run check                    # the quality gate CI runs: all typechecks below, then npm test
 npm run typecheck                # packages, server src, eval, data, scripts — NOT the web app or server tests:
 npx tsc -p apps/web/tsconfig.json --noEmit       # web
 npx tsc -p apps/server/tsconfig.json --noEmit    # server incl. apps/server/test
@@ -37,7 +38,8 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
 ```
 
 - **Configuration.** Copy `.env.example` to `.env` (gitignored). `PLANNER_PROVIDER=scripted` runs a deterministic rule policy, clearly labelled "SCRIPTED fixture — not a model"; tests use it.
-- **Self-hosted model.** Set `PLANNER_PROVIDER=openai-compatible` and point it at vLLM through `brev port-forward escape-nemotron --port 8001:8000`. The tunnel drops occasionally: re-run it, then restart the server, because the model health check runs only at startup.
+- **Hosted model (default).** `.env.example` profile A: `PLANNER_BASE_URL=https://api.openai.com/v1`, `PLANNER_MODEL=gpt-4.1`, an OpenAI key. The URL is detected as `hosted-api` (no vLLM-only fields) and gets `parallel_tool_calls: false`. GPT-4.1 has no reasoning channel, so no reasoning text in the trace.
+- **Self-hosted model.** Profile B: point `PLANNER_BASE_URL` at vLLM through `brev port-forward escape-nemotron --port 8001:8000`. The tunnel drops occasionally: re-run it, then restart the server, because the model health check runs only at startup.
   - `brev port-forward` returns once the tunnel is up and leaves an `ssh` process holding it.
   - Check it with `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8001/v1/models`: `401` means up, `000` means down.
 - **Agents mode.** Its settings are separate from the central `PLANNER_*` values in `.env`: `PLANNER_AGENT_THINKING`, `PLANNER_AGENT_THINKING_BUDGET` (reasoning-token cap per decision, default 128; `0` = uncapped), `PLANNER_AGENT_MAX_DECISIONS` and `PLANNER_AGENT_FREEZE_WHILE_THINKING`.
@@ -48,7 +50,9 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
 - **Web URL parameters.** `?intro=0` skips the start screen. `?fixture=1` streams canned UI data with no server. `?gallery=1` shows every procedural sprite (furniture, decor, outfits) for visual review.
 - **Bench limitation.** `npm run bench` only loads the `dev` and `test` splits. `demo-hero` is split `demo` and has no events (the presenter places the fire and the power cut live), so it is never benchmarked; `dev-00-hero` is its scripted stand-in (`hero-story.json`).
 - **Rehearsal helpers.** `scripts/auto-electrical.mjs` cuts the reception door's power once someone is moving through the main hallway (`--door`, `--when-zone`, `--url`; door tiles come from the current map). `scripts/watch-trace.mjs` tails the trace.
-- **vLLM serving.** See `deploy/vllm/`.
+- **vLLM serving.** See `deploy/README.md` (both model profiles) and `deploy/vllm/`.
+- **CI.** `.github/workflows/ci.yml` runs `npm ci`, `npm run check` and `npm run build` on every push and PR, on the scripted fixture (no secrets).
+- **Diagrams.** `docs/diagrams/prototype-pipeline.xml` (draw.io, 2 pages: runtime E2E flow, delivery pipeline) is hand-maintained; update it when the flow changes.
 
 ## Architecture
 
@@ -113,4 +117,4 @@ npm run data:scenarios           # regenerate data/scenarios/cases.{dev,test}.js
   - Run headers do not record the fire constants, so every run log recorded before a retune diverges on replay.
 - **The hero scenario.** `data/scenarios/demo-hero.json` holds the five demo spawns and no events: the presenter places hazards live. `hero-story.json` is the scripted story (fire in the cubicles at t = 1 s at (10,17); the reception door at (31,12) loses power when anyone enters the hallway). `heroStoryCase` combines them into `dev-00-hero` for the bench and the integration tests (`apps/server/test/*.integration.test.ts`). After editing scenarios, run `npm run data:scenarios`.
   - `runs/demo-hero.jsonl` (the runbook's backup replay) is a live agents-mode run on office-v2. Any engine change that alters behaviour (fire tuning, routing) makes it diverge on replay: re-record it from a live run.
-- **Secrets.** `.env` holds `PLANNER_API_KEY` (the vLLM key) and `NVIDIA_HOSTED_API_KEY`. Keys stay server-side; the browser never receives them.
+- **Secrets.** `.env` holds `PLANNER_API_KEY` (the OpenAI key, or the vLLM key for profile B). Keys stay server-side; the browser never receives them.
