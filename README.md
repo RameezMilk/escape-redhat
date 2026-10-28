@@ -15,7 +15,7 @@
   <img alt="Red Hat Small Models Hack" src="https://img.shields.io/badge/Red%20Hat-Small%20Models%20Hack-EE0000?style=for-the-badge&logo=redhat&logoColor=white">
 </p>
 <p align="center">
-  <a href="https://github.com/RameezMilk/slm-hackathon/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/RameezMilk/slm-hackathon/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/RameezMilk/escape-redhat/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/RameezMilk/escape-redhat/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="OpenAI GPT-4.1" src="https://img.shields.io/badge/live%20demo-OpenAI%20GPT--4.1-412991?style=flat-square">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white">
   <img alt="React 19" src="https://img.shields.io/badge/React-19-20232A?style=flat-square&logo=react&logoColor=61DAFB">
