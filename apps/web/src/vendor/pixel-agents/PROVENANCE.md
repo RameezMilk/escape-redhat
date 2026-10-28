@@ -13,8 +13,8 @@
 Only the pure-TypeScript Canvas 2D renderer: `office/engine/{renderer,characters,gameLoop}.ts`, `office/layout/*`,
 `office/sprites/*`, `office/{projection,colorize,floorTiles,wallTiles,types}.ts`, `constants.ts`,
 `core/src/assets/*` (PNG/manifest helpers). Our own code lives outside this directory (`apps/web/src/office/*`).
-`webview-ui/src/browserMock.ts` is kept for reference only (reworked into `apps/web/src/office/assetLoader.ts`) and is
-excluded from type-checking.
+Upstream `webview-ui/src/browserMock.ts` was reworked into `apps/web/src/office/assetLoader.ts`; unused upstream files
+(`browserMock.ts`, `core/src/assets/{loader,pngDecoder}.ts`, `office/engine/existingAgents.ts`, `office/layout/exportLayout.ts`) are not vendored.
 
 ## Local patches (search `ESCAPE-PATCH`)
 

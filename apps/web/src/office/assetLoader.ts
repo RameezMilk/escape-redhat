@@ -1,5 +1,5 @@
 // Loads the vendored Pixel Agents art (MIT, pinned 3537e14) in the browser and installs it into the
-// renderer's module state. Reworked from vendor/.../browserMock.ts: same decode logic and load order,
+// renderer's module state. Reworked from upstream pixel-agents browserMock.ts: same decode logic and load order,
 // but no VS Code message bus and no default layout (our layout comes from the map JSON in data/maps/).
 import { rgbaToHex } from '../vendor/pixel-agents/core/src/assets/colorUtils';
 import {

@@ -12,13 +12,12 @@
 ```
 LICENSE
 core/src/paletteUtils.ts
-core/src/assets/{build,colorUtils,constants,loader,manifestUtils,pngDecoder,types}.ts
-webview-ui/src/browserMock.ts
+core/src/assets/{build,colorUtils,constants,manifestUtils,types}.ts
 webview-ui/src/constants.ts
 webview-ui/src/components/ui/types.ts
 webview-ui/src/office/{colorize,floorTiles,projection,toolUtils,types,wallTiles}.ts
-webview-ui/src/office/engine/{characters,existingAgents,gameLoop,index,matrixEffect,matrixEffectState,officeState,petEntity,renderer,seatPlacement}.ts
-webview-ui/src/office/layout/{exportLayout,furnitureCatalog,index,layoutSerializer,tileMap}.ts
+webview-ui/src/office/engine/{characters,gameLoop,index,matrixEffect,matrixEffectState,officeState,petEntity,renderer,seatPlacement}.ts
+webview-ui/src/office/layout/{furnitureCatalog,index,layoutSerializer,tileMap}.ts
 webview-ui/src/office/sprites/{carpetTiles,index,petSpriteData,spriteCache,spriteData}.ts
 webview-ui/src/office/sprites/bubble-{permission,pet,waiting}.json
 ```
@@ -68,7 +67,7 @@ This is not legal advice and makes no compliance claim.
 
 ## Software dependencies
 
-Installed from npm under each package's own license; see `package-lock.json`. All were resolved with `before=2026-10-03` (`.npmrc`).
+Installed from npm under each package's own license; see `package-lock.json`. Exact versions are pinned by the lockfile.
 
 The model is not redistributed here. NVIDIA Nemotron 3.5 Lightning 30B-A3B is downloaded at deploy time from Hugging Face under its own license (OpenMDW-1.1, per the model card).
 
