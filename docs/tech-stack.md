@@ -29,7 +29,7 @@ the model is a `.env` choice ([`deploy/README.md`](../deploy/README.md)):
 | Request differences | `parallel_tool_calls: false`; no vLLM-only fields | `chat_template_kwargs`, `thinking_token_budget: 128` |
 | Reasoning text in the trace | None (no reasoning channel) | Yes |
 | What changes in behaviour | Same prompts, tools and validation; a different model makes different choices | — |
-| Measured here | Not yet: smoke-tested only | Everything in sections 2–4 and `results/` |
+| Measured here | Smoke-tested and the hero scenario run end to end; not benchmarked on the dataset yet | Everything in sections 2–4 and `results/` |
 
 Everything below this section describes the self-hosted Nemotron setup and its measurements.
 
